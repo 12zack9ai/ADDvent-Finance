@@ -1,85 +1,128 @@
-# Email to IT — hosting request
+# Email to IT — mailbox request
+
+The application is already hosted and running on Render, so there is no server
+to ask for. The only outstanding dependency is a mailbox it can read.
+
+**Nothing is blocked by this.** Documents can be uploaded through the site
+today; the mailbox only adds the option of forwarding a quote or invoice
+straight to it.
 
 DNS is handled separately, so it is not asked for here.
 
-Copy from the line below. Replace the bracketed bits.
+---
+
+## The one fork that matters
+
+How the mailbox is hosted decides which of two connectors we use, and asking
+for the wrong thing costs a round trip. So ask this question first:
+
+**"Is the mailbox on Microsoft 365 / Exchange, or on our own web hosting?"**
+
+| Answer | What we need | Why |
+|---|---|---|
+| **Our own hosting** (cPanel/Plesk) | IMAP host, port 993, full address, password | Works immediately. Nothing to register, nobody to approve it. |
+| **Microsoft 365** | An Entra ID app registration (details below) | Microsoft disabled basic authentication for IMAP. A username and password alone will not connect, no matter how many times it is retyped. |
+
+If the answer is Microsoft 365, **asking for "IMAP access" will produce a
+mailbox that cannot be connected to.** Ask for the app registration instead.
 
 ---
 
-**Subject:** Hosting request — internal finance app at finance.addventuresinc.com
+## Copy from below. Replace the bracketed bits.
+
+**Subject:** Mailbox request — finance document inbox
 
 Hi [name],
 
-We've had an internal tool built for the accounting side of the business. It
+We've got an internal tool running for the accounting side of the business. It
 reads vendor quotes and invoices, checks that what we're billed matches what we
-were quoted, and routes anything that doesn't line up for approval. It's ready to
-deploy and I'd like to get it onto a server this week.
+were quoted, and flags anything that doesn't line up. It's already hosted, so
+there's no server needed from you.
 
-It's a self-contained Python web application. Full install instructions are in
-the repository at `deploy/DEPLOY.md` — start to finish, roughly 30 minutes. I can
-give you access to the repo.
+The one thing I need is a mailbox it can read, so staff and vendors can forward
+documents straight to it rather than uploading them by hand.
 
-**What I'm asking for:**
-
-**1. A Linux VM to run it on**
+**The mailbox**
 
 | | |
 |---|---|
-| OS | Debian or Ubuntu (current LTS) |
-| Size | 2 vCPU, 4 GB RAM, 40 GB disk — it's a light workload |
-| Packages | `python3` (3.11+), `python3-venv`, `nginx`, `chromium`, `certbot` |
-| Outbound | HTTPS to `api.anthropic.com` — required, the app can't function without it |
-| Inbound | 80 and 443, for staff to reach the site |
-| Runs as | A dedicated non-login service account, under systemd |
+| Address | `ap@addventuresinc.com` (or whatever you prefer — it just needs to be ours) |
+| Used by | The application only. No person will sign into it. |
+| Contents | Vendor quotes and invoices sent to us as PDF attachments |
+| Volume | Low — roughly 100–500 messages a month |
 
-**2. Nightly backup of one directory**
+**What I need back depends on where it lives:**
 
-`/var/lib/finance-automation` — the database, every uploaded document, and the
-approval audit trail. That single directory is the entire state of the system;
-everything else can be rebuilt from the repository in twenty minutes. I'd like
-a restore tested once rather than assumed.
+*If it's on our own web hosting (cPanel/Plesk):*
 
-**A few things you'll probably want to know:**
+- IMAP hostname (usually `mail.addventuresinc.com` or the bare domain)
+- Port — 993 with SSL
+- The full email address, and its password
 
-- **Data:** vendor quotes and invoices, which include pricing and occasionally
-  vendor bank details. Documents are stored encrypted at rest and the site sits
-  behind a password. Nothing is public — please keep it out of search engines
-  (the supplied nginx config sets `X-Robots-Tag: noindex`).
-- **External services:** the app sends document images to Anthropic's API to read
-  them. That plus our own mail server are the only outbound dependencies.
-- **Maintenance:** standard OS patching. The app updates with a `git pull` and a
-  service restart; no database migrations to hand-run.
-- **Access:** I'll supply two secrets to go in the config file — an API key and
-  a shared password for staff. They shouldn't be stored anywhere else.
+That's everything. Nothing else to configure.
 
-**One more small thing:**
+*If it's on Microsoft 365 / Exchange:*
 
-Please create a mailbox on our own hosting — something like
-`ap@addventuresinc.com` — and send me the IMAP details (server name, port, and
-the password). Vendors will forward invoices there and the app reads them
-automatically. It's an ordinary mailbox; nothing special is needed.
+Basic authentication for IMAP was retired by Microsoft, so a password won't
+work. I need an **Entra ID app registration** instead:
 
-**One question, for later:** where does our QuickBooks company file actually live,
-and which version and edition are we on? There's a second phase that would read
-from it for cash-flow reporting. Nothing needed now — just want to know what we're
-working with.
+- An app registration with **application permissions** (not delegated):
+  `Mail.ReadWrite` and `Mail.Send`
+- **Admin consent granted** on those permissions
+- The **tenant ID**, **client ID**, and a **client secret**
+- An **application access policy** restricting that registration to this one
+  mailbox — so it can read the finance inbox and nothing else in the tenant
 
-Happy to jump on a call if that's quicker than email.
+That last point is the important one. Without it the registration can read every
+mailbox in the organisation, which is far more access than this needs.
+
+**A couple of things you'll probably want to know:**
+
+- The app reads messages, saves the attachments, and moves what it has processed
+  into a `Processed` folder. It doesn't delete anything and doesn't send mail on
+  anyone's behalf.
+- Attachments are sent to Anthropic's API to be read. That and the mailbox are
+  its only outbound connections.
+- The credentials live in the hosting platform's encrypted environment settings,
+  not in a file and not in the code repository.
+
+Happy to jump on a call if that's quicker.
 
 Thanks,
-[your name]
+[you]
 
 ---
 
-## Notes before you send
+## When the answer comes back
 
-- **The mailbox is now a two-minute job**, not the Entra ID app registration this
-  originally asked for. Because the mail is on our own hosting, the app reads it
-  over IMAP with an ordinary username and password — nothing to register and no
-  admin consent to wait on.
-- **If they say no to hosting it**, the fallback is a managed platform (Render or
-  Railway, roughly $50–100/month) which needs nothing from them. Worth knowing
-  before the conversation so a "no" doesn't stall things.
-- **They will ask what happens if it breaks.** Honest answer: it's a read-and-check
-  tool, not a system of record. If it stops, invoices get checked by hand exactly
-  as they are today, and nothing is lost.
+Nothing needs redeploying. The values go into Render → Environment:
+
+**Own hosting:**
+
+```
+MAIL_ENABLED=true
+IMAP_HOST=<what they gave you>
+IMAP_PORT=993
+IMAP_USER=<the FULL address, including @addventuresinc.com>
+IMAP_PASSWORD=<the password>
+```
+
+**Microsoft 365:**
+
+```
+MAIL_ENABLED=true
+MS_TENANT_ID=<tenant id>
+MS_CLIENT_ID=<client id>
+MS_CLIENT_SECRET=<client secret>
+MS_MAILBOX=<the full address>
+```
+
+Then confirm it before trusting it. This files nothing and marks nothing read:
+
+```bash
+.venv/bin/python scripts/test_mail.py
+```
+
+After that, watch `/healthz`. A configured mailbox that has gone quiet reports
+`"stale": true` — the site keeps serving pages perfectly while receiving
+nothing, which is how a background poller fails without anyone noticing.
