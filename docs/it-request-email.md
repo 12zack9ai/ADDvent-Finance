@@ -46,24 +46,18 @@ a restore tested once rather than assumed.
   behind a password. Nothing is public — please keep it out of search engines
   (the supplied nginx config sets `X-Robots-Tag: noindex`).
 - **External services:** the app sends document images to Anthropic's API to read
-  them. That's the only outbound dependency.
+  them. That plus our own mail server are the only outbound dependencies.
 - **Maintenance:** standard OS patching. The app updates with a `git pull` and a
   service restart; no database migrations to hand-run.
 - **Access:** I'll supply two secrets to go in the config file — an API key and
   a shared password for staff. They shouldn't be stored anywhere else.
 
-**Coming shortly after — please start this now, it has the longest lead time:**
+**One more small thing:**
 
-We want the app to read invoices from a dedicated mailbox automatically. That
-needs an **Entra ID app registration** with **application** permission
-`Mail.ReadWrite` on one mailbox only (something like `ap-inbox@adventuresinc.com`),
-with admin consent granted. Ideally scoped with an `ApplicationAccessPolicy` so it
-can only ever read that one mailbox and nothing else.
-
-We don't need it to launch — the app works by uploading documents in the
-meantime — but approval typically takes longer than the rest of this combined, so
-I'd rather it was in motion. The exact steps are documented in the repo at
-`app/mailbox.py`.
+Please create a mailbox on our own hosting — something like
+`ap@adventuresinc.com` — and send me the IMAP details (server name, port, and
+the password). Vendors will forward invoices there and the app reads them
+automatically. It's an ordinary mailbox; nothing special is needed.
 
 **One question, for later:** where does our QuickBooks company file actually live,
 and which version and edition are we on? There's a second phase that would read
@@ -79,9 +73,10 @@ Thanks,
 
 ## Notes before you send
 
-- **Delete the mailbox section** if you'd rather not raise email yet. The rest
-  stands on its own. I'd keep it — that approval is the long pole and there's no
-  cost to starting it.
+- **The mailbox is now a two-minute job**, not the Entra ID app registration this
+  originally asked for. Because the mail is on our own hosting, the app reads it
+  over IMAP with an ordinary username and password — nothing to register and no
+  admin consent to wait on.
 - **If they say no to hosting it**, the fallback is a managed platform (Render or
   Railway, roughly $50–100/month) which needs nothing from them. Worth knowing
   before the conversation so a "no" doesn't stall things.

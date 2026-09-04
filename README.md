@@ -115,12 +115,47 @@ They need no API key and no network — the engine is pure arithmetic by design.
 | `app/matching.py` | Compares invoice lines to quote lines. **No AI, no network.** |
 | `app/approval.py` | Three-way match and approval routing. **No AI, no network.** |
 | `app/services.py` | The pipeline: store, de-duplicate, file against a job, compare. |
-| `app/mailbox.py` | Reads the Exchange mailbox over Microsoft Graph. Header explains what to ask IT for. |
+| `app/mail_imap.py` | Reads an ordinary mailbox over IMAP — the simple path, no registration needed. |
+| `app/mailbox.py` | The Microsoft Graph alternative, for Exchange / Microsoft 365. |
+| `scripts/test_mail.py` | Checks the mailbox connection without filing anything. |
 | `app/templates/markup.html` | The marked-up invoice — used for both the screen view and the PDF, so they cannot drift. |
 | `app/auth.py` | Shared-password login. |
 | `scripts/seed_demo.py` | Realistic demo job, no API key needed. |
 | `tests/test_matching.py` | Comparison-engine tests. |
 | `tests/test_approval.py` | Three-way match and approval routing tests. |
+
+## Reading invoices from a mailbox
+
+Two backends; fill in whichever suits and set `MAIL_ENABLED=true`.
+
+**IMAP — the simple one.** An ordinary mailbox on your own mail host, the kind
+you create in cPanel or Plesk. No app registration, no admin consent, nobody to
+wait on.
+
+```
+MAIL_ENABLED=true
+IMAP_HOST=mail.adventuresinc.com
+IMAP_USER=ap@adventuresinc.com
+IMAP_PASSWORD=...
+```
+
+**Microsoft Graph** — only when the mailbox lives in Exchange / Microsoft 365.
+Better isolation, but needs an Entra ID app registration with admin consent. See
+the header of `app/mailbox.py` for exactly what to ask for.
+
+Check it before switching the poller on — this files nothing and marks nothing read:
+
+```bash
+.venv/bin/python scripts/test_mail.py
+```
+
+Then run `scripts/poll_mail.py` on a timer (systemd timer or cron, every 5
+minutes). It is a one-shot script rather than a loop, so a failure can never
+leave polling silently stopped — the next tick just runs again.
+
+A message is only marked read and moved to `Processed` once **every** attachment
+on it has been filed. A transient failure leaves the mail unread to retry, rather
+than an invoice disappearing quietly.
 
 ## How documents get filed against a job
 

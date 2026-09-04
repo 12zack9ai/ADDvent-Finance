@@ -43,6 +43,20 @@ class Settings:
     # Path to a Chromium/Chrome binary used to render the marked-up PDF.
     chrome_binary: str = os.getenv("CHROME_BINARY", "")
 
+    # --- Mailbox -----------------------------------------------------------
+    # Two backends. IMAP is the simple one: an ordinary mailbox on your own mail
+    # host (cPanel/Plesk), no app registration and nobody's approval needed.
+    # Microsoft Graph is the alternative for Exchange / Microsoft 365.
+    # Whichever is configured is the one that runs; IMAP wins if both are.
+    mail_backend: str = os.getenv("MAIL_BACKEND", "auto").strip().lower()
+
+    imap_host: str = os.getenv("IMAP_HOST", "").strip()
+    imap_port: int = int(os.getenv("IMAP_PORT", "993"))
+    imap_ssl: bool = _bool("IMAP_SSL", True)
+    imap_user: str = os.getenv("IMAP_USER", "").strip()
+    imap_password: str = os.getenv("IMAP_PASSWORD", "")
+    imap_folder: str = os.getenv("IMAP_FOLDER", "INBOX").strip()
+
     # --- Microsoft Graph (Exchange / M365 mailbox) -------------------------
     # Off until IT provides the app registration. The app is fully usable
     # via upload while this is disabled.
@@ -87,14 +101,34 @@ class Settings:
         for d in (self.data_dir, self.uploads_dir, self.renders_dir):
             d.mkdir(parents=True, exist_ok=True)
 
-    def mail_configured(self) -> bool:
+    def imap_configured(self) -> bool:
+        return bool(self.imap_host and self.imap_user and self.imap_password)
+
+    def graph_configured(self) -> bool:
         return bool(
-            self.mail_enabled
-            and self.ms_tenant_id
+            self.ms_tenant_id
             and self.ms_client_id
             and self.ms_client_secret
             and self.ms_mailbox
         )
+
+    def active_mail_backend(self) -> str:
+        """Which backend to use: "imap", "graph", or "" when none is set up."""
+        if not self.mail_enabled:
+            return ""
+        if self.mail_backend == "imap":
+            return "imap" if self.imap_configured() else ""
+        if self.mail_backend == "graph":
+            return "graph" if self.graph_configured() else ""
+        # auto: prefer whichever is actually configured, IMAP first.
+        if self.imap_configured():
+            return "imap"
+        if self.graph_configured():
+            return "graph"
+        return ""
+
+    def mail_configured(self) -> bool:
+        return bool(self.active_mail_backend())
 
 
 settings = Settings()

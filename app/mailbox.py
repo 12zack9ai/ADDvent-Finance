@@ -1,5 +1,11 @@
 """Read the finance mailbox over Microsoft Graph (Exchange / Microsoft 365).
 
+This is the ALTERNATIVE backend. For a mailbox on your own mail host - the kind
+created in cPanel or Plesk - use IMAP instead (`mail_imap.py`): it needs no app
+registration and nobody's approval. Graph is the better choice only when the
+mailbox lives in Exchange / Microsoft 365, where app-only auth gives tighter
+isolation than a password.
+
 Uses app-only (client credentials) auth, so there is no shared password and no
 mailbox left signed in on someone's desktop. IT registers one app and grants it
 access to exactly one mailbox.
@@ -30,7 +36,6 @@ from __future__ import annotations
 import logging
 import re
 import tempfile
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
@@ -46,30 +51,14 @@ log = logging.getLogger(__name__)
 GRAPH = "https://graph.microsoft.com/v1.0"
 SCOPE = ["https://graph.microsoft.com/.default"]
 
-# Attachment types worth reading. Everything else (signatures, logos, calendar
-# invites) is skipped rather than sent to the extractor.
-ALLOWED_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg"}
-MAX_ATTACHMENT_BYTES = 30 * 1024 * 1024
+from app.mail_types import (  # noqa: F401  (re-exported for callers)
+    ALLOWED_SUFFIXES,
+    MAX_ATTACHMENT_BYTES,
+    MailboxError,
+    PollResult,
+)
 
 _TAG_RE = re.compile(r"<[^>]+>")
-
-
-class MailboxError(RuntimeError):
-    pass
-
-
-@dataclass
-class PollResult:
-    messages_seen: int = 0
-    filed: list[str] = field(default_factory=list)
-    skipped: list[str] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
-
-    def summary(self) -> str:
-        return (
-            f"{self.messages_seen} message(s): {len(self.filed)} filed, "
-            f"{len(self.skipped)} skipped, {len(self.errors)} error(s)"
-        )
 
 
 def _html_to_text(html: str) -> str:
@@ -79,10 +68,10 @@ def _html_to_text(html: str) -> str:
 
 
 def get_token() -> str:
-    if not settings.mail_configured():
+    if not settings.graph_configured():
         raise MailboxError(
-            "Mailbox is not configured. Set MAIL_ENABLED, MS_TENANT_ID, "
-            "MS_CLIENT_ID, MS_CLIENT_SECRET and MS_MAILBOX in .env."
+            "Microsoft Graph is not configured. Set MS_TENANT_ID, MS_CLIENT_ID, "
+            "MS_CLIENT_SECRET and MS_MAILBOX in .env."
         )
     app = msal.ConfidentialClientApplication(
         client_id=settings.ms_client_id,
@@ -166,8 +155,8 @@ class GraphClient:
         self.http.patch(self._user(f"/messages/{message_id}"), json={"isRead": True})
 
 
-def poll_once(session: Session, limit: int = 25) -> PollResult:
-    """Read new mail, ingest every usable attachment, then file the message away.
+def poll_graph(session: Session, limit: int = 25) -> PollResult:
+    """Read new mail via Microsoft Graph, ingest every usable attachment, then file the message away.
 
     A message is only moved to Processed once every attachment on it has been
     handled - so a transient failure leaves the mail in the Inbox to be retried
@@ -263,3 +252,23 @@ def poll_once(session: Session, limit: int = 25) -> PollResult:
                     graph.move(msg_id, processed_folder)
 
     return result
+
+
+def poll_once(session: Session, limit: int = 25) -> PollResult:
+    """Read the finance mailbox using whichever backend is configured.
+
+    IMAP for an ordinary mailbox on your own mail host; Microsoft Graph for
+    Exchange / Microsoft 365. Callers do not need to know which.
+    """
+    backend = settings.active_mail_backend()
+    if backend == "imap":
+        from app.mail_imap import poll_once as poll_imap
+
+        return poll_imap(session, limit=limit)
+    if backend == "graph":
+        return poll_graph(session, limit=limit)
+
+    raise MailboxError(
+        "No mailbox is configured. Set MAIL_ENABLED=true and either the IMAP_* "
+        "settings (an ordinary mailbox) or the MS_* settings (Microsoft 365)."
+    )
