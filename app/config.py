@@ -90,6 +90,11 @@ class Settings:
     # Off until IT provides the app registration. The app is fully usable
     # via upload while this is disabled.
     mail_enabled: bool = _bool("MAIL_ENABLED", False)
+
+    # JobNimbus: read-only, and used for exactly one question - who is this job
+    # assigned to, so we know who to ask for the missing quote.
+    jobnimbus_api_key: str = os.getenv("JOBNIMBUS_API_KEY", "").strip()
+    ask_for_quote: bool = _bool("ASK_FOR_QUOTE", False)
     ms_tenant_id: str = os.getenv("MS_TENANT_ID", "").strip()
     ms_client_id: str = os.getenv("MS_CLIENT_ID", "").strip()
     ms_client_secret: str = os.getenv("MS_CLIENT_SECRET", "").strip()

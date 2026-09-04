@@ -176,3 +176,118 @@ def ask_for_job_number(document, *, vendor: str = "", document_number: str = "")
     )
     send(msg)
     return to_address
+
+
+# --- asking the project manager for a missing quote ------------------------
+
+def compose_quote_request(
+    *,
+    to_address: str,
+    job_number: str,
+    job_name: str = "",
+    person_name: str = "",
+    vendor: str = "",
+    invoice_number: str = "",
+    amount: str = "",
+) -> EmailMessage:
+    """Ask the PM for the quotes on a job that is already being invoiced.
+
+    Deliberately not a reply to anything. This goes to a colleague about a job,
+    not to the vendor about a document, so it starts its own thread with the
+    job number in the subject where they can find it later.
+    """
+    _, _, _, _, from_address = settings.smtp_settings()
+
+    job_label = f"Job {job_number}"
+    if job_name:
+        job_label += f" — {job_name}"
+
+    billed = f"{vendor}" if vendor else "a supplier"
+    if invoice_number:
+        billed += f" invoice {invoice_number}"
+    if amount:
+        billed += f" for {amount}"
+
+    msg = EmailMessage()
+    msg["From"] = formataddr((settings.site_name, from_address))
+    msg["To"] = to_address
+    msg["Subject"] = f"{job_label}: we need the quotes — an invoice has arrived"
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid()
+    msg["Auto-Submitted"] = "auto-generated"
+
+    greeting = f"Hi {person_name.split()[0]}," if person_name else "Hi,"
+
+    msg.set_content(
+        f"{greeting}\n"
+        "\n"
+        f"{billed} has come in on {job_label}, and there is no quote on file for\n"
+        "that job yet — so nothing is being checked against anything. The prices\n"
+        "on this invoice are going through unchecked until we have the quote.\n"
+        "\n"
+        f"JobNimbus has you as assigned to {job_number}, so this is a request to\n"
+        "you: could you forward the quotes for this job to\n"
+        "\n"
+        f"    {from_address}\n"
+        "\n"
+        "All of them — if the job has more than one, for example the material\n"
+        "quote and a separate one for skylights, send each and they will all be\n"
+        "used. Put the job number in the subject line or the body and they file\n"
+        "themselves.\n"
+        "\n"
+        "Nothing is being held up on your account and nobody is waiting on you to\n"
+        "approve anything. The invoice is safe in the queue; it just cannot be\n"
+        "priced until the quote is here.\n"
+        "\n"
+        f"-- \n{settings.site_name}\n"
+    )
+    return msg
+
+
+def ask_for_quote(job, invoice, assignment) -> Optional[str]:
+    """Ask the job's project manager to send in the quotes. Returns who was asked.
+
+    Returns None when the request is not appropriate or not possible, which is
+    the ordinary case - most jobs have a quote before an invoice ever arrives.
+
+    The once-per-job rule is NOT enforced here. It belongs to the caller that
+    owns `quote_chase_sent_at` and writes it before calling - see
+    services.chase_quote. Checking it in both places meant the caller marked
+    the job as asked and this function then refused to send, which is exactly
+    the sort of quiet nothing that a guard duplicated across two files
+    produces.
+    """
+    if not settings.ask_for_quote:
+        return None
+    if assignment is None or not assignment.usable:
+        return None
+    if not settings.can_send_mail():
+        log.warning("QUOTE: job %s has no quote but SMTP is not configured",
+                    job.job_number)
+        return None
+
+    to_address = assignment.email
+    if not settings.may_email(to_address):
+        # A project manager is staff, so this should not happen - and if it
+        # does, something is wrong with the JobNimbus record rather than with
+        # the address, so it is worth being loud about.
+        log.warning(
+            "QUOTE: JobNimbus gave %s for job %s, which is outside %s - not emailing",
+            to_address, job.job_number,
+            ", ".join(sorted(settings.reply_domains())) or "(no domain set)",
+        )
+        return None
+
+    amount = f"${invoice.total:,.2f}" if invoice.total is not None else ""
+    msg = compose_quote_request(
+        to_address=to_address,
+        job_number=job.job_number,
+        job_name=assignment.job_name,
+        person_name=assignment.person_name,
+        vendor=invoice.vendor,
+        invoice_number=invoice.invoice_number,
+        amount=amount,
+    )
+    send(msg)
+    log.info("QUOTE: asked %s for the quotes on job %s", to_address, job.job_number)
+    return to_address

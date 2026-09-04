@@ -68,6 +68,13 @@ class Job(Base):
     notes: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
+    # When we asked the project manager to send the quotes in, and who we asked.
+    # Recorded on the job rather than the invoice: a job with no quote collects
+    # several invoices before anyone acts, and three emails about one missing
+    # quote is how somebody learns to filter these.
+    quote_chase_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    quote_chase_to: Mapped[str] = mapped_column(String(255), default="")
+
     quotes: Mapped[list["Quote"]] = relationship(back_populates="job", cascade="all, delete-orphan")
     invoices: Mapped[list["Invoice"]] = relationship(back_populates="job", cascade="all, delete-orphan")
     documents: Mapped[list["Document"]] = relationship(back_populates="job")

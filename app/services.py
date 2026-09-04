@@ -24,7 +24,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import jobnum, segment, trust
+from app import jobnimbus, jobnum, mail_send, segment, trust
 from app.config import settings
 
 log = logging.getLogger(__name__)
@@ -387,6 +387,49 @@ def recompare_invoice(session: Session, job: Job, invoice: Invoice) -> None:
     session.flush()
 
 
+def chase_quote(session: Session, job: Job, invoice: Invoice) -> None:
+    """An invoice arrived on a job with nothing to price it against.
+
+    The name of whoever runs this job is already recorded, in the system the
+    field staff actually use - so it is read from there rather than left for
+    finance to work out. The project manager gets one email asking for the
+    quotes, and the invoice waits in the queue meanwhile.
+
+    Every failure here is logged and swallowed. An invoice that could not be
+    priced is a problem; an invoice that failed to FILE because JobNimbus was
+    slow would be a much bigger one.
+    """
+    if not settings.ask_for_quote:
+        return
+    if job.quote_chase_sent_at is not None:
+        return
+
+    try:
+        assignment = jobnimbus.find_job(job.job_number)
+    except Exception as exc:                       # noqa: BLE001 - see docstring
+        log.warning("QUOTE: JobNimbus lookup failed for job %s: %s", job.job_number, exc)
+        return
+
+    if assignment is None or not assignment.usable:
+        log.info(
+            "QUOTE: job %s has an invoice and no quote, and JobNimbus did not "
+            "give us anyone to ask.", job.job_number,
+        )
+        return
+
+    # Recorded before sending, not after. A send that half-succeeds and then
+    # raises must not leave the door open to asking again on the next invoice.
+    job.quote_chase_sent_at = utcnow()
+    job.quote_chase_to = assignment.email
+    session.flush()
+
+    try:
+        mail_send.ask_for_quote(job, invoice, assignment)
+    except Exception as exc:                       # noqa: BLE001
+        log.warning("QUOTE: could not email %s about job %s: %s",
+                    assignment.email, job.job_number, exc)
+
+
 def recompare_job(session: Session, job: Job) -> int:
     """Re-compare every invoice on a job. Called when the quotes change.
 
@@ -532,6 +575,8 @@ def ingest_file(
     else:
         invoice = create_invoice(session, job, document, result)
         document.status = ST_READY if invoice.quote_id else ST_NEEDS_QUOTE
+        if invoice.quote_id is None:
+            chase_quote(session, job, invoice)
 
     session.flush()
     return document
@@ -604,6 +649,8 @@ def file_stored_document(
     else:
         invoice = create_invoice(session, job, document, result)
         document.status = ST_READY if invoice.quote_id else ST_NEEDS_QUOTE
+        if invoice.quote_id is None:
+            chase_quote(session, job, invoice)
 
     session.flush()
     return document

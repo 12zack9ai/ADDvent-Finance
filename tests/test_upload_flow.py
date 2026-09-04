@@ -941,3 +941,73 @@ def test_a_dumpster_quote_never_stands_down_the_roofing_quote(client, tmp_path):
     job = session.query(Job).filter_by(job_number="260000").one()
     assert len(job.masters) == 2
     session.close()
+
+
+def test_an_invoice_with_no_quote_asks_the_project_manager_once(client, tmp_path, monkeypatch):
+    """End to end: invoice arrives, job has no quote, JobNimbus names the PM,
+    one email goes out - and the second invoice on that job sends nothing."""
+    from app import jobnimbus, mail_send, services as svc
+    from app.config import settings
+
+    sent = []
+    monkeypatch.setattr(settings, "ask_for_quote", True)
+    monkeypatch.setattr(settings, "can_send_mail", lambda: True)
+    monkeypatch.setattr(settings, "reply_domains", lambda: {"addventuresinc.com"})
+    monkeypatch.setattr(settings, "smtp_settings",
+                        lambda: ("h", 587, "u", "p", "aifinance@addventuresinc.com"))
+    monkeypatch.setattr(mail_send, "send", lambda msg: sent.append(msg))
+    monkeypatch.setattr(svc.jobnimbus, "find_job", lambda number: jobnimbus.Assignment(
+        job_number=number, job_name="Daul Gardens", person_name="Mike Reilly",
+        email="mreilly@addventuresinc.com",
+    ))
+
+    upload(client, _pdf(tmp_path, "i1.pdf", "pm1"), INVOICE_PAYLOAD, job_number="260000")
+
+    assert len(sent) == 1
+    assert sent[0]["To"] == "mreilly@addventuresinc.com"
+    assert "260000" in sent[0]["Subject"]
+
+    session = SessionLocal()
+    job = session.query(Job).filter_by(job_number="260000").one()
+    assert job.quote_chase_sent_at is not None
+    assert job.quote_chase_to == "mreilly@addventuresinc.com"
+    session.close()
+
+    second = {**INVOICE_PAYLOAD, "document_number": "INV-551901"}
+    upload(client, _pdf(tmp_path, "i2.pdf", "pm2"), second, job_number="260000")
+    assert len(sent) == 1, "a second invoice on the same job must not ask again"
+
+
+def test_a_job_that_already_has_a_quote_asks_nobody(client, tmp_path, monkeypatch):
+    from app import mail_send, services as svc
+    from app.config import settings
+
+    sent = []
+    monkeypatch.setattr(settings, "ask_for_quote", True)
+    monkeypatch.setattr(settings, "can_send_mail", lambda: True)
+    monkeypatch.setattr(mail_send, "send", lambda msg: sent.append(msg))
+    monkeypatch.setattr(svc.jobnimbus, "find_job",
+                        lambda number: pytest.fail("JobNimbus must not be called"))
+
+    upload(client, _pdf(tmp_path, "q.pdf", "pmq"), QUOTE_PAYLOAD, job_number="260000")
+    upload(client, _pdf(tmp_path, "i.pdf", "pmi"), INVOICE_PAYLOAD, job_number="260000")
+    assert sent == []
+
+
+def test_jobnimbus_failing_never_stops_an_invoice_filing(client, tmp_path, monkeypatch):
+    """An invoice that could not be priced is a problem. An invoice that failed
+    to file because JobNimbus was slow would be a much bigger one."""
+    from app import services as svc
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "ask_for_quote", True)
+    monkeypatch.setattr(svc.jobnimbus, "find_job",
+                        lambda number: (_ for _ in ()).throw(RuntimeError("boom")))
+
+    resp = upload(client, _pdf(tmp_path, "i.pdf", "pmboom"), INVOICE_PAYLOAD,
+                  job_number="260000")
+    assert resp.status_code == 303
+
+    session = SessionLocal()
+    assert session.query(Invoice).filter_by(invoice_number="INV-551900").one() is not None
+    session.close()
