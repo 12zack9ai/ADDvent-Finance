@@ -22,6 +22,35 @@ Have ready:
 4. Render reads `render.yaml` and shows one service, **addvent-finance**.
    Click **Apply**.
 
+### If the Blueprint option isn't offered
+
+Blueprints need Render to see the repository, which it only does if you signed
+in **with GitHub**. If you signed up with an email address instead, `render.yaml`
+is never read and you create the service by hand — **New +** -> **Web Service** ->
+connect the repo. Nothing fills itself in, so set all of this yourself:
+
+| Setting | Value |
+|---|---|
+| Runtime | Python 3 |
+| Branch | `main` |
+| Build Command | `pip install -r requirements.txt` |
+| Start Command | `uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers` |
+| Instance Type | **Starter** (not Free) |
+| Health Check Path | `/healthz` |
+| Disk | name `finance-data`, 10 GB, mount path `/var/lib/finance-automation` |
+
+Plus the environment variables from `render.yaml`: `PYTHON_VERSION`, `DATA_DIR`,
+`BASE_URL`, `SITE_NAME`, and the secrets in step 2.
+
+**`$PORT` is capitalised.** Lowercase `$port` expands to an empty string, so
+`--port` eats the next argument and the service dies on boot with
+`Invalid value for '--port': '--proxy-headers' is not a valid integer`. The build
+passes cleanly first, which makes it look like a code problem. It isn't.
+
+**`DATA_DIR` must equal the disk's mount path.** If they differ, the app writes
+to the container's own filesystem instead of the disk, everything works
+perfectly, and the next deploy silently erases every document and the database.
+
 ## 2. Fill in the secrets
 
 Render prompts for the values deliberately kept out of the repo:
@@ -110,6 +139,7 @@ perfectly while quietly receiving nothing. That is how a background poller fails
 
 | What you see | What it is |
 |---|---|
+| Build succeeds, then `Invalid value for '--port'` | The start command says `$port`, not `$PORT`. Environment variables are case-sensitive: lowercase `$port` expands to nothing, so `--port` swallows the next argument. Settings -> Build & Deploy -> Start Command. |
 | Build fails on `pip install` | Almost always the Python version. `PYTHON_VERSION` should be `3.12.7`. |
 | Site loads with no password prompt | `APP_PASSWORD` is blank. Set it and redeploy — urgent if the URL is public. |
 | Everyone signed out after each deploy | `SECRET_KEY` isn't set. Let Render generate it. |
