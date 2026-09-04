@@ -13,10 +13,20 @@ DASH = "—"
 
 
 def fmt(value: Optional[Decimal], places: int) -> str:
+    """Money, with the sign where a reader expects it.
+
+    Formatting the amount and prefixing "$" puts the minus inside the number -
+    "$-25,352.38" - which reads as a typo and is easy to skim past. On a cash
+    flow forecast the negative weeks are the entire point, so the sign goes in
+    front of the currency symbol where the eye catches it.
+    """
     if value is None:
         return DASH
     q = Decimal(1).scaleb(-places)
-    return f"${value.quantize(q):,}"
+    amount = Decimal(value).quantize(q)
+    if amount < 0:
+        return f"-${abs(amount):,}"
+    return f"${amount:,}"
 
 
 def money(value) -> str:

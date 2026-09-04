@@ -49,3 +49,13 @@ def test_totals_always_carry_two_decimals(raw, expected):
 def test_variance_helpers_drop_the_sign_so_the_caller_controls_it():
     assert fmt.abs_money(Decimal("-6.25")) == "$6.25"
     assert fmt.abs_money4(Decimal("-1.2500")) == "$1.25"
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("-25352.38", "-$25,352.38"), ("25352.38", "$25,352.38"),
+    ("-0.01", "-$0.01"), ("0", "$0.00"),
+])
+def test_negatives_put_the_sign_before_the_currency_symbol(raw, expected):
+    """"$-25,352.38" reads as a typo and is easy to skim past. On a cash flow
+    forecast the negative weeks are the entire point of the document."""
+    assert fmt.money(Decimal(raw)) == expected

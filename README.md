@@ -230,16 +230,22 @@ question itself contains an example job number, so the reply is cut at a
 sentinel line before parsing — otherwise a quoted reply answers the question
 with our own example.
 
-## The 13-day cash flow report
+## The 13-week cash flow report
 
-One button: **Cash flow → Generate 13-day cash flow report**. What has to go
-out, what is expected in, and what the bank balance does over the next thirteen
-days, day by day, with the low point called out.
+One button: **Cash flow → Generate 13-week cash flow report**. A rolling
+13-week direct cash flow — the construction-industry standard — in weekly
+buckets, with week one broken out day by day, and the week cash runs out called
+out at the top.
+
+**Thirteen weeks, not thirteen days**, because the interesting news is in weeks
+8–13. On the draft this was modelled from, one entity looks healthy for ten
+weeks and is $125,000 overdrawn by week thirteen. A two-week window ends before
+any of that appears.
 
 **It works before QuickBooks is connected.** QuickBooks Desktop has no cloud
 API — reaching it live needs the Web Connector on an always-logged-in Windows
-machine beside the company file, which is weeks of work and somebody else's
-permission. But it exports the two reports this needs in about four clicks:
+machine beside the company file. But it exports the two reports this needs in
+about four clicks:
 
 ```
 Reports › Vendors & Payables  › A/P Aging Detail  → Excel › CSV
@@ -248,26 +254,36 @@ Reports › Customers & Receiv. › A/R Aging Detail  → Excel › CSV
 
 Attach both, type the bank balance, press the button. A live connection later
 becomes a third source (`QuickBooksSource` in `app/accounting.py`) and changes
-nothing else — the report cannot tell where the numbers came from.
+nothing else.
 
-**Three judgements are built in**, because leaving them out produces a report
-that is technically correct and practically misleading:
+### Five judgements built into the arithmetic
+
+Each of these changes the answer materially, and leaving any of them out
+produces a report that is technically correct and practically misleading.
 
 | | |
 |---|---|
-| **Overdue bills are counted on day one** | They still have to be paid. Dropping them for falling outside the window is how a forecast says you are fine when you are not. |
-| **Overdue receivables are *not* counted as arriving** | The opposite treatment, deliberately. Money we owe is certain; money owed to us that is already late is a collections problem, and assuming it turns up today flatters the forecast. |
-| **Invoices held by the three-way match are listed, not scheduled** | Held means disputed. Counting it as leaving overstates the outflow, and paying it would be wrong anyway. This is a view QuickBooks cannot produce, because it does not know an invoice is disputed. |
+| **Weeks with no bill on file are not free** | Payroll, insurance, rent, vehicles, loans and overhead continue whether or not a bill has been entered, so each carries a **weekly run-rate** that fills any week with no real bill. Without it the back half reads as costing nothing. Supplier payments and tax get no run-rate: they are job- and event-driven, and inventing a weekly figure would be fabricating cost. |
+| **Receivables are weighted, not assumed** | Aged invoices collect on a per-bucket delay with a collectability percentage — 100% current, 95% at 31–60, 85% at 61–90, **50% over 90 and no scheduled date at all**. Money over 90 days is a collections problem, not cash. |
+| **Backlog is not revenue until somebody dates it** | Unbilled contract value on live jobs is real work but produces no cash on a date nobody has set. Listed and excluded until a person assigns a week. |
+| **Overdue payables are due now** | They land in week one, because they still have to be paid. |
+| **A minimum cash target is a floor, not zero** | Crossing it is the warning; reaching zero is the emergency. Weeks below the floor are amber, overdrawn weeks red. |
 
-The report also surfaces early-payment discounts expiring inside the window
-(`2/10 net 30` is free money and it gets missed), and anything with no date at
-all — listed rather than silently excluded.
+Bills are **categorised automatically** — payroll, supplier, insurance, rent,
+vehicle, loan, tax, overhead — from the vendor name or a category column, so
+the finance team is correcting a categorisation rather than doing all of them.
 
-Reports are stored as their **inputs** and the forecast is rebuilt on view, so a
-correction to the arithmetic fixes every report ever produced, and two people
-opening the same report always see the same numbers.
+Reports store their **inputs** and rebuild the forecast on view, so a correction
+to the arithmetic fixes every report ever produced, and two people opening the
+same report always see the same numbers.
 
-**The opening bank balance is typed in by hand.** Everything else is read.
+**Two numbers are typed in by hand**: the opening bank balance (the actual one,
+from the bank — this is what keeps the forecast honest) and the minimum cash
+target. Everything else is read.
+
+**One report per entity.** Generate separately and label each with its entity
+name if you run more than one set of books; the numbers are only meaningful
+pooled if the bank accounts genuinely are.
 
 ## Current limitations
 

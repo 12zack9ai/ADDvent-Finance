@@ -4,7 +4,7 @@
 {% block content %}
 <div class="pagehead">
   <div>
-    <h1>13-day cash flow</h1>
+    <h1>13-week cash flow</h1>
     <p class="sub">What has to go out, what is coming in, and what the balance does.</p>
   </div>
 </div>
@@ -26,31 +26,86 @@
   <form method="post" action="/cashflow/generate" enctype="multipart/form-data" class="stack">
     <div class="grid2">
       <label>Opening bank balance
-        <input name="opening_balance" inputmode="decimal" placeholder="e.g. 84,500.00" required>
-        <span class="hint">Today's actual balance, from the bank.</span>
+        <input name="opening_balance" inputmode="decimal" placeholder="e.g. 100,000.00" required>
+        <span class="hint">Today's actual bank balance. Not a projection &mdash; this is
+          what keeps the forecast honest over time.</span>
       </label>
-      <label>Starting from
+      <label>Minimum cash target
+        <input name="minimum_cash" inputmode="decimal" placeholder="e.g. 100,000.00">
+        <span class="hint">The floor you don't want to go under. Crossing it is the
+          warning; reaching zero is the emergency.</span>
+      </label>
+    </div>
+
+    <div class="grid2">
+      <label>Week 1 begins
         <input type="date" name="as_of" value="{{ today }}">
-        <span class="hint">Thirteen days from this date.</span>
+        <span class="hint">Thirteen weeks from the Monday of this week.</span>
+      </label>
+      <label>Entity (optional)
+        <input name="entity" placeholder="e.g. ACS or PPD">
+        <span class="hint">Leave blank if you only run one set of books.
+          Generate one report per entity to keep them separate.</span>
       </label>
     </div>
 
     <div class="grid2">
       <label>A/P aging (CSV)
         <input type="file" name="ap_file" accept=".csv,text/csv">
-        <span class="hint">Money going out.</span>
+        <span class="hint">Money going out. Bills are categorised automatically.</span>
       </label>
       <label>A/R aging (CSV)
         <input type="file" name="ar_file" accept=".csv,text/csv">
-        <span class="hint">Money coming in.</span>
+        <span class="hint">Money coming in, collected by aging bucket below.</span>
       </label>
     </div>
 
+    <details class="assump" open>
+      <summary>Weekly run-rates &mdash; what continues whether or not a bill is on file</summary>
+      <p class="hint">Payroll, insurance and rent don't stop because nobody has entered
+        a bill yet. Any week with no real bill in a category uses these instead.
+        A week with a real bill uses the real one. Leave blank to use nothing.
+        <strong>Without these, the back half of the forecast reads as costing nothing.</strong></p>
+      <div class="rates">
+        <label>Payroll <input name="rate_payroll" inputmode="decimal" placeholder="per week"></label>
+        <label>Insurance <input name="rate_insurance" inputmode="decimal" placeholder="per week"></label>
+        <label>Rent / facilities <input name="rate_rent" inputmode="decimal" placeholder="per week"></label>
+        <label>Vehicle &amp; equipment <input name="rate_vehicle" inputmode="decimal" placeholder="per week"></label>
+        <label>Loan payments <input name="rate_loan" inputmode="decimal" placeholder="per week"></label>
+        <label>Other overhead <input name="rate_overhead" inputmode="decimal" placeholder="per week"></label>
+      </div>
+      <p class="hint">Subcontractor and supplier payments get no run-rate: they are
+        job-driven, and inventing a weekly figure would be fabricating cost.</p>
+    </details>
+
+    <details class="assump">
+      <summary>Collection assumptions &mdash; when receivables actually land</summary>
+      <p class="hint">Aging reports often carry no due dates, so collection is modelled
+        per bucket: how many weeks out, and how much of it really arrives.</p>
+      <table class="assump-table">
+        <thead><tr><th>Aging bucket</th><th>Weeks until collected</th><th>Collectable %</th></tr></thead>
+        <tbody>
+          <tr><td>Current</td><td><input name="weeks_current" value="3" inputmode="numeric"></td>
+              <td><input name="pct_current" value="100" inputmode="numeric"></td></tr>
+          <tr><td>1&ndash;30 days</td><td><input name="weeks_1_30" value="2" inputmode="numeric"></td>
+              <td><input name="pct_1_30" value="100" inputmode="numeric"></td></tr>
+          <tr><td>31&ndash;60 days</td><td><input name="weeks_31_60" value="3" inputmode="numeric"></td>
+              <td><input name="pct_31_60" value="95" inputmode="numeric"></td></tr>
+          <tr><td>61&ndash;90 days</td><td><input name="weeks_61_90" value="4" inputmode="numeric"></td>
+              <td><input name="pct_61_90" value="85" inputmode="numeric"></td></tr>
+          <tr><td>Over 90 days</td><td class="muted">not scheduled</td>
+              <td><input name="pct_90_plus" value="50" inputmode="numeric"></td></tr>
+        </tbody>
+      </table>
+      <p class="hint">Money over 90 days is listed as a collections problem rather than
+        counted as cash &mdash; there is no arrival date anyone can defend.</p>
+    </details>
+
     <label class="check">
-      <input type="checkbox" name="include_local" value="on" checked>
+      <input type="checkbox" name="include_local" value="on">
       Also include invoices approved in this system
-      <span class="hint">Bills checked here that QuickBooks may not have yet.
-        Anything held by the three-way match is listed but not scheduled to pay.</span>
+      <span class="hint">Bills checked here that QuickBooks may not have yet. Anything
+        held by the three-way match is listed but never scheduled to pay.</span>
     </label>
 
     <div class="grid2">
@@ -58,7 +113,7 @@
       <label>Note (optional) <input name="note" placeholder="e.g. before Friday's run"></label>
     </div>
 
-    <div><button class="btn" type="submit">Generate 13-day cash flow report</button></div>
+    <div><button class="btn" type="submit">Generate 13-week cash flow report</button></div>
   </form>
 </div>
 
@@ -72,7 +127,7 @@
     <tbody>
       {% for r in reports %}
       <tr>
-        <td><a href="/cashflow/{{ r.id }}"><strong>{{ r.as_of }}</strong> + {{ r.horizon_days }} days</a>
+        <td><a href="/cashflow/{{ r.id }}"><strong>{{ r.as_of }}</strong> + {{ r.weeks }} weeks{% if r.entity %} · {{ r.entity }}{% endif %}</a>
           {% if r.note %}<div class="muted">{{ r.note }}</div>{% endif %}</td>
         <td>{{ r.created_at.strftime("%d %b %Y %H:%M") }}</td>
         <td>{{ r.created_by or "—" }}</td>

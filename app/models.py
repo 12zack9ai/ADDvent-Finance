@@ -137,10 +137,16 @@ class CashReport(Base):
     created_by: Mapped[str] = mapped_column(String(120), default="")
 
     as_of: Mapped[str] = mapped_column(String(10))            # YYYY-MM-DD
-    horizon_days: Mapped[int] = mapped_column(Integer, default=13)
+    horizon_days: Mapped[int] = mapped_column(Integer, default=13)   # legacy, unused
+    weeks: Mapped[int] = mapped_column(Integer, default=13)
+    entity: Mapped[str] = mapped_column(String(120), default="")
     opening_balance: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"))
+    minimum_cash: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"))
     source_label: Mapped[str] = mapped_column(String(255), default="")
     note: Mapped[str] = mapped_column(Text, default="")
+
+    run_rates_json: Mapped[str] = mapped_column(Text, default="{}")
+    assumptions_json: Mapped[str] = mapped_column(Text, default="{}")
 
     payables_json: Mapped[str] = mapped_column(Text, default="[]")
     receivables_json: Mapped[str] = mapped_column(Text, default="[]")

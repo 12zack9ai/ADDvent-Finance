@@ -33,7 +33,11 @@ from typing import Iterable, Optional, Protocol
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.cashflow import Payable, Receivable, ZERO
+from app import cashflow
+from app.cashflow import (
+    CAT_INSURANCE, CAT_LOAN, CAT_OVERHEAD, CAT_PAYROLL, CAT_RENT, CAT_SUPPLIER,
+    CAT_TAX, CAT_VEHICLE, CATEGORIES, Payable, Receivable, ZERO,
+)
 from app.models import Invoice
 
 # --- reading whatever the accounting package produced ---------------------
@@ -87,6 +91,7 @@ _FIELDS = {
     "amount": ("openbalance", "amount", "balance", "opinbalance", "amountdue", "total"),
     "reference": ("num", "number", "refno", "ref", "invoiceno", "billno", "docnum"),
     "terms": ("terms",),
+    "category": ("category", "account", "expenseaccount", "type", "class2"),
     "job": ("job", "class", "customerjob", "project"),
 }
 
@@ -129,6 +134,44 @@ def _cell(row: list[str], mapping: dict[str, int], field: str) -> str:
     return row[index].strip()
 
 
+
+
+# Categorising a bill is a judgement, and the partner's draft made every one of
+# them by hand. These keyword hints get most of the way there so the finance
+# team is correcting a categorisation rather than doing all of it - and anything
+# unrecognised falls to supplier payments, which is where a construction
+# business's uncategorised spend genuinely belongs.
+_CATEGORY_HINTS = (
+    (CAT_PAYROLL, ("payroll", "adp", "paychex", "gusto", "wages", "941", "labor burden")),
+    (CAT_INSURANCE, ("insurance", "anthem", "blue cross", "aetna", "cigna", "workers comp",
+                     "liability", "hartford", "travelers")),
+    (CAT_RENT, ("rent", "lease -", "landlord", "facilit", "non-finisce")),
+    (CAT_VEHICLE, ("fuel", "fuelman", "motor finance", "vehicle", "truck", "auto",
+                   "equipment rental", "united rentals", "hyundai", "ford credit")),
+    (CAT_LOAN, ("loan", "financ", "capital", "note payable")),
+    (CAT_TAX, ("irs", "tax", "treasury", "dept of revenue", "franchise")),
+    (CAT_OVERHEAD, ("visa", "amex", "american express", "mastercard", "software", "office",
+                    "telephone", "verizon", "comcast", "internet", "subscription",
+                    "communications", "security", "advertis", "display")),
+)
+
+
+def categorise(vendor: str, stated: str = "") -> str:
+    """Which outflow category a bill belongs to."""
+    if stated:
+        text = stated.strip().lower()
+        for category in CATEGORIES:
+            if text == category.lower() or text in category.lower():
+                return category
+        for category, words in _CATEGORY_HINTS:
+            if any(word in text for word in words):
+                return category
+    name = (vendor or "").lower()
+    for category, words in _CATEGORY_HINTS:
+        if any(word in name for word in words):
+            return category
+    return CAT_SUPPLIER
+
 def payables_from_csv(text: str, source: str = "A/P aging") -> list[Payable]:
     mapping, rows = _rows(text)
     out: list[Payable] = []
@@ -144,6 +187,7 @@ def payables_from_csv(text: str, source: str = "A/P aging") -> list[Payable]:
                      or parse_date(_cell(row, mapping, "date")),
             vendor=name,
             amount=amount,
+            category=categorise(name, _cell(row, mapping, "category")),
             reference=_cell(row, mapping, "reference"),
             job_number=_cell(row, mapping, "job"),
             source=source,
@@ -161,13 +205,17 @@ def receivables_from_csv(text: str, source: str = "A/R aging") -> list[Receivabl
         name = _cell(row, mapping, "name")
         if not name:
             continue
+        # Aging is measured from the INVOICE date, not the due date: these
+        # reports frequently carry no terms at all, which is exactly why the
+        # forecast collects by bucket rather than by a due date it does not have.
         out.append(Receivable(
-            due_date=parse_date(_cell(row, mapping, "due_date"))
-                     or parse_date(_cell(row, mapping, "date")),
             customer=name,
             amount=amount,
+            invoice_date=parse_date(_cell(row, mapping, "date")),
+            due_date=parse_date(_cell(row, mapping, "due_date")),
             reference=_cell(row, mapping, "reference"),
             job_number=_cell(row, mapping, "job"),
+            memo=_cell(row, mapping, "terms"),
             source=source,
         ))
     return out
@@ -212,6 +260,7 @@ class LocalSource:
                 due_date=_as_date(invoice.due_date),
                 vendor=invoice.vendor or "Unknown vendor",
                 amount=invoice.total or ZERO,
+                category=categorise(invoice.vendor or ""),
                 reference=invoice.invoice_number or f"#{invoice.id}",
                 job_number=invoice.job.job_number if invoice.job else "",
                 source=self.name,
@@ -287,9 +336,10 @@ def _as_date(value) -> Optional[date]:
 def payable_to_dict(p: Payable) -> dict:
     return {
         "due_date": p.due_date.isoformat() if p.due_date else None,
-        "vendor": p.vendor, "amount": str(p.amount), "reference": p.reference,
-        "job_number": p.job_number, "source": p.source, "on_hold": p.on_hold,
-        "hold_reason": p.hold_reason, "discount_amount": str(p.discount_amount),
+        "vendor": p.vendor, "amount": str(p.amount), "category": p.category,
+        "reference": p.reference, "job_number": p.job_number, "entity": p.entity,
+        "source": p.source, "on_hold": p.on_hold, "hold_reason": p.hold_reason,
+        "discount_amount": str(p.discount_amount),
         "discount_deadline": p.discount_deadline.isoformat() if p.discount_deadline else None,
     }
 
@@ -298,7 +348,8 @@ def payable_from_dict(d: dict) -> Payable:
     return Payable(
         due_date=date.fromisoformat(d["due_date"]) if d.get("due_date") else None,
         vendor=d.get("vendor", ""), amount=Decimal(d.get("amount", "0")),
-        reference=d.get("reference", ""), job_number=d.get("job_number", ""),
+        category=d.get("category", CAT_SUPPLIER), reference=d.get("reference", ""),
+        job_number=d.get("job_number", ""), entity=d.get("entity", ""),
         source=d.get("source", ""), on_hold=bool(d.get("on_hold")),
         hold_reason=d.get("hold_reason", ""),
         discount_amount=Decimal(d.get("discount_amount", "0")),
@@ -309,21 +360,35 @@ def payable_from_dict(d: dict) -> Payable:
 
 def receivable_to_dict(r: Receivable) -> dict:
     return {
+        "customer": r.customer, "amount": str(r.amount),
+        "invoice_date": r.invoice_date.isoformat() if r.invoice_date else None,
         "due_date": r.due_date.isoformat() if r.due_date else None,
-        "customer": r.customer, "amount": str(r.amount), "reference": r.reference,
-        "job_number": r.job_number, "source": r.source,
-        "expected_date": r.expected_date.isoformat() if r.expected_date else None,
-        "days_late_typical": r.days_late_typical,
+        "reference": r.reference, "job_number": r.job_number, "entity": r.entity,
+        "source": r.source, "memo": r.memo, "is_backlog": r.is_backlog,
+        "assigned_week": r.assigned_week, "bucket": r.bucket,
     }
 
 
 def receivable_from_dict(d: dict) -> Receivable:
     return Receivable(
-        due_date=date.fromisoformat(d["due_date"]) if d.get("due_date") else None,
         customer=d.get("customer", ""), amount=Decimal(d.get("amount", "0")),
+        invoice_date=(date.fromisoformat(d["invoice_date"])
+                      if d.get("invoice_date") else None),
+        due_date=date.fromisoformat(d["due_date"]) if d.get("due_date") else None,
         reference=d.get("reference", ""), job_number=d.get("job_number", ""),
-        source=d.get("source", ""),
-        expected_date=(date.fromisoformat(d["expected_date"])
-                       if d.get("expected_date") else None),
-        days_late_typical=int(d.get("days_late_typical", 0)),
+        entity=d.get("entity", ""), source=d.get("source", ""), memo=d.get("memo", ""),
+        is_backlog=bool(d.get("is_backlog")), assigned_week=d.get("assigned_week"),
+        bucket=d.get("bucket", ""),
     )
+
+
+def assumptions_to_dict(rules: dict) -> dict:
+    return {k: {"weeks_out": v.weeks_out, "collectability": str(v.collectability)}
+            for k, v in rules.items()}
+
+
+def assumptions_from_dict(d: dict) -> dict:
+    return {k: cashflow.CollectionAssumption(
+                weeks_out=v.get("weeks_out"),
+                collectability=Decimal(str(v.get("collectability", "1"))))
+            for k, v in (d or {}).items()} or cashflow.default_assumptions()

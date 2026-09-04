@@ -26,7 +26,12 @@ RED_BG, RED_INK = (251, 228, 226), (155, 28, 28)
 GREEN_BG, GREEN_INK = (227, 245, 234), (22, 101, 52)
 AMBER_BG, AMBER_INK = (253, 243, 224), (122, 83, 16)
 
-LEFT, TOP, WIDTH = 12.0, 12.0, 186.0
+AMBER_CELL = (253, 243, 224)
+RUNRATE = (242, 244, 248)
+
+# Landscape: thirteen weekly columns plus a label column do not fit portrait.
+LEFT, TOP, WIDTH = 10.0, 10.0, 259.0
+LABEL_W = 58.0
 
 
 class _Doc(FPDF):
@@ -38,15 +43,15 @@ class _Doc(FPDF):
 
 
 def build(f: Forecast, report: Any, out_path: Path) -> Path:
-    pdf = _Doc(orientation="P", unit="mm", format="Letter")
-    pdf.set_auto_page_break(auto=True, margin=16)
+    pdf = _Doc(orientation="L", unit="mm", format="Letter")
+    pdf.set_auto_page_break(auto=True, margin=14)
     pdf.set_margins(LEFT, TOP, LEFT)
     pdf.add_page()
     pdf.alias_nb_pages()
 
     _title(pdf, f, report)
     _headline(pdf, f)
-    _daily(pdf, f)
+    _grid(pdf, f)
     _detail(pdf, f)
     _provenance(pdf, f, report)
 
@@ -58,19 +63,22 @@ def build(f: Forecast, report: Any, out_path: Path) -> Path:
 def _title(pdf: _Doc, f: Forecast, report: Any) -> None:
     pdf.set_font("Helvetica", "B", 15)
     pdf.set_text_color(*NAVY)
-    pdf.cell(0, 7, "13-day cash flow", new_x="LMARGIN", new_y="NEXT")
+    title = "13-week cash flow" + (f"  -  {f.entity}" if f.entity else "")
+    pdf.cell(0, 7, title, new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 8)
     pdf.set_text_color(*MUTE)
-    pdf.cell(0, 4.5, f"{f.start:%d %b %Y} to {f.end:%d %b %Y}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 4.5,
+             f"Rolling forecast, {f.weeks[0].starts:%d %b %Y} to {f.weeks[-1].ends:%d %b %Y}",
+             new_x="LMARGIN", new_y="NEXT")
     pdf.ln(2)
 
 
 def _headline(pdf: _Doc, f: Forecast) -> None:
     cells = [
         ("Opening balance", fmt.money(f.opening_balance), None),
-        ("Going out", "-" + fmt.money(f.total_out), RED_INK if f.total_out else None),
-        ("Coming in", "+" + fmt.money(f.total_in), GREEN_INK if f.total_in else None),
-        ("Projected close", fmt.money(f.closing_balance),
+        ("13-week outflow", "-" + fmt.money(f.total_out), RED_INK if f.total_out else None),
+        ("13-week inflow", "+" + fmt.money(f.total_in), GREEN_INK if f.total_in else None),
+        ("Week 13 balance", fmt.money(f.closing_balance),
          RED_INK if f.closing_balance < 0 else None),
     ]
     width = WIDTH / 4
@@ -90,13 +98,20 @@ def _headline(pdf: _Doc, f: Forecast) -> None:
     pdf.set_y(y + 18)
 
     low = f.low_point
-    if low is not None and f.goes_negative:
+    first_bad = f.first_negative_week
+    below = f.first_below_target
+    if first_bad is not None:
         _banner(pdf, RED_BG, RED_INK,
-                f"The account goes negative on {low.on:%a %d %b} - "
-                f"low point {fmt.money(low.closing)}.")
+                f"Cash runs out in week {first_bad.number}, ending "
+                f"{first_bad.ends:%d %B}. Low point {fmt.money(low.closing)} "
+                f"in week {low.number}.")
+    elif below is not None:
+        _banner(pdf, AMBER_CELL, AMBER_INK,
+                f"Drops below the {fmt.money(f.minimum_cash)} floor in week "
+                f"{below.number}, ending {below.ends:%d %B}.")
     elif low is not None:
         _banner(pdf, GREEN_BG, GREEN_INK,
-                f"Lowest point is {fmt.money(low.closing)} on {low.on:%a %d %b}.")
+                f"Lowest point is {fmt.money(low.closing)} in week {low.number}.")
 
 
 def _banner(pdf: _Doc, bg, ink, text: str) -> None:
@@ -110,34 +125,130 @@ def _banner(pdf: _Doc, bg, ink, text: str) -> None:
     pdf.set_y(y + 11)
 
 
-def _daily(pdf: _Doc, f: Forecast) -> None:
-    _heading(pdf, "Day by day")
-    cols = [("DAY", 44, "L"), ("OUT", 34, "R"), ("IN", 34, "R"),
-            ("NET", 34, "R"), ("BALANCE", 40, "R")]
-    _row_header(pdf, cols)
-    for day in f.days:
+def _grid(pdf: _Doc, f: Forecast) -> None:
+    """The whole quarter on one page: rows are categories, columns are weeks."""
+    col = (WIDTH - LABEL_W - 22) / len(f.weeks)
+    _grid_header(pdf, f, col)
+
+    def row(label, values, *, bold=False, rule_above=False, tone=None,
+            shaded=(), total=None, size=5.6):
         y = pdf.get_y()
-        if day.is_overdrawn:
-            pdf.set_fill_color(*RED_BG)
-            pdf.rect(LEFT, y, WIDTH, 5.6, style="F")
-        pdf.set_xy(LEFT, y + 1.1)
-        pdf.set_font("Helvetica", "B" if day.is_overdrawn else "", 7.2)
-        pdf.set_text_color(*(RED_INK if day.is_overdrawn else INK))
-        values = [
-            f"{day.on:%a %d %b}",
-            "-" + fmt.money(day.out) if day.out else "",
-            "+" + fmt.money(day.incoming) if day.incoming else "",
-            ("-" + fmt.abs_money(day.net) if day.net < 0 else "+" + fmt.money(day.net))
-            if day.net else "",
-            fmt.money(day.closing),
-        ]
-        for (label, width, align), value in zip(cols, values):
-            pdf.cell(width - 2, 3.6, value, align=align)
-            pdf.set_x(pdf.get_x() + 2)
+        if rule_above:
+            pdf.set_draw_color(*NAVY)
+            pdf.set_line_width(0.3)
+            pdf.line(LEFT, y, LEFT + WIDTH, y)
+        pdf.set_xy(LEFT + 1, y + 0.9)
+        pdf.set_font("Helvetica", "B" if bold else "", size)
+        pdf.set_text_color(*INK)
+        pdf.cell(LABEL_W - 2, 3.4, label[:46])
+        for i, value in enumerate(values):
+            x = LEFT + LABEL_W + i * col
+            week = f.weeks[i]
+            if i in shaded:
+                pdf.set_fill_color(*RUNRATE)
+                pdf.rect(x, y, col, 4.8, style="F")
+            pdf.set_xy(x, y + 0.9)
+            pdf.set_text_color(*(tone or INK))
+            pdf.cell(col - 1, 3.4, value, align="R")
+        if total is not None:
+            pdf.set_xy(LEFT + LABEL_W + len(values) * col, y + 0.9)
+            pdf.set_font("Helvetica", "B", size)
+            pdf.set_text_color(*(tone or INK))
+            pdf.cell(21, 3.4, total, align="R")
         pdf.set_draw_color(*RULE)
-        pdf.line(LEFT, y + 5.6, LEFT + WIDTH, y + 5.6)
-        pdf.set_y(y + 5.6)
-    pdf.ln(4)
+        pdf.set_line_width(0.15)
+        pdf.line(LEFT, y + 4.8, LEFT + WIDTH, y + 4.8)
+        pdf.set_y(y + 4.8)
+
+    def m(value):
+        return fmt.money(value) if value else ""
+
+    row("Beginning cash", [m(w.opening) for w in f.weeks], tone=SOFT)
+    _section(pdf, "CASH INFLOWS", col, f)
+    row("Customer collections", [m(w.inflow) for w in f.weeks],
+        tone=GREEN_INK, total=fmt.money(f.total_in))
+    _section(pdf, "CASH OUTFLOWS", col, f)
+    for category in f.used_categories:
+        shaded = {i for i, w in enumerate(f.weeks) if category in w.run_rate_categories}
+        row(category, [m(w.by_category.get(category)) for w in f.weeks],
+            shaded=shaded, total=fmt.money(f.category_total(category)))
+    row("Total outflows", [m(w.outflow) for w in f.weeks], bold=True,
+        rule_above=True, tone=RED_INK, total=fmt.money(f.total_out))
+    row("Net cash flow", [m(w.net) for w in f.weeks], bold=True,
+        total=fmt.money(f.net_movement))
+
+    # Ending cash, with the bad weeks coloured.
+    y = pdf.get_y()
+    pdf.set_draw_color(*NAVY)
+    pdf.set_line_width(0.4)
+    pdf.line(LEFT, y, LEFT + WIDTH, y)
+    pdf.set_xy(LEFT + 1, y + 1.0)
+    pdf.set_font("Helvetica", "B", 6.0)
+    pdf.set_text_color(*INK)
+    pdf.cell(LABEL_W - 2, 3.6, "Ending cash")
+    for i, week in enumerate(f.weeks):
+        x = LEFT + LABEL_W + i * col
+        if week.closing < 0:
+            pdf.set_fill_color(*RED_BG)
+            pdf.rect(x, y, col, 5.4, style="F")
+            ink = RED_INK
+        elif week.below_target(f.minimum_cash):
+            pdf.set_fill_color(*AMBER_CELL)
+            pdf.rect(x, y, col, 5.4, style="F")
+            ink = AMBER_INK
+        else:
+            ink = INK
+        pdf.set_xy(x, y + 1.0)
+        pdf.set_text_color(*ink)
+        pdf.cell(col - 1, 3.6, fmt.money(week.closing), align="R")
+    pdf.set_y(y + 6.5)
+
+    pdf.set_font("Helvetica", "", 5.6)
+    pdf.set_text_color(*MUTE)
+    note = ("Shaded = weekly run-rate used, because no bill is on file for that "
+            "category that week.")
+    if f.minimum_cash:
+        note += f" Amber = below the {fmt.money(f.minimum_cash)} floor."
+    note += " Red = overdrawn."
+    pdf.cell(0, 3.4, note, new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(3)
+
+
+def _grid_header(pdf: _Doc, f: Forecast, col: float) -> None:
+    y = pdf.get_y()
+    pdf.set_fill_color(*BAND)
+    pdf.rect(LEFT, y, WIDTH, 7.2, style="F")
+    pdf.set_xy(LEFT + 1, y + 1.0)
+    pdf.set_font("Helvetica", "B", 5.6)
+    pdf.set_text_color(*SOFT)
+    pdf.cell(LABEL_W - 2, 3.0, "WEEK ENDING")
+    for i, week in enumerate(f.weeks):
+        x = LEFT + LABEL_W + i * col
+        pdf.set_xy(x, y + 0.7)
+        pdf.set_text_color(*(RED_INK if week.closing < 0 else SOFT))
+        pdf.cell(col - 1, 3.0, f"{week.ends:%d %b}", align="R")
+        pdf.set_xy(x, y + 3.6)
+        pdf.set_font("Helvetica", "", 5.0)
+        pdf.cell(col - 1, 3.0, f"Wk {week.number}", align="R")
+        pdf.set_font("Helvetica", "B", 5.6)
+    pdf.set_xy(LEFT + LABEL_W + len(f.weeks) * col, y + 1.0)
+    pdf.set_text_color(*SOFT)
+    pdf.cell(21, 3.0, "TOTAL", align="R")
+    pdf.set_draw_color(*NAVY)
+    pdf.set_line_width(0.4)
+    pdf.line(LEFT, y + 7.2, LEFT + WIDTH, y + 7.2)
+    pdf.set_y(y + 7.2)
+
+
+def _section(pdf: _Doc, label: str, col: float, f: Forecast) -> None:
+    y = pdf.get_y()
+    pdf.set_fill_color(248, 249, 251)
+    pdf.rect(LEFT, y, WIDTH, 4.6, style="F")
+    pdf.set_xy(LEFT + 1, y + 0.8)
+    pdf.set_font("Helvetica", "B", 5.6)
+    pdf.set_text_color(*NAVY)
+    pdf.cell(WIDTH - 2, 3.2, label)
+    pdf.set_y(y + 4.6)
 
 
 def _detail(pdf: _Doc, f: Forecast) -> None:
@@ -157,11 +268,20 @@ def _detail(pdf: _Doc, f: Forecast) -> None:
         _list(pdf, [(p.vendor, p.reference, p.job_number,
                      p.hold_reason or "on hold", fmt.money(p.amount)) for p in f.held_payables],
               ink=AMBER_INK)
-    if f.overdue_receivables:
-        _heading(pdf, "Overdue in - collections")
-        _list(pdf, [(r.customer, r.reference, r.job_number,
-                     f"due {r.due_date:%d %b}" if r.due_date else "",
-                     fmt.money(r.amount)) for r in f.overdue_receivables], ink=AMBER_INK)
+    if f.unscheduled_receivables:
+        _heading(pdf, "Over 90 days - collections, not counted as arriving")
+        _list(pdf, [(r.customer, r.reference, r.bucket,
+                     f"{fmt.money(r.expected_amount)} likely",
+                     fmt.money(r.amount)) for r in f.unscheduled_receivables], ink=AMBER_INK)
+    if f.backlog:
+        _heading(pdf, f"Backlog - real work, no assigned week ({fmt.money(f.backlog_total)})")
+        _list(pdf, [(r.customer, r.memo[:30], "", "unscheduled",
+                     fmt.money(r.amount)) for r in f.backlog], ink=MUTE)
+    if f.beyond_horizon:
+        _heading(pdf, "Due after week 13")
+        _list(pdf, [(p.vendor, p.reference, p.job_number,
+                     f"due {p.due_date:%d %b %Y}", fmt.money(p.amount))
+                    for p in f.beyond_horizon], ink=MUTE)
 
 
 def _heading(pdf: _Doc, text: str) -> None:
@@ -214,9 +334,14 @@ def _provenance(pdf: _Doc, f: Forecast, report: Any) -> None:
     pdf.set_font("Helvetica", "", 6.2)
     pdf.set_text_color(*MUTE)
     sources = ", ".join(f.sources) or "none recorded"
-    unscheduled = len(f.unscheduled_payables) + len(f.unscheduled_receivables)
+    unscheduled = len(f.unscheduled_payables)
     text = (f"Generated {report.created_at:%d %b %Y at %H:%M} from: {sources}. "
             f"Opening balance {fmt.money(f.opening_balance)} was entered by hand. ")
+    if f.run_rates:
+        rates = ", ".join(f"{c.split(' (')[0]} {fmt.money(v)}/wk" for c, v in f.run_rates.items())
+        text += f"Weekly run-rates where no bill was on file: {rates}. "
+    text += ("Receivables are collected by aging bucket with a collectability "
+             "percentage; anything over 90 days is listed rather than counted. ")
     if unscheduled:
         text += (f"{unscheduled} item(s) carry no date and are not in the day-by-day "
                  "figures. ")

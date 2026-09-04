@@ -725,12 +725,18 @@ def vendor_scorecard(request: Request, session: Session = Depends(get_session)):
 def _report_forecast(report: CashReport) -> cashflow.Forecast:
     payables = [accounting.payable_from_dict(d) for d in json.loads(report.payables_json)]
     receivables = [accounting.receivable_from_dict(d) for d in json.loads(report.receivables_json)]
+    run_rates = {k: Decimal(v) for k, v in json.loads(report.run_rates_json or "{}").items()}
     return cashflow.build_forecast(
         opening_balance=report.opening_balance,
         payables=payables,
         receivables=receivables,
-        today=date.fromisoformat(report.as_of),
-        horizon_days=report.horizon_days,
+        as_of=date.fromisoformat(report.as_of),
+        weeks=report.weeks or cashflow.DEFAULT_WEEKS,
+        run_rates=run_rates,
+        minimum_cash=report.minimum_cash or ZERO,
+        assumptions=accounting.assumptions_from_dict(
+            json.loads(report.assumptions_json or "{}")),
+        entity=report.entity,
         sources=[s for s in report.source_label.split(" + ") if s],
     )
 
@@ -747,25 +753,80 @@ def cashflow_index(request: Request, session: Session = Depends(get_session)):
     })
 
 
+def _decimal_or_zero(raw: str) -> Decimal:
+    text = (raw or "").replace(",", "").replace("$", "").strip()
+    if not text:
+        return ZERO
+    try:
+        return Decimal(text)
+    except (InvalidOperation, ValueError):
+        return ZERO
+
+
 @app.post("/cashflow/generate")
 async def cashflow_generate(
     request: Request,
     session: Session = Depends(get_session),
     opening_balance: str = Form("0"),
+    minimum_cash: str = Form("0"),
     as_of: str = Form(""),
+    entity: str = Form(""),
     created_by: str = Form(""),
     note: str = Form(""),
-    include_local: str = Form("on"),
+    include_local: str = Form(""),
     ap_file: Optional[UploadFile] = File(None),
     ar_file: Optional[UploadFile] = File(None),
+    rate_payroll: str = Form("0"),
+    rate_insurance: str = Form("0"),
+    rate_rent: str = Form("0"),
+    rate_vehicle: str = Form("0"),
+    rate_loan: str = Form("0"),
+    rate_overhead: str = Form("0"),
+    weeks_current: str = Form("3"),
+    weeks_1_30: str = Form("2"),
+    weeks_31_60: str = Form("3"),
+    weeks_61_90: str = Form("4"),
+    pct_current: str = Form("100"),
+    pct_1_30: str = Form("100"),
+    pct_31_60: str = Form("95"),
+    pct_61_90: str = Form("85"),
+    pct_90_plus: str = Form("50"),
 ):
-    """The button. Build a forecast from whatever sources are available."""
+    """The button. Build a 13-week forecast from whatever sources are available."""
     try:
         opening = Decimal((opening_balance or "0").replace(",", "").replace("$", "").strip() or "0")
     except (InvalidOperation, ValueError):
         return _redirect("/cashflow", err="Opening balance must be a number.")
 
     as_of_date = date.fromisoformat(as_of) if as_of else date.today()
+
+    # Weekly run-rates: what continues whether or not a bill has been entered.
+    run_rates = {
+        cashflow.CAT_PAYROLL: _decimal_or_zero(rate_payroll),
+        cashflow.CAT_INSURANCE: _decimal_or_zero(rate_insurance),
+        cashflow.CAT_RENT: _decimal_or_zero(rate_rent),
+        cashflow.CAT_VEHICLE: _decimal_or_zero(rate_vehicle),
+        cashflow.CAT_LOAN: _decimal_or_zero(rate_loan),
+        cashflow.CAT_OVERHEAD: _decimal_or_zero(rate_overhead),
+    }
+    run_rates = {k: v for k, v in run_rates.items() if v > ZERO}
+
+    def _weeks(raw: str) -> Optional[int]:
+        text = (raw or "").strip()
+        return int(text) if text.isdigit() else None
+
+    def _pct(raw: str) -> Decimal:
+        value = _decimal_or_zero(raw)
+        return (value / 100) if value else ZERO
+
+    assumptions = {
+        cashflow.BUCKET_CURRENT: cashflow.CollectionAssumption(_weeks(weeks_current), _pct(pct_current)),
+        cashflow.BUCKET_1_30: cashflow.CollectionAssumption(_weeks(weeks_1_30), _pct(pct_1_30)),
+        cashflow.BUCKET_31_60: cashflow.CollectionAssumption(_weeks(weeks_31_60), _pct(pct_31_60)),
+        cashflow.BUCKET_61_90: cashflow.CollectionAssumption(_weeks(weeks_61_90), _pct(pct_61_90)),
+        # Deliberately no week: over 90 days there is no date anyone can defend.
+        cashflow.BUCKET_90_PLUS: cashflow.CollectionAssumption(None, _pct(pct_90_plus)),
+    }
 
     payables: list = []
     receivables: list = []
@@ -797,8 +858,12 @@ async def cashflow_generate(
 
     report = CashReport(
         as_of=as_of_date.isoformat(),
-        horizon_days=cashflow.DEFAULT_HORIZON_DAYS,
+        weeks=cashflow.DEFAULT_WEEKS,
+        entity=entity.strip(),
         opening_balance=opening,
+        minimum_cash=_decimal_or_zero(minimum_cash),
+        run_rates_json=json.dumps({k: str(v) for k, v in run_rates.items()}),
+        assumptions_json=json.dumps(accounting.assumptions_to_dict(assumptions)),
         source_label=" + ".join(labels),
         created_by=_actor(created_by),
         note=note.strip(),

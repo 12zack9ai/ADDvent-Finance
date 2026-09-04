@@ -1,13 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Cash flow {{ report.as_of }} · {{ site_name }}{% endblock %}
+{% block title %}13-week cash flow {{ report.as_of }} · {{ site_name }}{% endblock %}
 
 {% block content %}
 <div class="pagehead">
   <div>
     <div class="muted"><a href="/cashflow">Cash flow</a> &rsaquo;</div>
-    <h1>{{ f.start.strftime("%d %b") }} – {{ f.end.strftime("%d %b %Y") }}</h1>
+    <h1>{{ f.weeks[0].starts.strftime("%d %b") }} &ndash; {{ f.weeks[-1].ends.strftime("%d %b %Y") }}
+      {% if f.entity %}<span class="ent">{{ f.entity }}</span>{% endif %}</h1>
     <p class="sub">
-      Generated {{ report.created_at.strftime("%d %b %Y at %H:%M") }}
+      Rolling 13-week forecast · generated {{ report.created_at.strftime("%d %b %Y at %H:%M") }}
       {% if report.created_by %} by {{ report.created_by }}{% endif %}
       · {{ report.source_label or "no source recorded" }}
     </p>
@@ -17,58 +18,112 @@
 
 <div class="cf-headline">
   <div class="cf-cell"><span>Opening balance</span><strong>{{ f.opening_balance | money }}</strong></div>
-  <div class="cf-cell"><span>Going out</span><strong class="neg">−{{ f.total_out | money }}</strong></div>
-  <div class="cf-cell"><span>Coming in</span><strong class="pos">+{{ f.total_in | money }}</strong></div>
-  <div class="cf-cell"><span>Projected close</span>
+  <div class="cf-cell"><span>13-week outflow</span><strong class="neg">&minus;{{ f.total_out | money }}</strong></div>
+  <div class="cf-cell"><span>13-week inflow</span><strong class="pos">+{{ f.total_in | money }}</strong></div>
+  <div class="cf-cell"><span>Week 13 balance</span>
     <strong class="{{ 'neg' if f.closing_balance < 0 else '' }}">{{ f.closing_balance | money }}</strong></div>
 </div>
 
 {% if f.goes_negative %}
   <div class="banner bad">
-    <strong>The account goes negative on {{ f.low_point.on.strftime("%A %d %B") }}</strong> —
-    low point {{ f.low_point.closing | money }}.
-    That is the day to act on, not the closing balance.
+    <strong>Cash runs out in week {{ f.first_negative_week.number }}</strong> —
+    week ending {{ f.first_negative_week.ends.strftime("%d %B") }}.
+    Low point {{ f.low_point.closing | money }} in week {{ f.low_point.number }}.
+  </div>
+{% elif f.first_below_target %}
+  <div class="banner warnb">
+    <strong>Drops below the {{ f.minimum_cash | money }} floor in week {{ f.first_below_target.number }}</strong>
+    — week ending {{ f.first_below_target.ends.strftime("%d %B") }}.
+    Still positive, but this is the warning.
   </div>
 {% elif f.low_point %}
   <div class="banner good">
-    Lowest point is <strong>{{ f.low_point.closing | money }}</strong>
-    on {{ f.low_point.on.strftime("%A %d %B") }}.
+    Lowest point is <strong>{{ f.low_point.closing | money }}</strong> in week {{ f.low_point.number }}.
   </div>
 {% endif %}
 
-<div class="panel">
-  <h2>Day by day</h2>
-  <table class="list cf-days">
-    <thead><tr><th>Day</th><th class="r">Out</th><th class="r">In</th>
-      <th class="r">Net</th><th class="r">Balance</th><th>Detail</th></tr></thead>
+<div class="panel scroll-x">
+  <h2>Week by week</h2>
+  <table class="wk">
+    <thead>
+      <tr><th class="rowlab">Week ending</th>
+        {% for w in f.weeks %}<th class="r {{ 'bad' if w.closing < 0 else '' }}">
+          {{ w.ends.strftime("%d %b") }}<span>Wk {{ w.number }}</span></th>{% endfor %}
+        <th class="r tot">Total</th></tr>
+    </thead>
     <tbody>
-      {% for d in f.days %}
-      <tr class="{{ 'overdrawn' if d.is_overdrawn else '' }}">
+      <tr class="open"><td class="rowlab">Beginning cash</td>
+        {% for w in f.weeks %}<td class="r">{{ w.opening | money }}</td>{% endfor %}
+        <td class="r tot"></td></tr>
+
+      <tr class="sect"><td class="rowlab" colspan="{{ f.weeks | length + 2 }}">Cash inflows</td></tr>
+      <tr><td class="rowlab">Customer collections</td>
+        {% for w in f.weeks %}<td class="r pos">{{ w.inflow | money if w.inflow else "" }}</td>{% endfor %}
+        <td class="r tot pos">{{ f.total_in | money }}</td></tr>
+
+      <tr class="sect"><td class="rowlab" colspan="{{ f.weeks | length + 2 }}">Cash outflows</td></tr>
+      {% for cat in f.used_categories %}
+      <tr><td class="rowlab">{{ cat }}</td>
+        {% for w in f.weeks %}
+          <td class="r {{ 'rr' if cat in w.run_rate_categories else '' }}"
+              {% if cat in w.run_rate_categories %}title="run-rate — no bill on file for this week"{% endif %}>
+            {{ w.by_category.get(cat) | money if w.by_category.get(cat) else "" }}</td>
+        {% endfor %}
+        <td class="r tot">{{ f.category_total(cat) | money }}</td></tr>
+      {% endfor %}
+      <tr class="subtot"><td class="rowlab">Total outflows</td>
+        {% for w in f.weeks %}<td class="r neg">{{ w.outflow | money if w.outflow else "" }}</td>{% endfor %}
+        <td class="r tot neg">{{ f.total_out | money }}</td></tr>
+
+      <tr class="net"><td class="rowlab">Net cash flow</td>
+        {% for w in f.weeks %}<td class="r {{ 'neg' if w.net < 0 else 'pos' }}">
+          {{ w.net | money if w.net else "" }}</td>{% endfor %}
+        <td class="r tot">{{ f.net_movement | money }}</td></tr>
+
+      <tr class="close"><td class="rowlab">Ending cash</td>
+        {% for w in f.weeks %}<td class="r {{ 'bad' if w.closing < 0 else ('warncell' if w.below_target(f.minimum_cash) else '') }}">
+          <strong>{{ w.closing | money }}</strong></td>{% endfor %}
+        <td class="r tot"></td></tr>
+    </tbody>
+  </table>
+  <p class="muted key">
+    <span class="swatch-rr"></span> shaded = weekly run-rate used, because no bill is on
+    file for that category that week.
+    {% if f.minimum_cash %} Amber = below the {{ f.minimum_cash | money }} floor.{% endif %}
+    Red = overdrawn.
+  </p>
+</div>
+
+{% if f.weeks[0].days %}
+<div class="panel">
+  <h2>Week 1, day by day</h2>
+  <p class="muted" style="margin-top:0">The near term is where a payment run is actually
+    scheduled, and a weekly total hides whether the money leaves on Monday or Friday.</p>
+  <table class="list">
+    <thead><tr><th>Day</th><th class="r">Out</th><th class="r">Balance</th><th>Detail</th></tr></thead>
+    <tbody>
+      {% for d in f.weeks[0].days %}
+      <tr class="{{ 'overdrawn' if d.closing < 0 else '' }}">
         <td><strong>{{ d.on.strftime("%a %d %b") }}</strong></td>
-        <td class="r">{% if d.out %}<span class="neg">−{{ d.out | money }}</span>{% endif %}</td>
-        <td class="r">{% if d.incoming %}<span class="pos">+{{ d.incoming | money }}</span>{% endif %}</td>
-        <td class="r">{% if d.net %}{% if d.net < 0 %}<span class="neg">&minus;{{ d.net | abs_money }}</span>{% else %}<span class="pos">+{{ d.net | money }}</span>{% endif %}{% endif %}</td>
+        <td class="r">{% if d.out %}<span class="neg">&minus;{{ d.out | money }}</span>{% endif %}</td>
         <td class="r"><strong>{{ d.closing | money }}</strong></td>
-        <td class="muted">
-          {% for p in d.payables %}<div>{{ p.vendor }} · {{ p.reference }}{% if p.job_number %} · job {{ p.job_number }}{% endif %}</div>{% endfor %}
-          {% for r in d.receivables %}<div class="pos">{{ r.customer }} · {{ r.reference }}</div>{% endfor %}
-        </td>
+        <td class="muted">{% for p in d.payables %}<div>{{ p.vendor }}{% if p.reference %} · {{ p.reference }}{% endif %}</div>{% endfor %}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
-
+{% endif %}
 
 {% if f.overdue_payables %}
 <div class="panel">
   <h2>Overdue — pay these first</h2>
-  <p class="muted" style="margin-top:0">Already past due, so they are counted on day one.
-    Leaving them out is how a forecast says you are fine when you are not.</p>
+  <p class="muted" style="margin-top:0">Already past due, so they sit in week one.
+    They still have to be paid.</p>
   <table class="list"><tbody>
     {% for p in f.overdue_payables %}
     <tr><td><strong>{{ p.vendor }}</strong> <span class="muted">{{ p.reference }}</span></td>
-      <td class="muted">{{ p.job_number }}</td>
+      <td class="muted">{{ p.category }}</td>
       <td class="neg">due {{ p.due_date.strftime("%d %b") }}</td>
       <td class="r"><strong>{{ p.amount | money }}</strong></td></tr>
     {% endfor %}
@@ -76,16 +131,34 @@
 </div>
 {% endif %}
 
-{% if f.discounts %}
+{% if f.backlog %}
 <div class="panel">
-  <h2>Early-payment discounts expiring</h2>
-  <p class="muted" style="margin-top:0">Free money, and it is missed constantly.
-    Total available: <strong>{{ f.discount_savings | money }}</strong>.</p>
+  <h2>Backlog — real work, no assigned week</h2>
+  <p class="muted" style="margin-top:0">Unbilled contract value on jobs in progress:
+    <strong>{{ f.backlog_total | money }}</strong>. Deliberately excluded from the figures
+    above — it is real work, but it produces no cash on a date nobody has set.
+    Assign a week to bring it in.</p>
   <table class="list"><tbody>
-    {% for p in f.discounts %}
-    <tr><td><strong>{{ p.vendor }}</strong> <span class="muted">{{ p.reference }}</span></td>
-      <td class="pos">pay by {{ p.discount_deadline.strftime("%d %b") }}</td>
-      <td class="r"><strong class="pos">save {{ p.discount_amount | money }}</strong></td></tr>
+    {% for r in f.backlog %}
+    <tr><td><strong>{{ r.customer }}</strong> <span class="muted">{{ r.memo }}</span></td>
+      <td class="r"><strong>{{ r.amount | money }}</strong></td></tr>
+    {% endfor %}
+  </tbody></table>
+</div>
+{% endif %}
+
+{% if f.unscheduled_receivables %}
+<div class="panel">
+  <h2>Over 90 days — collections</h2>
+  <p class="muted" style="margin-top:0">Not counted as arriving: there is no date anyone
+    can defend. Shown at {{ (f.assumptions[">90"].collectability * 100) | round | int }}%
+    of face value as a guide to what is realistically recoverable.</p>
+  <table class="list"><tbody>
+    {% for r in f.unscheduled_receivables %}
+    <tr><td><strong>{{ r.customer }}</strong> <span class="muted">{{ r.reference }}</span></td>
+      <td class="warn">{{ r.bucket }}</td>
+      <td class="r muted">{{ r.amount | money }} billed</td>
+      <td class="r"><strong>{{ r.expected_amount | money }}</strong> likely</td></tr>
     {% endfor %}
   </tbody></table>
 </div>
@@ -93,14 +166,13 @@
 
 {% if f.held_payables %}
 <div class="panel">
-  <h2>Held — not scheduled to pay</h2>
-  <p class="muted" style="margin-top:0">Stopped by the three-way match. Real money owed,
-    but not going out this week, so it is not in the figures above.
-    Total: <strong>{{ f.held_total | money }}</strong>.</p>
+  <h2>Held by the three-way match — not scheduled to pay</h2>
+  <p class="muted" style="margin-top:0">Real money owed, stopped because the invoice does
+    not tie back to a quote or a receipt. Total <strong>{{ f.held_total | money }}</strong>.
+    <em>QuickBooks cannot produce this view — it does not know an invoice is disputed.</em></p>
   <table class="list"><tbody>
     {% for p in f.held_payables %}
     <tr><td><strong>{{ p.vendor }}</strong> <span class="muted">{{ p.reference }}</span></td>
-      <td class="muted">{{ p.job_number }}</td>
       <td class="warn">{{ p.hold_reason or "on hold" }}</td>
       <td class="r"><strong>{{ p.amount | money }}</strong></td></tr>
     {% endfor %}
@@ -108,44 +180,43 @@
 </div>
 {% endif %}
 
-{% if f.overdue_receivables %}
+{% if f.beyond_horizon or f.unscheduled_payables %}
 <div class="panel">
-  <h2>Overdue in — collections</h2>
-  <p class="muted" style="margin-top:0">Owed to us and already late. Deliberately
-    <em>not</em> counted as arriving — assuming late money turns up today is how a
-    forecast flatters itself.</p>
+  <h2>Outside the 13 weeks</h2>
+  <p class="muted" style="margin-top:0">Not in the figures above. Listed so they are not invisible.</p>
   <table class="list"><tbody>
-    {% for r in f.overdue_receivables %}
-    <tr><td><strong>{{ r.customer }}</strong> <span class="muted">{{ r.reference }}</span></td>
-      <td class="muted">{{ r.job_number }}</td>
-      <td class="warn">{% if r.due_date %}due {{ r.due_date.strftime("%d %b") }}{% endif %}</td>
-      <td class="r"><strong>{{ r.amount | money }}</strong></td></tr>
+    {% for p in f.beyond_horizon %}
+    <tr><td><strong>{{ p.vendor }}</strong> <span class="muted">{{ p.reference }}</span></td>
+      <td class="muted">due {{ p.due_date.strftime("%d %b %Y") }}</td>
+      <td class="r">{{ p.amount | money }}</td></tr>
     {% endfor %}
-  </tbody></table>
-</div>
-{% endif %}
-
-{% if f.unscheduled_payables or f.unscheduled_receivables %}
-<div class="panel">
-  <h2>No date on file</h2>
-  <p class="muted" style="margin-top:0">Not in the day-by-day figures, because nothing
-    says when. Listed so they are not invisible.</p>
-  <table class="list"><tbody>
     {% for p in f.unscheduled_payables %}
     <tr><td><strong>{{ p.vendor }}</strong> <span class="muted">{{ p.reference }}</span></td>
-      <td class="neg">out</td><td class="r">{{ p.amount | money }}</td></tr>
-    {% endfor %}
-    {% for r in f.unscheduled_receivables %}
-    <tr><td><strong>{{ r.customer }}</strong> <span class="muted">{{ r.reference }}</span></td>
-      <td class="pos">in</td><td class="r">{{ r.amount | money }}</td></tr>
+      <td class="warn">no due date</td>
+      <td class="r">{{ p.amount | money }}</td></tr>
     {% endfor %}
   </tbody></table>
 </div>
 {% endif %}
 
-<p class="muted" style="font-size:.85rem">
-  Opening balance was entered by hand. Overdue payables are counted on day one because
-  they still have to be paid; overdue receivables are not counted as arriving.
-  {% if report.note %}<br>Note: {{ report.note }}{% endif %}
-</p>
+<div class="panel">
+  <h2>Assumptions used</h2>
+  <table class="list">
+    <thead><tr><th>Aging bucket</th><th>Collected</th><th>Collectable</th></tr></thead>
+    <tbody>
+      {% for name, a in f.assumptions.items() %}
+      <tr><td>{{ name }}</td>
+        <td>{% if a.weeks_out %}week {{ a.weeks_out }}{% else %}<span class="warn">not scheduled</span>{% endif %}</td>
+        <td>{{ (a.collectability * 100) | round | int }}%</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if f.run_rates %}
+  <p class="muted" style="margin-top:12px">Weekly run-rates used where no bill was on file:
+    {% for cat, amt in f.run_rates.items() %}{{ cat }} {{ amt | money }}{% if not loop.last %} · {% endif %}{% endfor %}.</p>
+  {% endif %}
+  <p class="muted">Opening balance {{ f.opening_balance | money }} was entered by hand
+    {% if f.minimum_cash %}· minimum cash target {{ f.minimum_cash | money }}{% endif %}.
+    {% if report.note %}<br>Note: {{ report.note }}{% endif %}</p>
+</div>
 {% endblock %}
