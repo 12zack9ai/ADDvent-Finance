@@ -93,11 +93,31 @@ _VENDOR_NOISE = {
     "inc", "incorporated", "llc", "llp", "lp", "ltd", "limited", "co", "corp",
     "corporation", "company", "the", "and", "of",
 }
+# A trailing branch or location, as supply houses print it:
+# "ABC Supply Co. Inc. - Valley Cottage, NY".
+#
+# Whitespace on BOTH sides of the dash is required, and that is not cosmetic.
+# Without it the pattern eats the second half of any hyphenated company name:
+# "Smith-Cairns Roofing" and "Smith-Jones Supply" both reduce to "smith" and
+# then match each other. A false match between two suppliers prices an invoice
+# against the wrong company's quote, which is the worst thing this file can do.
+_BRANCH_SUFFIX = re.compile(r"\s+[-\u2013\u2014]\s+[A-Za-z .'/]+(?:,\s*[A-Za-z]{2})?\s*$")
+
 VENDOR_SIMILARITY = 82.0
 
 
 def norm_vendor(value: Optional[str]) -> str:
-    words = [w for w in norm_text(value).split() if w and w not in _VENDOR_NOISE]
+    """Strip a supplier name down to the part that identifies the company.
+
+    Branch suffixes come off first. Supply houses print the branch on their
+    paperwork - "ABC Supply Co. Inc. - Valley Cottage, NY" on a real quote -
+    and material for one job is routinely picked up from whichever branch has
+    it. Two branches are one supplier honouring one quote, so leaving the
+    branch in would file a Newburgh invoice as coming from a vendor we hold no
+    quote for, and send every one of them to the owner to investigate.
+    """
+    text = _BRANCH_SUFFIX.sub("", value or "")
+    words = [w for w in norm_text(text).split() if w and w not in _VENDOR_NOISE]
     return " ".join(words)
 
 

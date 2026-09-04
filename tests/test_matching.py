@@ -343,3 +343,68 @@ def test_unknown_vendor_does_not_assert_a_mismatch():
 
 def test_corporate_suffixes_are_ignored():
     assert norm_vendor("Baker Supply, Inc.") == norm_vendor("BAKER SUPPLY LLC") == "baker supply"
+
+
+# --- vendor identity across branches -------------------------------------
+# From a real ABC Supply quote, which prints itself as
+# "ABC Supply Co. Inc. - Valley Cottage, NY". Material for one job is routinely
+# picked up from whichever branch has it, so two branches are one supplier
+# honouring one quote.
+
+def test_two_branches_of_one_supplier_are_the_same_supplier():
+    assert vendor_matches("ABC Supply Co. Inc. - Valley Cottage, NY",
+                          "ABC Supply Co. Inc. - Newburgh, NY")
+
+
+def test_a_branch_quote_matches_an_invoice_without_the_branch():
+    assert vendor_matches("ABC Supply Co. Inc. - Valley Cottage, NY", "ABC SUPPLY CO INC")
+
+
+def test_a_hyphenated_company_name_is_not_cut_in_half():
+    """Stripping the branch must require spaces around the dash.
+
+    Without that, "Smith-Cairns Roofing" and "Smith-Jones Supply" both reduce to
+    "smith" and match each other - pricing an invoice against a different
+    company's quote, which is the worst outcome this module can produce.
+    """
+    assert not vendor_matches("Smith-Cairns Roofing", "Smith-Jones Supply")
+    assert vendor_matches("Smith-Cairns Roofing", "SMITH-CAIRNS ROOFING INC")
+
+
+def test_different_suppliers_still_do_not_match():
+    assert not vendor_matches("ABC Supply Co. Inc. - Valley Cottage, NY",
+                              "New Castle Building Products")
+
+
+# --- packaging mismatches taken from real vendor quotes ------------------
+
+def test_price_per_pn_against_quantity_in_sq_is_detected():
+    """New Castle, line RYSOFT4BCVWH: 4 SQ at $14.25/PN totalling $456.00.
+
+    4 x 14.25 is 57, not 456 - the soffit is priced per panel and counted per
+    square. Comparing 14.25 against a quoted per-square price would report a
+    price collapse on an invoice that is exactly right.
+    """
+    line = inv2(qty="4", uom="SQ", price="14.25", price_uom="PN", extended="456.00")
+    assert units_disagree(line)
+    assert effective_unit_price(line) == Decimal("114.00")
+
+
+def test_price_per_sq_against_quantity_in_bd_is_detected():
+    """ABC Supply, line 02GASTZ3WW: 105 BD at $122.00/SQ totalling $4,270.00.
+
+    Three bundles to a square, so the effective price is $40.67 a bundle. Taken
+    naively this line reads as $12,810 of shingles against a printed $4,270.
+    """
+    line = inv2(qty="105", uom="BD", price="122.00", price_uom="SQ", extended="4270.00")
+    assert units_disagree(line)
+    price, basis = comparison_price(line)
+    assert basis == "effective"
+    assert price.quantize(Decimal("0.01")) == Decimal("40.67")
+
+
+def test_a_consistent_line_from_the_same_quote_is_left_alone():
+    """Most lines are ordinary, and the packaging logic must not touch them."""
+    line = inv2(qty="9", uom="BD", price="70.00", price_uom="BD", extended="630.00")
+    assert not units_disagree(line)
+    assert comparison_price(line) == (Decimal("70.00"), "unit")
