@@ -29,6 +29,10 @@
       {% else %}
         {{ masters|length }} master quote{{ "" if masters|length == 1 else "s" }}
       {% endif %}
+      {% if s.proposed_change_orders %}
+        <a href="#change-orders" class="score-flag">
+          + {{ s.proposed_total | money }} awaiting approval</a>
+      {% endif %}
     </span>
   </div>
 
@@ -325,24 +329,70 @@
       quote is held until a change order covers it.
     </div>
 
-    {% if job.change_orders %}
+    {% set proposed = job.change_orders | selectattr("status", "equalto", "proposed") | list %}
+    {% set decided = job.change_orders | rejectattr("status", "equalto", "proposed") | list %}
+
+    {% if proposed %}
+      <div class="copending">
+        <div class="co-kicker">Waiting on you</div>
+        <p class="co-lead">
+          {{ proposed|length }} change order{{ "" if proposed|length == 1 else "s" }}
+          arrived by email and {{ "has" if proposed|length == 1 else "have" }} been
+          read but not approved. Until you approve one it authorises nothing —
+          no invoice is released and no total on this page includes it.
+        </p>
+        {% for c in proposed %}
+        <div class="co-card">
+          <div class="co-top">
+            <div>
+              <strong>{{ c.vendor or "Unknown vendor" }}</strong>
+              <span class="mono muted">{{ c.number or ("#" ~ c.id) }}</span>
+            </div>
+            <div class="co-amt">{{ c.amount | money }}</div>
+          </div>
+          <div class="muted" style="margin:5px 0 0">{{ c.description or "No description given." }}</div>
+          {% if c.document_id %}
+            <div style="margin-top:5px">
+              <a href="/document/{{ c.document_id }}/file" target="_blank">Read the original</a>
+            </div>
+          {% endif %}
+          <form method="post" action="/change-order/{{ c.id }}/decide" class="co-form">
+            <input type="text" name="actor" placeholder="Your name" required style="max-width:170px">
+            <input type="text" name="note" placeholder="Note (optional)">
+            <button class="btn" name="decision" value="approve" type="submit">Approve</button>
+            <button class="btn ghost" name="decision" value="reject" type="submit">Reject</button>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if decided %}
       <table class="grid" style="margin-bottom:14px">
         <thead><tr><th>No.</th><th>Vendor</th><th>For</th><th class="r">Amount</th></tr></thead>
         <tbody>
-          {% for c in job.change_orders %}
-          <tr>
+          {% for c in decided %}
+          <tr{% if c.status == "rejected" %} style="opacity:.55"{% endif %}>
             <td class="mono">{{ c.number or ("#" ~ c.id) }}</td>
             <td>{{ c.vendor or "—" }}</td>
             <td>
               {{ c.description or "—" }}
-              <div class="muted">approved by {{ c.approved_by }}</div>
+              <div class="muted">
+                {% if c.status == "rejected" %}rejected{% else %}approved{% endif %}
+                by {{ c.approved_by or "—" }}
+                {%- if c.decided_note %} · {{ c.decided_note }}{% endif %}
+              </div>
             </td>
-            <td class="r" style="font-weight:700">{{ c.amount | money }}</td>
+            <td class="r" style="font-weight:700">
+              {% if c.status == "rejected" %}
+                <span class="muted" style="text-decoration:line-through">{{ c.amount | money }}</span>
+              {% else %}{{ c.amount | money }}{% endif %}
+            </td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
-    {% else %}
+    {% elif not proposed %}
       <div class="muted" style="margin-bottom:14px">None on this job.</div>
     {% endif %}
 

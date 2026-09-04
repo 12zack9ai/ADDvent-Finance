@@ -168,6 +168,7 @@ div.grid{display:grid;gap:16px}
 .score-v{font-size:1.65rem;font-weight:800;letter-spacing:-.02em;color:var(--ink);
          line-height:1.15;overflow-wrap:anywhere}
 .score-n{font-size:.87rem;color:var(--soft);line-height:1.35}
+.score-flag{display:block;margin-top:3px;font-weight:700;color:var(--ok-ink)}
 
 /* The self-check panel. Loud, because the whole point is that every invoice
    inside it looked fine on its own. */
@@ -179,6 +180,22 @@ div.grid{display:grid;gap:16px}
 .dupe-head{font-weight:800;margin-bottom:6px}
 .dupe p{margin:0;line-height:1.5}
 .dupe-links{display:flex;gap:9px;flex-wrap:wrap;margin-top:11px}
+
+/* A change order waiting on a signature. Amber rather than red: nothing is
+   wrong, somebody just has to decide. */
+.copending{border:1.5px solid var(--ok-line);background:var(--warn-bg);
+           border-radius:var(--r-sm);padding:14px 16px;margin-bottom:16px}
+.co-kicker{font-size:.78rem;font-weight:800;letter-spacing:.06em;
+           text-transform:uppercase;color:var(--ok-ink)}
+.co-lead{margin:5px 0 12px;line-height:1.5}
+.co-card{background:var(--surface);border:1px solid var(--rule);
+         border-radius:var(--r-sm);padding:13px 15px;margin-bottom:10px}
+.co-card:last-child{margin-bottom:0}
+.co-top{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.co-amt{font-size:1.3rem;font-weight:800;letter-spacing:-.02em}
+.co-form{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px;
+         padding-top:12px;border-top:1px solid var(--rule)}
+.co-form input{flex:1;min-width:130px;margin:0}
 .big{font-size:1.9rem;font-weight:800;letter-spacing:-.02em}
 
 /* ---------- buttons: large, obvious, labelled ---------- */

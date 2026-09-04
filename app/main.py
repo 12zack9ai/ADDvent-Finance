@@ -41,6 +41,9 @@ from app.models import (
     APPROVAL_PENDING,
     APPROVAL_LABELS,
     APPROVAL_REJECTED,
+    CO_APPROVED,
+    CO_PROPOSED,
+    CO_REJECTED,
     RECEIPT_DELIVERY,
     RECEIPT_WORK,
     Approval,
@@ -624,7 +627,12 @@ def add_change_order(
         number=number.strip(),
         amount=value,
         description=description.strip(),
+        # Typed in by a person on this page. The typing is the approval - there
+        # is nobody else to ask, and asking them to approve what they just
+        # entered would be a step that teaches people to click through steps.
+        status=CO_APPROVED,
         approved_by=_actor(approved_by),
+        approved_at=utcnow(),
     ))
     session.flush()
 
@@ -639,6 +647,67 @@ def add_change_order(
     session.commit()
 
     msg = f"Change order recorded for {vendor or 'vendor'}."
+    if released:
+        msg += f" {released} held invoice{'' if released == 1 else 's'} released for approval."
+    return _redirect(f"/job/{job.job_number}", ok=msg)
+
+
+@app.post("/change-order/{co_id}/decide")
+def decide_change_order(
+    co_id: int,
+    decision: str = Form(...),
+    actor: str = Form(""),
+    note: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    """Sign, or refuse, a change order the system read off a document.
+
+    This is the moment extra scope becomes payable, so it is deliberately its
+    own decision with its own name attached. Approving here can release
+    invoices that were held for exactly this reason, and the message says how
+    many, because a person should never have to wonder what their click did.
+    """
+    change_order = session.get(ChangeOrder, co_id)
+    if change_order is None:
+        return _redirect("/jobs", err="No such change order.")
+
+    job = change_order.job
+    if change_order.status != CO_PROPOSED:
+        return _redirect(
+            f"/job/{job.job_number}",
+            err=f"That change order was already {change_order.status}.",
+        )
+
+    who = _actor(actor)
+    if decision == "approve":
+        change_order.status = CO_APPROVED
+        change_order.approved_by = who
+        change_order.approved_at = utcnow()
+        change_order.decided_note = note.strip()
+        verb = "approved"
+    elif decision == "reject":
+        change_order.status = CO_REJECTED
+        change_order.approved_by = who
+        change_order.approved_at = utcnow()
+        change_order.decided_note = note.strip()
+        verb = "rejected"
+    else:
+        return _redirect(f"/job/{job.job_number}", err="Unknown decision.")
+
+    session.flush()
+    session.refresh(job)
+    released = 0
+    for invoice in job.invoices:
+        was_held = invoice.approval_status == APPROVAL_HELD
+        apply_routing(invoice)
+        if was_held and invoice.approval_status != APPROVAL_HELD:
+            released += 1
+    session.commit()
+
+    msg = (
+        f"Change order {change_order.number or change_order.id} {verb} "
+        f"by {who}."
+    )
     if released:
         msg += f" {released} held invoice{'' if released == 1 else 's'} released for approval."
     return _redirect(f"/job/{job.job_number}", ok=msg)

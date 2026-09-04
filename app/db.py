@@ -149,7 +149,21 @@ def _add_missing_columns() -> None:
                     )
                     continue
                 ddl = column.type.compile(engine.dialect)
+                # A server_default is carried into the ALTER, which is what
+                # backfills the rows already in the table. Without it every
+                # existing row gets NULL - fine for a display field, and not
+                # fine for one that decides whether something is authorised.
+                if column.server_default is not None:
+                    literal = getattr(column.server_default, "arg", None)
+                    if literal is not None:
+                        ddl += f" DEFAULT {_sql_literal(str(literal))}"
                 conn.execute(
                     text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {ddl}')
                 )
                 log.warning("SCHEMA: added %s.%s", table.name, column.name)
+
+
+def _sql_literal(value: str) -> str:
+    """Quote a default for inline DDL. Values are ours, never user input."""
+    escaped = value.replace("'", "''")
+    return f"'{escaped}'"

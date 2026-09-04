@@ -33,6 +33,7 @@ from app.config import settings
 from app.matching import norm_sku, norm_text, norm_vendor, vendor_matches
 from app.models import (
     APPROVAL_APPROVED,
+    CO_PROPOSED,
     APPROVAL_PAID,
     APPROVAL_REJECTED,
     VERDICT_NOT_ON_QUOTE,
@@ -146,6 +147,13 @@ class Summary:
     invoice_count: int = 0
     vendors: list[VendorRoll] = field(default_factory=list)
     overlaps: list[Overlap] = field(default_factory=list)
+    proposed_change_orders: list = field(default_factory=list)
+
+    @property
+    def proposed_total(self) -> Decimal:
+        """Extra scope read off a document that nobody has signed yet."""
+        total = sum((co.amount or ZERO for co in self.proposed_change_orders), ZERO)
+        return Decimal(total).quantize(Decimal("0.01"))
 
     @property
     def has_quote(self) -> bool:
@@ -243,6 +251,13 @@ def build(job: Job) -> Summary:
         summary.quoted += quote.total or ZERO
 
     for change_order in job.change_orders:
+        # Approved only. A change order raises what this job is allowed to
+        # cost, so counting a proposed one would quietly close the very gap
+        # that is supposed to bring somebody to look at it.
+        if not change_order.is_live:
+            if change_order.status == CO_PROPOSED:
+                summary.proposed_change_orders.append(change_order)
+            continue
         amount = change_order.amount or ZERO
         summary.change_orders += amount
         roll_for(change_order.vendor).change_orders += amount

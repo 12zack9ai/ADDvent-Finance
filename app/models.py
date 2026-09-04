@@ -367,6 +367,13 @@ class InvoiceLine(Base):
 # quote and still be for material that never arrived, or for subcontractor work
 # that was not actually completed. Confirmation of receipt is the third leg.
 
+# Change order states. The default is "approved" because the original way one
+# arrives is a person typing it into the job page - the typing IS the approval.
+# A change order the system read off a document starts life proposed.
+CO_PROPOSED = "proposed"
+CO_APPROVED = "approved"
+CO_REJECTED = "rejected"
+
 RECEIPT_DELIVERY = "delivery"          # packing slip checked against the order
 RECEIPT_WORK = "work_completion"       # PM/supervisor signed off a phase
 
@@ -415,9 +422,51 @@ class ChangeOrder(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     amount: Mapped[Optional[Decimal]] = mapped_column(Money, nullable=True)
 
+    # proposed -> approved | rejected.
+    #
+    # This is the most dangerous field in the application, so it is worth
+    # saying plainly why it exists. A change order raises the ceiling on what
+    # a vendor may bill. If a vendor could email one in and have it take
+    # effect, a vendor could authorise their own overbilling - and every check
+    # in this system would then agree the resulting invoice was fine.
+    #
+    # So the system may PROPOSE a change order from a document it read. Only a
+    # person makes one real. A proposed change order raises no ceiling,
+    # releases no held invoice, and is counted in no total.
+    # server_default matters as much as default here: it is what backfills
+    # change orders already in the database when this column is added. They
+    # were typed in by a person, so approved is both correct and safe.
+    status: Mapped[str] = mapped_column(
+        String(16), default=CO_APPROVED, server_default=CO_APPROVED, index=True,
+    )
+
     approved_by: Mapped[str] = mapped_column(String(128), default="")
-    approved_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    decided_note: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    # NOT NULL, and it stays that way. Databases already in service created
+    # this table with approved_at NOT NULL, and the additive migration in
+    # app/db.py can add a column but cannot relax one - SQLite has no ALTER
+    # COLUMN. Making it nullable in the model produced a table that accepted
+    # inserts on a fresh database and rejected them on a real one, which is the
+    # worst possible place to find out.
+    #
+    # So it holds "when this row was last decided", set on creation and
+    # overwritten when somebody signs or refuses it. Read `decided_on` rather
+    # than this: on a change order still waiting for a person, the timestamp
+    # here is when it arrived, and reading it as an approval date would be
+    # believing something that never happened.
+    approved_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    @property
+    def is_live(self) -> bool:
+        """Does this actually authorise anything?"""
+        return self.status == CO_APPROVED
+
+    @property
+    def decided_on(self) -> Optional[datetime]:
+        """When a person signed or refused this. None while it still waits."""
+        return self.approved_at if self.status != CO_PROPOSED else None
 
     job: Mapped["Job"] = relationship(back_populates="change_orders")
     document: Mapped[Optional["Document"]] = relationship()

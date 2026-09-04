@@ -40,6 +40,8 @@ from app.extract import (
 from app.approval import apply_routing
 from app.matching import compare_invoice, vendor_matches
 from app.models import (
+    CO_PROPOSED,
+    ChangeOrder,
     Document,
     Extraction,
     Invoice,
@@ -56,6 +58,7 @@ ST_NEEDS_QUOTE = "needs_quote"    # invoice filed, but the job has no master quo
 ST_READY = "ready"
 ST_ERROR = "error"
 ST_OTHER = "other"                # not a quote or invoice (statement, packing slip)
+ST_NEEDS_APPROVAL = "needs_approval"  # change order read, waiting on a person
 
 
 class IngestError(RuntimeError):
@@ -191,6 +194,47 @@ def set_master_quote(session: Session, job: Job, quote: Quote, reason: str = "")
     quote.is_master = True
     quote.superseded_at = None
     session.flush()
+
+
+def create_change_order(
+    session: Session, job: Job, document: Document, result: ExtractionResult
+) -> ChangeOrder:
+    """File a change order the system read off a document.
+
+    Proposed, never approved. The extraction is good enough to save somebody
+    typing; it is not authorisation. A change order raises the ceiling on what
+    a vendor may bill, so if reading one off a vendor's own email were enough
+    to make it real, a vendor could authorise their own overbilling and every
+    other check in this system would then agree the invoice was fine.
+
+    So this fills the form in. A person still signs it.
+    """
+    payload = result.payload
+    amount = to_decimal(payload.get("total") or "")
+
+    # What the vendor actually wrote, because that is what the approver reads
+    # to decide. Their line descriptions first; the covering subject if the
+    # change order has no lines, which is common.
+    parts = [
+        (line.get("description") or "").strip()
+        for line in (payload.get("lines") or [])[:4]
+        if isinstance(line, dict)
+    ]
+    described = " · ".join(p for p in parts if p) or (document.subject or "").strip()
+
+    change_order = ChangeOrder(
+        job_id=job.id,
+        document_id=document.id,
+        vendor=(payload.get("vendor") or "").strip(),
+        number=(payload.get("document_number") or "").strip(),
+        amount=amount,
+        description=described,
+        status=CO_PROPOSED,
+        approved_by="",
+    )
+    session.add(change_order)
+    session.flush()
+    return change_order
 
 
 def create_invoice(
@@ -350,10 +394,13 @@ def ingest_file(
     # suppliers quote us constantly - flagging every one of those would be
     # noise, and noise is how a warning stops being read. A quote also asks
     # for no money. An invoice does.
-    if result.doc_type == "invoice":
+    # A change order is screened too. It asks for no money directly, but it
+    # raises the ceiling on what a vendor may bill, so a forged one is worth as
+    # much to an attacker as a forged invoice.
+    if result.doc_type in ("invoice", "change_order"):
         _screen(session, document, result)
 
-    if result.doc_type not in ("quote", "invoice"):
+    if result.doc_type not in ("quote", "invoice", "change_order"):
         document.status = ST_OTHER
         document.error = "Not a quote or invoice - filed without comparison."
         session.flush()
@@ -386,7 +433,11 @@ def ingest_file(
     job = get_or_create_job(session, job_number)
     document.job_id = job.id
 
-    if result.doc_type == "quote":
+    if result.doc_type == "change_order":
+        create_change_order(session, job, document, result)
+        document.status = ST_NEEDS_APPROVAL
+        recompare_job(session, job)
+    elif result.doc_type == "quote":
         vendor_name = (result.payload.get("vendor") or "").strip()
         existing_master, _ = job.master_for_vendor(vendor_name)
         had_master = existing_master is not None

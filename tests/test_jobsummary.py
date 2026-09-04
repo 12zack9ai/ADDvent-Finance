@@ -25,6 +25,8 @@ from app.models import (  # noqa: E402
     APPROVAL_PAID,
     APPROVAL_PENDING,
     APPROVAL_REJECTED,
+    CO_APPROVED,
+    CO_PROPOSED,
     VERDICT_MATCH,
     VERDICT_NOT_ON_QUOTE,
     VERDICT_OVER,
@@ -54,6 +56,14 @@ def job(quotes=(), invoices=(), change_orders=()) -> Job:
 def quote(total="100000.00", vendor="New Castle Building Products") -> Quote:
     return Quote(job_id=1, document_id=1, vendor=vendor, is_master=True,
                  total=D(total))
+
+
+def co(amount, vendor="New Castle Building Products", status=CO_APPROVED,
+       number="CO-1"):
+    # status passed explicitly: a column default lands at INSERT, not on a
+    # transient object, and `is_live` fails closed.
+    return ChangeOrder(job_id=1, vendor=vendor, number=number, amount=D(amount),
+                       status=status, approved_by="Zack")
 
 
 def line(sku="GAFT3PG", extended="1000.00", verdict=VERDICT_MATCH, desc=""):
@@ -104,8 +114,7 @@ def test_change_orders_raise_what_the_job_is_allowed_to_cost():
     fires on normal work is a flag people learn to click past."""
     s = jobsummary.build(job(
         quotes=[quote("100000.00")],
-        change_orders=[ChangeOrder(job_id=1, vendor="New Castle Building Products",
-                                   amount=D("15000.00"))],
+        change_orders=[co("15000.00")],
         invoices=[invoice("112000.00")],
     ))
     assert s.authorised == D("115000.00")
@@ -313,3 +322,42 @@ def test_three_duplicates_report_every_pair_biggest_first():
 
     assert len(s.overlaps) == 2
     assert s.overlaps[0].shared_value == D("5000.00")   # biggest first
+
+
+# --- change orders only count once somebody signs them --------------------
+
+def test_a_proposed_change_order_raises_nothing():
+    """The whole safety property. A change order read off a vendor's own email
+    must not quietly close the gap that brings a person to look at the job."""
+    s = jobsummary.build(job(
+        quotes=[quote("100000.00")],
+        change_orders=[co("15000.00", status=CO_PROPOSED)],
+        invoices=[invoice("112000.00")],
+    ))
+    assert s.change_orders == D("0")
+    assert s.authorised == D("100000.00")
+    assert s.needs_explaining                 # still over, and still says so
+    assert s.proposed_total == D("15000.00")  # but the paperwork is visible
+    assert len(s.proposed_change_orders) == 1
+
+
+def test_approving_it_is_what_closes_the_gap():
+    approved = jobsummary.build(job(
+        quotes=[quote("100000.00")],
+        change_orders=[co("15000.00", status=CO_APPROVED)],
+        invoices=[invoice("112000.00")],
+    ))
+    assert approved.change_orders == D("15000.00")
+    assert not approved.needs_explaining
+    assert approved.proposed_change_orders == []
+
+
+def test_a_rejected_change_order_authorises_nothing_and_is_not_pending():
+    s = jobsummary.build(job(
+        quotes=[quote("100000.00")],
+        change_orders=[co("15000.00", status="rejected")],
+        invoices=[invoice("112000.00")],
+    ))
+    assert s.change_orders == D("0")
+    assert s.needs_explaining
+    assert s.proposed_change_orders == []     # decided, not waiting

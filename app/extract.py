@@ -21,7 +21,7 @@ from app.config import settings
 
 # Bumped whenever the prompt or schema changes, so stored extractions stay
 # traceable to how they were produced.
-PROMPT_VERSION = "2026-09-04.1"
+PROMPT_VERSION = "2026-09-05.1"
 
 _MEDIA_TYPES = {
     ".pdf": "application/pdf",
@@ -78,6 +78,23 @@ You are a transcriber, not an accountant. Follow these rules exactly:
 6. DOC_TYPE: "quote" for quotes, estimates, proposals, and bids. "invoice" for
    invoices and bills. "other" for statements, packing slips, credit memos, and
    anything else.
+
+6a. "change_order" is for a document authorising EXTRA scope or cost on work
+   already quoted. It refers back to existing work rather than pricing a job
+   from scratch: "change order", "extra work order", "additional work",
+   "revised to add", "as discussed, add the following". It usually names a
+   small number of added items and an amount that is a fraction of the
+   original job.
+   The distinction that matters is REPLACES versus ADDS TO. A revised quote
+   that restates the whole job from the beginning is a "quote" - it supersedes
+   the original. A document that lists only what is being added, on top of a
+   price already agreed, is a "change_order".
+   When you genuinely cannot tell, choose "quote". A quote that should have
+   been a change order is filed as a new master and a person sees it; a change
+   order that should have been a quote raises the ceiling on what a vendor may
+   bill, which is the more expensive mistake.
+   TOTAL, for a change order, is the amount being ADDED - not the new
+   contract value including the original.
 
 7. JOB_NUMBER_HINT: our job number, and ONLY our job number.
 
@@ -174,7 +191,10 @@ RECORD_TOOL = {
             "job_number_hint", "ship_to", "page_info", "confidence_notes",
         ],
         "properties": {
-            "doc_type": {"type": "string", "enum": ["quote", "invoice", "other"]},
+            "doc_type": {
+                "type": "string",
+                "enum": ["quote", "invoice", "change_order", "other"],
+            },
             "vendor": {"type": "string", "description": "Company issuing the document"},
             "document_number": {"type": "string", "description": "Invoice or quote number"},
             "document_date": {"type": "string", "description": "YYYY-MM-DD or empty"},
@@ -247,6 +267,8 @@ def validate_payload(payload: Any) -> dict[str, Any]:
         )
 
     doc_type = (payload.get("doc_type") or "other").strip().lower()
+    # A change order is exempt: "as discussed, add $2,400 for the extra ridge
+    # vent" is a complete and perfectly valid change order with no line items.
     if doc_type in {"quote", "invoice"} and not lines:
         raise ExtractionError(
             f"This was read as a {doc_type} but no line items came out of it. "

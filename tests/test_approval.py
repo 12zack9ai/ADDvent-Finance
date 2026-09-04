@@ -22,6 +22,8 @@ from app.approval import (  # noqa: E402
     tolerance_for,
 )
 from app.models import (  # noqa: E402
+    CO_APPROVED,
+    CO_PROPOSED,
     TIER_OWNER,
     TIER_PM,
     ChangeOrder,
@@ -57,10 +59,14 @@ def make(total="1000.00", over="0", unmatched=0, quote_id=1,
     return invoice
 
 
-def co(amount, number="CO-1", vendor="Baker Supply"):
+def co(amount, number="CO-1", vendor="Baker Supply", status=CO_APPROVED):
+    # status is passed explicitly because a column default is applied at INSERT,
+    # not on a transient object - and `is_live` fails closed, so a change order
+    # built in memory without one authorises nothing.
     return ChangeOrder(
         job_id=1, number=number, vendor=vendor, amount=D(amount),
         description="Hidden rot at north elevation", approved_by="Owner",
+        status=status,
     )
 
 
@@ -288,3 +294,55 @@ def test_an_invoice_with_no_document_is_not_flagged():
     r = route(make())
     assert r.trust_flags == []
     assert not r.untrusted
+
+
+# --- a change order is not authorisation until somebody signs it -----------
+
+def test_a_proposed_change_order_does_not_release_a_held_invoice():
+    """The one that matters. If reading a change order off a vendor's own email
+    were enough to make it real, a vendor could authorise their own overbilling
+    and every other check here would then agree the invoice was fine."""
+    invoice = make(total="10000.00", over="900.00",
+                   change_orders=[co("1500.00", status=CO_PROPOSED)])
+    r = route(invoice)
+
+    assert r.action == ACTION_HOLD
+    assert r.covering_change_order is None
+
+
+def test_but_the_reviewer_is_told_the_paperwork_is_already_here():
+    """Saying "no change order on file" would be false, and would send somebody
+    hunting for a document that is sitting on the same page."""
+    invoice = make(total="10000.00", over="900.00",
+                   change_orders=[co("1500.00", number="CO-7", status=CO_PROPOSED)])
+    r = route(invoice)
+
+    reasons = " ".join(r.reasons)
+    assert "has not been approved" in reasons
+    assert "CO-7" in reasons
+    assert "no change order on file" not in reasons
+    assert len(r.proposed_change_orders) == 1
+
+
+def test_a_proposed_change_order_too_small_to_cover_it_is_not_advertised():
+    invoice = make(total="10000.00", over="900.00",
+                   change_orders=[co("100.00", status=CO_PROPOSED)])
+    r = route(invoice)
+    assert "no change order on file" in " ".join(r.reasons)
+
+
+def test_a_rejected_change_order_authorises_nothing():
+    invoice = make(total="10000.00", over="900.00",
+                   change_orders=[co("1500.00", status="rejected")])
+    r = route(invoice)
+    assert r.action == ACTION_HOLD
+    assert r.covering_change_order is None
+    assert r.proposed_change_orders == []
+
+
+def test_an_approved_change_order_still_works_exactly_as_before():
+    invoice = make(total="10000.00", over="900.00",
+                   change_orders=[co("1500.00", status=CO_APPROVED)])
+    r = route(invoice)
+    assert r.action != ACTION_HOLD
+    assert r.covering_change_order is not None

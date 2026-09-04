@@ -34,6 +34,7 @@ from app.models import (
     APPROVAL_HELD,
     APPROVAL_PAID,
     APPROVAL_PENDING,
+    CO_PROPOSED,
     TIER_OWNER,
     TIER_PM,
     ChangeOrder,
@@ -75,6 +76,7 @@ class Routing:
     blockers: list[str] = field(default_factory=list)
     covering_change_order: Optional[ChangeOrder] = None
     available_change_orders: list[ChangeOrder] = field(default_factory=list)
+    proposed_change_orders: list[ChangeOrder] = field(default_factory=list)
     trust_flags: list = field(default_factory=list)
 
     @property
@@ -117,10 +119,27 @@ def find_receipt(invoice: Invoice) -> Optional[Receipt]:
 
 
 def covering_change_orders(invoice: Invoice) -> list[ChangeOrder]:
-    """Change orders on this job that could authorise an overage from this vendor."""
+    """Approved change orders that could authorise an overage from this vendor.
+
+    Approved only. A change order the system read off a vendor's email is a
+    proposal until somebody here signs it, and letting a proposal raise the
+    ceiling would let a vendor authorise their own overbilling.
+    """
     return [
         co for co in invoice.job.change_orders
-        if vendor_matches(co.vendor, invoice.vendor)
+        if co.is_live and vendor_matches(co.vendor, invoice.vendor)
+    ]
+
+
+def proposed_change_orders(invoice: Invoice) -> list[ChangeOrder]:
+    """Unapproved change orders that would cover this overage if signed.
+
+    Reported so the reviewer knows the paperwork exists and where it is,
+    rather than being told there is nothing on file when there nearly is.
+    """
+    return [
+        co for co in invoice.job.change_orders
+        if co.status == CO_PROPOSED and vendor_matches(co.vendor, invoice.vendor)
     ]
 
 
@@ -150,6 +169,7 @@ def route(invoice: Invoice) -> Routing:
         tolerance=tolerance,
         within_tolerance=within,
         available_change_orders=covering_change_orders(invoice),
+        proposed_change_orders=proposed_change_orders(invoice),
         trust_flags=trust.flags_for(invoice.document),
     )
 
@@ -214,10 +234,23 @@ def route(invoice: Invoice) -> Routing:
             else:
                 routing.action = ACTION_HOLD
                 routing.tier = TIER_OWNER
-                routing.reasons.append(
-                    f"Billed {_money(variance)} above quote — beyond the "
-                    f"{_money(tolerance)} tolerance — with no change order on file."
-                )
+                waiting = _pick_covering(routing.proposed_change_orders, variance)
+                if waiting is not None:
+                    # The paperwork exists and nobody has signed it. Saying
+                    # "no change order on file" here would be false, and would
+                    # send somebody looking for a document that is already here.
+                    routing.reasons.append(
+                        f"Billed {_money(variance)} above quote — beyond the "
+                        f"{_money(tolerance)} tolerance. A change order for "
+                        f"{_money(waiting.amount)} "
+                        f"({waiting.number or 'unnumbered'}) is on this job but "
+                        f"has not been approved. Approve it and this clears."
+                    )
+                else:
+                    routing.reasons.append(
+                        f"Billed {_money(variance)} above quote — beyond the "
+                        f"{_money(tolerance)} tolerance — with no change order on file."
+                    )
                 return routing
 
     if invoice.lines_unmatched:

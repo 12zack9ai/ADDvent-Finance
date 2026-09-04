@@ -26,7 +26,7 @@ from app import services, trust  # noqa: E402
 from app.db import Base, SessionLocal, engine, init_db  # noqa: E402
 from app.extract import ExtractionError, ExtractionResult  # noqa: E402
 from app.main import app  # noqa: E402
-from app.models import Document, Invoice, Job  # noqa: E402
+from app.models import ChangeOrder, Document, Invoice, Job  # noqa: E402
 from app.pdf import pdf_available  # noqa: E402
 
 D = Decimal
@@ -684,3 +684,126 @@ def test_a_corrected_invoice_that_never_replaced_the_original_is_called_out(clie
     page = client.get("/job/260000")
     assert "Two invoices look like the same material" not in page.text
     assert "Same material billed on two invoices" not in page.text
+
+
+# --- a change order emailed in, read, and signed ---------------------------
+
+CHANGE_ORDER_PAYLOAD = {
+    "doc_type": "change_order",
+    "vendor": "New Castle Building Products",
+    "document_number": "CO-7",
+    "document_date": "2026-09-12",
+    "due_date": "",
+    "currency": "USD",
+    "subtotal": "", "tax": "", "freight": "", "total": "150.00",
+    "job_number_hint": "",
+    "ship_to": "",
+    "page_info": "",
+    "confidence_notes": "",
+    "lines": [
+        {"line_no": 1, "sku": "GAFTP", "description": "Price increase on Tiger Paw per mill notice",
+         "qty": "", "uom": "", "unit_price": "", "price_uom": "", "extended": "150.00"},
+    ],
+}
+
+
+def test_a_change_order_arrives_as_a_document_and_waits_for_a_person(client, tmp_path):
+    upload(client, _pdf(tmp_path, "q.pdf", "q-co"), QUOTE_PAYLOAD, job_number="260000")
+    upload(client, _pdf(tmp_path, "i.pdf", "i-co"), INVOICE_PAYLOAD, job_number="260000")
+
+    session = SessionLocal()
+    invoice_id = session.query(Invoice).filter_by(invoice_number="INV-551900").one().id
+    session.close()
+
+    # $91 over quote, which is inside tolerance, so tighten it to force a hold.
+    from app.config import settings
+    old_abs, old_pct = settings.tolerance_abs, settings.tolerance_pct
+    settings.tolerance_abs, settings.tolerance_pct = "1", 0.0
+    try:
+        session = SessionLocal()
+        from app.approval import apply_routing
+        apply_routing(session.get(Invoice, invoice_id))
+        session.commit()
+        session.close()
+
+        page = client.get(f"/invoice/{invoice_id}")
+        assert "no change order on file" in page.text
+
+        # The vendor emails the change order in. It is read, not believed.
+        upload(client, _pdf(tmp_path, "co.pdf", "co-release"), CHANGE_ORDER_PAYLOAD,
+               job_number="260000")
+
+        session = SessionLocal()
+        co = session.query(ChangeOrder).one()
+        co_id, co_status = co.id, co.status
+        session.close()
+        assert co_status == "proposed"
+
+        page = client.get("/job/260000")
+        assert "Waiting on you" in page.text
+        assert "authorises nothing" in page.text
+
+        # It has NOT closed the gap - but the reviewer is told it is here.
+        page = client.get(f"/invoice/{invoice_id}")
+        assert "has not been approved" in page.text
+        assert "no change order on file" not in page.text
+
+        session = SessionLocal()
+        assert session.get(Invoice, invoice_id).approval_status == "held"
+        session.close()
+
+        # A person signs it, and that is what releases the invoice.
+        resp = client.post(f"/change-order/{co_id}/decide",
+                           data={"decision": "approve", "actor": "Zack"},
+                           follow_redirects=False)
+        assert resp.status_code == 303
+        assert "released" in resp.headers["location"]
+
+        session = SessionLocal()
+        assert session.get(Invoice, invoice_id).approval_status != "held"
+        assert session.get(ChangeOrder, co_id).approved_by == "Zack"
+        session.close()
+    finally:
+        settings.tolerance_abs, settings.tolerance_pct = old_abs, old_pct
+
+
+def test_a_change_order_can_be_refused(client, tmp_path):
+    upload(client, _pdf(tmp_path, "q.pdf", "q-refuse"), QUOTE_PAYLOAD, job_number="260000")
+    upload(client, _pdf(tmp_path, "co.pdf", "co-refuse"), CHANGE_ORDER_PAYLOAD,
+           job_number="260000")
+
+    session = SessionLocal()
+    co_id = session.query(ChangeOrder).one().id
+    session.close()
+
+    client.post(f"/change-order/{co_id}/decide",
+                data={"decision": "reject", "actor": "Zack", "note": "Never agreed to this"},
+                follow_redirects=False)
+
+    session = SessionLocal()
+    co = session.get(ChangeOrder, co_id)
+    assert co.status == "rejected"
+    assert co.decided_note == "Never agreed to this"
+    session.close()
+
+    # And it cannot be decided a second time.
+    resp = client.post(f"/change-order/{co_id}/decide",
+                       data={"decision": "approve", "actor": "Someone Else"},
+                       follow_redirects=False)
+    assert "err=" in resp.headers["location"]
+
+
+def test_a_change_order_typed_in_by_hand_is_approved_by_the_typing(client, tmp_path):
+    upload(client, _pdf(tmp_path, "q.pdf", "q-typed"), QUOTE_PAYLOAD, job_number="260000")
+
+    client.post("/job/260000/change-order", data={
+        "vendor": "New Castle Building Products", "amount": "1500.00",
+        "number": "CO-1", "approved_by": "Zack", "description": "Hidden rot",
+    }, follow_redirects=False)
+
+    session = SessionLocal()
+    co = session.query(ChangeOrder).one()
+    assert co.status == "approved"
+    assert co.approved_by == "Zack"
+    assert co.decided_on is not None
+    session.close()
