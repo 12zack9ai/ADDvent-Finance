@@ -147,6 +147,47 @@
   .ap-trail summary{cursor:pointer;color:#2563a8;font-weight:700}
   .ap-trail table{width:100%;margin-top:7px;font-size:8.8pt}
   .ap-trail td{padding:4px 8px 4px 0;border-bottom:1px solid var(--rule-lt);color:var(--soft)}
+  /* ---- the vendor's own document, rebuilt ----
+     Deliberately a facsimile of the printed invoice - same letterhead position,
+     same banded header, same QUANTITY / UOM / ITEM-DESCRIPTION / PRICE-UOM /
+     AMOUNT column order - so a reader can hold this against the paper and check
+     it line for line. The markup is added to that form, not substituted for it. */
+  .vdoc{border:1px solid #c9ced6;padding:17px 19px 19px;background:#fff}
+  .vhead{width:100%;border-collapse:collapse;margin-bottom:11px}
+  .vhead td{vertical-align:top;padding:0;border:none}
+  .vh-vendor{font-family:Georgia,"Times New Roman",serif;font-size:16pt;font-weight:700;
+             letter-spacing:.3px;line-height:1.08;color:#111}
+  .vh-sub{font-size:7.4pt;color:var(--mute);margin-top:5px;letter-spacing:1.4px;
+          text-transform:uppercase;font-weight:700}
+  .vh-right{text-align:right;width:2.4in}
+  .vbox{border:1.6px solid #000;display:inline-block;min-width:2.1in}
+  .vbox-t{background:#d9d9d9;font-weight:700;letter-spacing:3px;font-size:9.5pt;
+          padding:3px 0;border-bottom:1.6px solid #000;text-align:center}
+  .vbox-n{padding:5px 0;font-size:10.5pt;text-align:center;letter-spacing:.5px}
+  .vpo{font-size:8pt;margin:9px 0 5px}
+  .vband{width:100%;border-collapse:collapse;font-size:7.6pt;border:1px solid #000}
+  .vband td{border:1px solid #000;padding:2.5px 5px}
+  .vband .vk{font-weight:700;white-space:nowrap;background:#f4f5f7;width:1.05in}
+  .vitems{width:100%;border-collapse:collapse;margin-top:11px;font-size:8.6pt}
+  .vitems th{background:#d9d9d9;border-top:1.4px solid #000;border-bottom:1.4px solid #000;
+             font-size:7.4pt;letter-spacing:.5px;padding:3.5px 6px;text-align:left;
+             color:#000;text-transform:none}
+  .vitems th.r{text-align:right}
+  .vitems td{padding:5px 6px;border-bottom:1px solid #e9ebee;vertical-align:top}
+  .vitems td.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .vitems tr{page-break-inside:avoid}
+  .vsku{font-weight:700;font-size:8.4pt}
+  .vdesc{font-size:8.2pt;color:#222}
+  .vprice{font-weight:700;padding:5px 7px !important}
+  .vprice .was{display:block;font-size:7.6pt;font-weight:700;margin-top:2px;white-space:nowrap}
+  .vdelta{display:block;font-size:7.6pt;font-weight:700;margin-top:2px}
+  .vpack{display:block;font-size:7pt;font-weight:700;opacity:.85;margin-top:1px}
+  .vtot{width:3.3in;margin-left:auto;margin-top:12px;border-collapse:collapse;font-size:9pt}
+  .vtot td{padding:3px 6px;border:none}
+  .vtot td.r{text-align:right;font-variant-numeric:tabular-nums}
+  .vtot tr.grand td{border-top:1.4px solid #000;font-weight:800;font-size:10.5pt;padding-top:5px}
+  .vtot tr.var td{font-weight:700;color:var(--over-ink)}
+  .vfoot{margin-top:13px;padding-top:6px;border-top:1px solid #d8dce2;font-size:7pt;color:#555}
   :root{--mute:#727a88;--soft:#4a5262;--rule:#dfe3e9;--rule-lt:#eef0f4}
 </style>
 </head>
@@ -173,25 +214,9 @@
 
 <div class="sheet">
 
-  <div class="head">
-    <div>
-      <div class="doclabel">Invoice · checked against master quote</div>
-      <h1 class="vendor">{{ invoice.vendor or "Unknown vendor" }}</h1>
-      <div class="jobchip">JOB {{ job.job_number }}</div>
-      {% if job.name %}<div style="margin-top:5px;color:var(--soft)">{{ job.name }}</div>{% endif %}
-    </div>
-    <div class="meta">
-      <div><span class="k">Invoice no.</span> <span class="v">{{ invoice.invoice_number or "—" }}</span></div>
-      <div><span class="k">Invoice date</span> <span class="v">{{ invoice.invoice_date or "—" }}</span></div>
-      <div><span class="k">Due date</span> <span class="v">{{ invoice.due_date or "—" }}</span></div>
-      {% if quote %}
-      <div style="margin-top:6px;padding-top:5px;border-top:1px solid var(--rule-lt)">
-        <span class="k">Master quote</span> <span class="v">{{ quote.quote_number or ("#" ~ quote.id) }}</span>
-      </div>
-      <div><span class="k">Quote date</span> <span class="v">{{ quote.quote_date or "—" }}</span></div>
-      {% endif %}
-    </div>
-  </div>
+  {# The vendor letterhead lives inside the rebuilt document below, not here.
+     What sits above it is the verdict - the one thing a reader needs before
+     they start reading numbers. #}
 
   {% if not quote %}
     <div class="banner b-none">
@@ -233,79 +258,114 @@
   </div>
   {% endif %}
 
-  <table>
-    <thead>
-      <tr>
-        <th class="ln">#</th>
-        <th>Item</th>
-        <th class="desc">Description</th>
-        <th class="r">Qty</th>
-        <th class="r">Unit price</th>
-        <th class="r">Vs. quote</th>
-        <th class="r">Amount</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for line in lines %}
-      <tr>
-        <td class="ln">{{ line.line_no }}</td>
-        <td class="sku">{{ line.sku or "—" }}</td>
-        <td class="desc">{{ line.description or "—" }}</td>
-        <td class="r">{{ line.qty | qty }}{% if line.uom %} <span style="color:var(--mute);font-size:8.2pt">{{ line.uom }}</span>{% endif %}</td>
+  <div class="vdoc">
 
-        {# THE MARKED-UP CELL. red = billed high, green = billed low, gold = exact. #}
-        {% if line.verdict == "over" %}
-          <td class="r price p-over">
-            {{ line.unit_price | money4 }}{% if line.price_uom %}<span style="font-weight:600;opacity:.75">/{{ line.price_uom }}</span>{% endif %}
-            <span class="was">quoted {{ line.quote_unit_price | money4 }}{% if line.quote_line and line.quote_line.price_uom %}/{{ line.quote_line.price_uom }}{% endif %}</span>
+    <table class="vhead"><tr>
+      <td>
+        <div class="vh-vendor">{{ invoice.vendor or "Unknown vendor" }}</div>
+        <div class="vh-sub">Invoice &middot; rebuilt and checked against the master quote</div>
+      </td>
+      <td class="vh-right">
+        <div class="vbox">
+          <div class="vbox-t">INVOICE</div>
+          <div class="vbox-n">{{ invoice.invoice_number or "&mdash;" }}</div>
+        </div>
+      </td>
+    </tr></table>
+
+    {% if invoice.po_reference %}<div class="vpo"><b>PO:</b> {{ invoice.po_reference }}</div>{% endif %}
+
+    <table class="vband">
+      <tr>
+        <td class="vk">Invoice Date:</td><td>{{ invoice.invoice_date or "&mdash;" }}</td>
+        <td class="vk">Due Date:</td><td>{{ invoice.due_date or "&mdash;" }}</td>
+        <td class="vk">Job:</td><td>{{ job.job_number }}</td>
+      </tr>
+      <tr>
+        <td class="vk">Ship To:</td><td colspan="3">{{ invoice.ship_to or "&mdash;" }}</td>
+        <td class="vk">Quote Ref:</td><td>{{ (quote.quote_number or ("#" ~ quote.id)) if quote else "&mdash;" }}</td>
+      </tr>
+    </table>
+
+    <table class="vitems">
+      <thead>
+        <tr>
+          <th class="r" style="width:9%">QUANTITY</th>
+          <th style="width:7%">UOM</th>
+          <th>ITEM/DESCRIPTION</th>
+          <th class="r" style="width:21%">PRICE/UOM</th>
+          <th class="r" style="width:15%">AMOUNT</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for line in lines %}
+        <tr>
+          <td class="r">{{ line.qty | qty }}</td>
+          <td>{{ line.uom or "" }}</td>
+          <td>
+            <span class="vsku">{{ line.sku or "&mdash;" }}</span><br>
+            <span class="vdesc">{{ line.description or "" }}</span>
           </td>
-          <td class="r delta d-over">
-            +{{ line.unit_variance | money4 }}/{{ line.uom or "unit" }}
-            {% if line.extended_variance %}<br><span style="font-size:7.8pt">+{{ line.extended_variance | money }} this line</span>{% endif %}
-            {% if "effective" in line.match_method %}<br><span style="font-size:7.4pt;font-weight:600;opacity:.8">packaging adjusted</span>{% endif %}
-          </td>
-        {% elif line.verdict == "under" %}
-          <td class="r price p-under">
-            {{ line.unit_price | money4 }}{% if line.price_uom %}<span style="font-weight:600;opacity:.75">/{{ line.price_uom }}</span>{% endif %}
-            <span class="was">quoted {{ line.quote_unit_price | money4 }}{% if line.quote_line and line.quote_line.price_uom %}/{{ line.quote_line.price_uom }}{% endif %}</span>
-          </td>
-          <td class="r delta d-under">
-            −{{ line.unit_variance | abs_money4 }}/{{ line.uom or "unit" }}
-            {% if line.extended_variance %}<br><span style="font-size:7.8pt">−{{ line.extended_variance | abs_money }} this line</span>{% endif %}
-          </td>
-        {% elif line.verdict == "match" %}
-          <td class="r price p-match">{{ line.unit_price | money4 }}{% if line.price_uom %}<span style="font-weight:600;opacity:.75">/{{ line.price_uom }}</span>{% endif %}</td>
-          <td class="r delta" style="color:var(--ok-ink);font-weight:700">As quoted</td>
-        {% else %}
-          <td class="r price p-none">{{ line.unit_price | money4 }}{% if line.price_uom %}<span style="font-weight:600;opacity:.75">/{{ line.price_uom }}</span>{% endif %}</td>
-          <td class="r delta d-none">
-            {% if not quote %}no quote yet
-            {% elif "no_price" in line.match_method %}no price to compare
-            {% else %}not on quote{% endif %}
-          </td>
+
+          {# THE MARKED-UP CELL. red = billed above quote, green = below, gold = exact,
+             grey = the quote never priced this item. #}
+          {% if line.verdict == "over" %}
+            <td class="r vprice p-over">
+              {{ line.unit_price | money4 }}{% if line.price_uom %}/{{ line.price_uom }}{% endif %}
+              <span class="was">quoted {{ line.quote_unit_price | money4 }}{% if line.quote_line and line.quote_line.price_uom %}/{{ line.quote_line.price_uom }}{% endif %}</span>
+              {% if "effective" in line.match_method %}<span class="vpack">packaging adjusted</span>{% endif %}
+            </td>
+            <td class="r">
+              {{ line.extended | money }}
+              {% if line.extended_variance %}<span class="vdelta d-over">+{{ line.extended_variance | money }} over quote</span>{% endif %}
+            </td>
+          {% elif line.verdict == "under" %}
+            <td class="r vprice p-under">
+              {{ line.unit_price | money4 }}{% if line.price_uom %}/{{ line.price_uom }}{% endif %}
+              <span class="was">quoted {{ line.quote_unit_price | money4 }}{% if line.quote_line and line.quote_line.price_uom %}/{{ line.quote_line.price_uom }}{% endif %}</span>
+              {% if "effective" in line.match_method %}<span class="vpack">packaging adjusted</span>{% endif %}
+            </td>
+            <td class="r">
+              {{ line.extended | money }}
+              {% if line.extended_variance %}<span class="vdelta d-under">&minus;{{ line.extended_variance | abs_money }} under quote</span>{% endif %}
+            </td>
+          {% elif line.verdict == "match" %}
+            <td class="r vprice p-match">
+              {{ line.unit_price | money4 }}{% if line.price_uom %}/{{ line.price_uom }}{% endif %}
+              {% if "effective" in line.match_method %}<span class="vpack">packaging adjusted</span>{% endif %}
+            </td>
+            <td class="r">{{ line.extended | money }}</td>
+          {% else %}
+            <td class="r vprice p-none">
+              {{ line.unit_price | money4 }}{% if line.price_uom %}/{{ line.price_uom }}{% endif %}
+              <span class="was">{% if not quote %}no quote yet{% elif "no_price" in line.match_method %}no price to compare{% else %}not on the quote{% endif %}</span>
+            </td>
+            <td class="r">{{ line.extended | money }}</td>
+          {% endif %}
+        </tr>
+        {% endfor %}
+        {% if not lines %}
+        <tr><td colspan="5" style="padding:18px;text-align:center;color:var(--mute)">
+          No line items were read from this document.
+        </td></tr>
         {% endif %}
+      </tbody>
+    </table>
 
-        <td class="r">{{ line.extended | money }}</td>
-      </tr>
-      {% endfor %}
-      {% if not lines %}
-      <tr><td colspan="7" style="padding:18px;text-align:center;color:var(--mute)">
-        No line items were read from this document.
-      </td></tr>
-      {% endif %}
-    </tbody>
-  </table>
-
-  <div class="totals">
-    <table>
+    <table class="vtot">
       <tr><td>Subtotal</td><td class="r">{{ invoice.subtotal | money }}</td></tr>
       {% if invoice.freight %}<tr><td>Freight / delivery</td><td class="r">{{ invoice.freight | money }}</td></tr>{% endif %}
       {% if invoice.tax %}<tr><td>Tax</td><td class="r">{{ invoice.tax | money }}</td></tr>{% endif %}
-      <tr class="grand"><td>Invoice total</td><td class="r">{{ invoice.total | money }}</td></tr>
+      <tr class="grand"><td>TOTAL</td><td class="r">{{ invoice.total | money }}</td></tr>
       {% if invoice.overbilled_amount and invoice.overbilled_amount > 0 %}
       <tr class="var"><td>Above quoted pricing</td><td class="r">+{{ invoice.overbilled_amount | money }}</td></tr>
       {% endif %}
     </table>
+
+    <div class="vfoot">
+      Rebuilt from <em>{{ invoice.document.filename }}</em>{% if invoice.page_info %} &middot; page {{ invoice.page_info }}{% endif %}
+      &middot; every figure above was read from that document; the colours were computed here.
+    </div>
   </div>
 
   <div class="legend">
