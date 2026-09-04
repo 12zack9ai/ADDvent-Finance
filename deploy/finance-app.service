@@ -1,5 +1,5 @@
 [Unit]
-Description=Adventures Finance — invoice checking
+Description=Addventures Finance — invoice checking
 After=network-online.target
 Wants=network-online.target
 

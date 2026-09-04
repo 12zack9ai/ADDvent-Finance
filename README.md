@@ -1,4 +1,4 @@
-# Adventures Finance — invoice checking
+# Addventures Finance — invoice checking
 
 Checks every vendor invoice against the master quote for its job, and produces a
 marked-up copy showing exactly where the pricing differs.
@@ -80,7 +80,7 @@ logic is unit-tested. The AI never decides whether two numbers differ.
 minutes, Mac and Windows, no server needed. Start here.
 
 **[deploy/DEPLOY.md](deploy/DEPLOY.md)** — the server install at
-`finance.adventuresinc.com`, for whoever administers it.
+`finance.addventuresinc.com`, for whoever administers it.
 
 The short version:
 
@@ -134,8 +134,8 @@ wait on.
 
 ```
 MAIL_ENABLED=true
-IMAP_HOST=mail.adventuresinc.com
-IMAP_USER=ap@adventuresinc.com
+IMAP_HOST=mail.addventuresinc.com
+IMAP_USER=ap@addventuresinc.com
 IMAP_PASSWORD=...
 ```
 

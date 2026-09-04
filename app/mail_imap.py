@@ -5,10 +5,15 @@ Plesk, or any ordinary mail host) it is the right one: create the address in the
 control panel, put the credentials in `.env`, done. No app registration, no
 admin consent, no waiting on anyone.
 
-    IMAP_HOST=mail.adventuresinc.com
-    IMAP_USER=ap@adventuresinc.com
+    IMAP_HOST=addventuresinc.com     # cPanel: usually the bare domain
+    IMAP_PORT=993
+    IMAP_USER=aiap@addventuresinc.com  # the FULL address, not just "aiap"
     IMAP_PASSWORD=...
     MAIL_ENABLED=true
+
+The two things that trip this up: the incoming server on cPanel is normally the
+bare domain rather than mail.<domain>, and the username must be the whole email
+address. Both are shown under Email Accounts -> Connect Devices.
 
 Uses only the standard library - `imaplib` and `email` - so there is nothing
 extra to install and nothing to keep patched.

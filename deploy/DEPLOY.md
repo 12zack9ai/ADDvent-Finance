@@ -1,4 +1,4 @@
-# Deploying to finance.adventuresinc.com
+# Deploying to finance.addventuresinc.com
 
 Written to be handed to whoever administers the server. Assumes Debian/Ubuntu
 with systemd and nginx. Budget about 30 minutes.
@@ -8,12 +8,12 @@ with systemd and nginx. Budget about 30 minutes.
 - A Linux server (2 vCPU / 4 GB RAM is plenty) reachable on ports 80 and 443
 - Python 3.11 or newer
 - Chromium (for generating the marked-up PDFs)
-- A DNS `A` record: `finance.adventuresinc.com` -> the server's IP
+- A DNS `A` record: `finance.addventuresinc.com` -> the server's IP
 - An Anthropic API key (https://console.anthropic.com)
 
-Outbound HTTPS to `api.anthropic.com` must be allowed. If the mailbox is used,
-also `login.microsoftonline.com` and `graph.microsoft.com`. No inbound access is
-needed other than the web traffic itself.
+Outbound HTTPS to `api.anthropic.com` must be allowed, plus IMAP (port 993) to
+our own mail server once the mailbox is switched on. No inbound access is needed
+other than the web traffic itself.
 
 ## 1. System packages
 
@@ -62,11 +62,11 @@ Set at minimum:
 | `ANTHROPIC_API_KEY` | from console.anthropic.com |
 | `APP_PASSWORD` | a long shared passphrase for staff |
 | `SECRET_KEY` | `openssl rand -base64 48` |
-| `BASE_URL` | `https://finance.adventuresinc.com` |
+| `BASE_URL` | `https://finance.addventuresinc.com` |
 | `DATA_DIR` | `/var/lib/finance-automation` |
 
-Leave `MAIL_ENABLED=false` until IT provides the Graph credentials. The app is
-fully usable via upload until then.
+Leave `MAIL_ENABLED=false` until the mailbox is ready (step 7). The app is fully
+usable via upload until then.
 
 > **`APP_PASSWORD` and `SECRET_KEY` are not optional in production.** With
 > `APP_PASSWORD` blank the site is open to anyone who can reach the URL. The app
@@ -90,14 +90,31 @@ curl -s localhost:8000/healthz     # {"ok":true,"pdf":true,...}
 sudo cp deploy/nginx-finance.conf /etc/nginx/sites-available/finance
 sudo ln -s /etc/nginx/sites-available/finance /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
-sudo certbot --nginx -d finance.adventuresinc.com
+sudo certbot --nginx -d finance.addventuresinc.com
 ```
 
 Certbot rewrites the config for TLS and installs a renewal timer.
 
-## 7. Mailbox polling (once IT provides credentials)
+## 7. Mailbox polling
 
-Set the `MS_*` values and `MAIL_ENABLED=true` in `.env`, then:
+The mailbox is an ordinary account on our own mail hosting, read over IMAP —
+there is no app registration or admin consent involved. Set these in `.env`:
+
+```
+MAIL_ENABLED=true
+IMAP_HOST=addventuresinc.com          # cPanel: usually the bare domain
+IMAP_PORT=993
+IMAP_USER=aiap@addventuresinc.com     # the FULL address
+IMAP_PASSWORD=...
+```
+
+Check it before switching the timer on — this files nothing and marks nothing read:
+
+```bash
+sudo -u finance .venv/bin/python scripts/test_mail.py
+```
+
+Then:
 
 ```bash
 sudo cp deploy/finance-mail.service deploy/finance-mail.timer /etc/systemd/system/
@@ -112,7 +129,9 @@ sudo journalctl -u finance-mail -n 50   # check what it did
 The timer runs every 5 minutes. It is a one-shot script rather than a loop, so a
 failure can never leave polling silently stopped — the next tick just runs again.
 
-What to ask IT for is documented at the top of `app/mailbox.py`.
+(If the mailbox ever moves to Microsoft 365, `app/mailbox.py` holds the Graph
+backend and its header lists what to ask IT for. Nothing to do while it is on
+our own hosting.)
 
 ## 8. Backups
 
@@ -149,5 +168,5 @@ sudo systemctl restart finance-app
 | Documents fail with an API error | `ANTHROPIC_API_KEY` missing, invalid, or outbound HTTPS blocked. |
 | Everyone signed out after a restart | `SECRET_KEY` not set, so a random one is generated each boot. |
 | Site loads without asking for a password | `APP_PASSWORD` is blank. Set it and restart — this is urgent if the site is public. |
-| Mail poll reports an auth error | Admin consent not granted on the app registration, or the secret expired. Client secrets expire — note the date. |
+| Mail poll reports an auth error | Usually `IMAP_USER` is missing the `@domain` part — it must be the full address. Run `scripts/test_mail.py`, which says exactly what failed. |
 | 502 from nginx | The app service is not running: `systemctl status finance-app`. |

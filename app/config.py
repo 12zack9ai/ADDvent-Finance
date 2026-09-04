@@ -28,7 +28,7 @@ class Settings:
     extraction_model: str = os.getenv("EXTRACTION_MODEL", "claude-opus-5")
 
     # --- site --------------------------------------------------------------
-    site_name: str = os.getenv("SITE_NAME", "Adventures Inc · Finance")
+    site_name: str = os.getenv("SITE_NAME", "Addventures Inc · Finance")
     base_url: str = os.getenv("BASE_URL", "http://127.0.0.1:8000")
 
     # --- access control ----------------------------------------------------

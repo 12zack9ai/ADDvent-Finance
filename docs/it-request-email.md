@@ -6,7 +6,7 @@ Copy from the line below. Replace the bracketed bits.
 
 ---
 
-**Subject:** Hosting request — internal finance app at finance.adventuresinc.com
+**Subject:** Hosting request — internal finance app at finance.addventuresinc.com
 
 Hi [name],
 
@@ -55,7 +55,7 @@ a restore tested once rather than assumed.
 **One more small thing:**
 
 Please create a mailbox on our own hosting — something like
-`ap@adventuresinc.com` — and send me the IMAP details (server name, port, and
+`ap@addventuresinc.com` — and send me the IMAP details (server name, port, and
 the password). Vendors will forward invoices there and the app reads them
 automatically. It's an ordinary mailbox; nothing special is needed.
 

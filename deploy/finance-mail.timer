@@ -1,5 +1,5 @@
 [Unit]
-Description=Poll the Adventures Finance invoice mailbox every 5 minutes
+Description=Poll the Addventures Finance invoice mailbox every 5 minutes
 
 [Timer]
 OnBootSec=2min

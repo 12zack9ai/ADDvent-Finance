@@ -1,5 +1,5 @@
 [Unit]
-Description=Adventures Finance — poll the invoice mailbox once
+Description=Addventures Finance — poll the invoice mailbox once
 After=network-online.target
 Wants=network-online.target
 

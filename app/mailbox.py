@@ -21,7 +21,7 @@ What IT needs to do, once:
      ApplicationAccessPolicy, so it cannot read anyone else's mail:
 
          New-ApplicationAccessPolicy -AppId <client-id> `
-             -PolicyScopeGroupId ap-inbox@adventuresinc.com `
+             -PolicyScopeGroupId ap-inbox@addventuresinc.com `
              -AccessRight RestrictAccess `
              -Description "Finance invoice reader"
 
