@@ -1,50 +1,52 @@
-# One-click deploy to Render. See docs/DEPLOY-RENDER.md.
+# Render blueprint. See docs/DEPLOY-RENDER.md for the click-by-click.
 #
-# Chosen because this app needs something Supabase and ordinary web hosting
-# cannot provide: a Python process that stays running, with a disk it can write
-# to. Render gives both, deploys straight from GitHub, and puts the site on
-# finance.addventuresinc.com with TLS handled for us.
+# One service. The mailbox is polled from inside the web process (app/scheduler.py),
+# so there is no cron job or worker to add - and nothing that would need its own
+# copy of the disk.
 
 services:
   - type: web
     name: addvent-finance
     runtime: python
-    plan: starter          # ~$7/month. The free plan sleeps, which breaks the mailbox poller.
-    region: ohio           # nearest US region; change if you prefer another
+    plan: starter          # The free plan sleeps when idle, which stops mail polling.
+    region: ohio
     branch: main
+
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers
     healthCheckPath: /healthz
 
-    # The database, every uploaded document and the approval trail live here.
-    # Without a disk, Render's filesystem resets on every deploy and the data
-    # is gone. This is the one setting that must not be skipped.
+    # The database, every uploaded document, and the approval trail live here.
+    # WITHOUT THIS DISK Render wipes the filesystem on every deploy and all of it
+    # is lost. This is the one line that must not be removed.
     disk:
       name: finance-data
       mountPath: /var/lib/finance-automation
-      sizeGB: 10           # ~10,000 scanned documents; raise later without downtime
+      sizeGB: 10           # thousands of scanned documents; can be raised later
 
     envVars:
       - key: PYTHON_VERSION
-        value: "3.12"
+        value: "3.12.7"
       - key: DATA_DIR
         value: /var/lib/finance-automation
       - key: BASE_URL
         value: https://finance.addventuresinc.com
+      - key: SITE_NAME
+        value: Addventures Inc · Finance
 
-      # sync: false means "prompt me for this, don't store it in git".
+      # sync: false means Render prompts for the value and keeps it out of git.
       - key: ANTHROPIC_API_KEY
         sync: false
-      - key: ANTHROPIC_WORKSPACE_ID     # only for an organisation-scoped key
+      - key: ANTHROPIC_WORKSPACE_ID   # only needed for an organisation-scoped key
         sync: false
-      - key: APP_PASSWORD               # the shared password staff sign in with
+      - key: APP_PASSWORD             # the shared password staff sign in with
         sync: false
 
-      # Generated once and kept, so people are not signed out on every deploy.
+      # Generated once and kept, so nobody is signed out on every deploy.
       - key: SECRET_KEY
         generateValue: true
 
-      # Mailbox: off until the credentials are added in the dashboard.
+      # --- mailbox: leave off until scripts/test_mail.py passes ---
       - key: MAIL_ENABLED
         value: "false"
       - key: IMAP_HOST
@@ -55,17 +57,8 @@ services:
         value: aiap@addventuresinc.com
       - key: IMAP_PASSWORD
         sync: false
+      - key: MAIL_POLL_SECONDS
+        value: "300"
 
-  # Reads the mailbox every 5 minutes. Leave it suspended until MAIL_ENABLED
-  # is true and scripts/test_mail.py passes.
-  - type: cron
-    name: addvent-finance-mail
-    runtime: python
-    plan: starter
-    region: ohio
-    branch: main
-    schedule: "*/5 * * * *"
-    buildCommand: pip install -r requirements.txt
-    startCommand: python scripts/poll_mail.py
-    envVars:
-      - fromGroup: addvent-finance-shared
+      # Render's Python image has no Chromium, so the marked-up PDF is produced
+      # by the browser's own Print / Save as PDF. Same stylesheet, same output.

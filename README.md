@@ -76,11 +76,15 @@ logic is unit-tested. The AI never decides whether two numbers differ.
 
 ## Getting it running
 
-**[QUICKSTART.md](QUICKSTART.md)** — running it on your own computer, about 10
-minutes, Mac and Windows, no server needed. Start here.
+**[docs/DEPLOY-RENDER.md](docs/DEPLOY-RENDER.md)** — deploying to
+`finance.addventuresinc.com`. About 15 minutes, all in a browser, no server
+administration. **This is the intended route.**
 
-**[deploy/DEPLOY.md](deploy/DEPLOY.md)** — the server install at
-`finance.addventuresinc.com`, for whoever administers it.
+**[QUICKSTART.md](QUICKSTART.md)** — running it on your own computer instead,
+about 10 minutes, Mac and Windows.
+
+**[deploy/DEPLOY.md](deploy/DEPLOY.md)** — a traditional Linux server install,
+if it ever needs to live somewhere self-managed.
 
 The short version:
 
