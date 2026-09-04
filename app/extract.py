@@ -180,7 +180,18 @@ class ExtractionResult:
     model: str
     input_tokens: int = 0
     output_tokens: int = 0
-    raw_json: str = ""
+
+    @property
+    def raw_json(self) -> str:
+        """The stored form of `payload`, derived rather than stored separately.
+
+        Filing a document from the Inbox re-reads this JSON instead of paying
+        for a second extraction, so it must always be a faithful serialisation.
+        Holding it as its own field let the two drift apart, and a payload that
+        no longer matched surfaced as a baffling "read as 'other'" error. A
+        property cannot drift.
+        """
+        return json.dumps(self.payload, indent=2, default=str)
 
     @property
     def doc_type(self) -> str:
@@ -339,7 +350,6 @@ def extract_document(path: Path, hint: str = "") -> ExtractionResult:
                 model=message.model,
                 input_tokens=message.usage.input_tokens,
                 output_tokens=message.usage.output_tokens,
-                raw_json=json.dumps(payload, indent=2, default=str),
             )
 
     if message.stop_reason == "refusal":
