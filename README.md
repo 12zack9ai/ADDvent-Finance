@@ -163,20 +163,67 @@ than an invoice disappearing quietly.
 
 ## How documents get filed against a job
 
+**Job numbers are six digits, and the first two are the year the job was
+opened** — `260000` is the first job of 2026, `250148` the hundred and
+forty-ninth of 2025. That shape makes a job number self-identifying, so it is
+recognised wherever it is written, with or without a label. Jobs from earlier
+years stay active and are recognised too.
+
 In order of precedence:
 
 1. The job number typed into the upload form
-2. A job number in the email subject line or the upload note —
-   `Job 4417`, `job #4417`, `job number 4417`
+2. A job number in the email subject line, body, or the upload note —
+   `Job 260000`, `job #260000`, or just `260000` in a sentence
 3. A job number printed on the document itself
+4. A site address the job is already known by (see below)
 
-If none is found, the document waits in **Inbox** for someone to assign one.
-Nothing is guessed.
+Vendor reference numbers are not mistaken for jobs: ABC Supply's quote number
+`2014030903`, their account `2174772`, and New Castle's `07RM0002847012` are
+all rejected by the shape. Two different job numbers in one message is treated
+as a question rather than an answer, and nothing is filed.
+
+If none is found, the document waits in **Inbox** — and, if the mailbox is
+switched on, the system emails the sender to ask (see below). Nothing is
+guessed.
 
 **Replacing a master quote:** send `master updated to job 4417` in the subject
 line, or tick the box on the upload form. The previous master is kept in the
 job's history, and every invoice already on that job is automatically re-checked
 against the new pricing.
+
+## When a vendor forgets the job number
+
+Most of them do. Both real vendor quotes on file have the job field blank — on
+the ABC Supply one, `PO`, `Ref` and `Job` are all empty.
+
+With `ASK_FOR_JOB_NUMBER=true` and a mailbox configured, a document that
+arrives with no job number gets a reply to whoever sent it, asking for one. The
+answer files the document automatically, reusing the stored extraction rather
+than paying to read it again.
+
+```
+quote arrives, no job number   →  reply: "which job is this?"
+        ↓
+vendor replies "260000"        →  filed against job 260000, priced, done
+```
+
+Replying is the only thing this system does that leaves the building, so it is
+fenced:
+
+- **Off by default.** No deploy starts emailing suppliers by surprise.
+- **Never for uploads** — whoever uploaded it is at the screen.
+- **Once per document**, recorded on the record. The poller runs every five
+  minutes; without that, one missing job number becomes a dozen emails.
+- Marked `Auto-Submitted`, so a vacation responder is not read as an answer.
+
+The reply is matched to the document by the `Message-ID` we asked from, carried
+back in `In-Reply-To`. Subject lines get edited, forwarded and reused; a message
+ID does not.
+
+**A bare `260000` counts as an answer**, because we asked a direct question. The
+question itself contains an example job number, so the reply is cut at a
+sentinel line before parsing — otherwise a quoted reply answers the question
+with our own example.
 
 ## Current limitations
 

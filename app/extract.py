@@ -16,6 +16,7 @@ from typing import Any, Optional
 
 import anthropic
 
+from app import jobnum
 from app.config import settings
 
 # Bumped whenever the prompt or schema changes, so stored extractions stay
@@ -83,6 +84,13 @@ You are a transcriber, not an accountant. Follow these rules exactly:
    preference. IT IS OFTEN A SITE ADDRESS RATHER THAN A NUMBER - "63 winding
    ridge" is a perfectly normal value here. Report it verbatim. If no such
    field carries a value, return an empty string; never invent one.
+
+   A job number here is SIX DIGITS, and the first two are the year the job was
+   opened: 260000 is a job from 2026, 250148 from 2025. If a six-digit number
+   of that shape appears anywhere on the document - in a field, in a note, in
+   the reference line - report that number, because it identifies the job
+   exactly. Do not confuse it with the vendor's own quote, invoice, order or
+   account numbers, which are longer, shorter, or contain letters.
 
 7a. SHIP_TO: the delivery address block, as printed, newlines replaced by
    commas. On these documents the ship-to address is frequently the same site
@@ -370,10 +378,12 @@ def parse_job_answer(*texts: Optional[str]) -> JobDirective:
     if directive.job_number:
         return directive
 
+    # A reply that is only a number, where that number is not job-shaped. The
+    # general parser is right to ignore this - unasked, "4417" could be an
+    # invoice number or a quantity - but we asked a direct question, and the
+    # whole answer being a number makes it the answer.
     for text in cleaned:
         found = _BARE_NUMBER.findall(_COURTESY.sub("", text))
-        # Exactly one candidate, or we do not guess. Two numbers in a reply
-        # means we do not know which is the job.
         if len(set(found)) == 1:
             return JobDirective(
                 job_number=normalize_job_number(found[0]),
@@ -404,9 +414,31 @@ def parse_job_directive(*texts: Optional[str]) -> JobDirective:
         for pattern in _JOB_PATTERNS:
             m = pattern.search(text)
             if m:
-                directive.job_number = normalize_job_number(m.group(1))
+                captured = m.group(1)
+                # A labelled match takes the rest of the line so that site
+                # addresses survive. When that line contains one job-shaped
+                # number, the number is what was meant - "Job: 260000 - 118
+                # Ridgeview" is job 260000, not a job called "260000 - 118
+                # Ridgeview".
+                directive.job_number = (
+                    jobnum.sole_job_number(captured) or normalize_job_number(captured)
+                )
                 directive.matched_phrase = m.group(0).strip()
                 return directive
+
+    # No label anywhere. Our job numbers are self-identifying - six digits
+    # beginning with the year - so a number of that shape is a job number
+    # wherever it is written, and vendors write it without a label constantly.
+    # Only when the text names exactly one: two different jobs in one message
+    # is a question, not an answer.
+    for text in texts:
+        if not text:
+            continue
+        found = jobnum.sole_job_number(text)
+        if found:
+            directive.job_number = found
+            directive.matched_phrase = found
+            return directive
     return directive
 
 

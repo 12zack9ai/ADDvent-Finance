@@ -165,9 +165,18 @@ def test_a_bare_number_is_a_valid_answer_because_we_asked(body):
     assert parse_job_answer("", body).job_number == "260000", body
 
 
-def test_a_bare_number_is_still_ignored_in_an_unsolicited_email():
-    """Unasked, "260000" could be an invoice number, a quantity or an extension."""
-    assert parse_job_directive("", "260000").job_number is None
+def test_a_job_shaped_number_is_read_even_in_an_unsolicited_email():
+    """Six digits beginning with the year identifies a job on its own, so no
+    label and no question is needed for it to be recognised."""
+    assert parse_job_directive("", "260000").job_number == "260000"
+
+
+@pytest.mark.parametrize("body", ["4417", "1234"])   # 2 digits is below the reply floor
+def test_a_bare_number_that_is_not_job_shaped_is_still_ignored_unasked(body):
+    """Unasked, "4417" could be an invoice number, a quantity or an extension.
+    Asked directly, the same reply is an answer - see the reply parser."""
+    assert parse_job_directive("", body).job_number is None
+    assert parse_job_answer("", body).job_number == body
 
 
 def test_our_own_example_in_the_quoted_reply_is_not_read_as_the_answer():
@@ -203,8 +212,43 @@ def test_a_reply_can_also_declare_the_master_quote():
 
 @pytest.mark.parametrize("body", [
     "Thanks!", "I'll check with the office.", "See attached.", "",
-    "260000 or 260001", "260000 tomorrow",
+    "260000 or 260001",          # two jobs named - which one?
 ])
 def test_an_ambiguous_reply_is_not_guessed_at(body):
     """Better to keep waiting than to file a document against the wrong job."""
     assert not parse_job_answer("", body).job_number, body
+
+
+# --- job numbers written the way people actually write them --------------
+# Six digits beginning with the year, so no label is needed. This is what makes
+# a forwarded quote file itself when the covering email just says "260000".
+
+@pytest.mark.parametrize("body", [
+    "260000",
+    "Please price 260000",
+    "here you go 260000",
+    "For 118 Ridgeview, job 260000",
+    "Job: 260000 - 118 Ridgeview Terrace",
+    "Still working on this one - 260000",
+])
+def test_an_unlabelled_job_number_is_recognised_in_an_email(body):
+    assert parse_job_directive("", body).job_number == "260000"
+
+
+def test_a_job_from_a_previous_year_is_recognised():
+    """Work stays active across years; 250148 is a 2025 job still running."""
+    assert parse_job_directive("", "this is for 250148").job_number == "250148"
+
+
+@pytest.mark.parametrize("body", [
+    "quote 2014030903 attached",       # ABC Supply quote number
+    "Account: 2174772 0002",           # ABC Supply account number
+    "ref 07RM0002847012",              # New Castle quote number
+    "invoice 4417",                    # not job-shaped
+])
+def test_vendor_reference_numbers_are_not_read_as_job_numbers(body):
+    assert parse_job_directive("", body).job_number is None
+
+
+def test_two_job_numbers_in_one_email_are_not_guessed_between():
+    assert parse_job_directive("", "260000 and 250148").job_number is None
