@@ -145,6 +145,40 @@ div.grid{display:grid;gap:16px}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 @media (max-width:700px){ .grid2{grid-template-columns:1fr} }
 .empty{color:var(--mute);padding:22px 0;text-align:center}
+
+/* ---------- the job scorecard ----------
+   Five numbers, read left to right, before anything else on the page. Big
+   figures with the label above them and the caveat below - the caveat is not
+   small print here, it is what stops a number being misread. */
+.scorecard{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+  gap:14px;margin-bottom:18px;
+}
+.score{
+  background:var(--surface);border:1px solid var(--rule);border-left:5px solid var(--rule);
+  border-radius:var(--r);padding:16px 18px;box-shadow:var(--sh-1);
+  display:flex;flex-direction:column;gap:4px;min-width:0;
+}
+.score.bad{border-left-color:var(--over-line);background:linear-gradient(180deg,#fffafa,var(--surface))}
+.score.good{border-left-color:var(--under-line)}
+.score-k{
+  font-size:.8rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--mute);
+}
+.score-v{font-size:1.65rem;font-weight:800;letter-spacing:-.02em;color:var(--ink);
+         line-height:1.15;overflow-wrap:anywhere}
+.score-n{font-size:.87rem;color:var(--soft);line-height:1.35}
+
+/* The self-check panel. Loud, because the whole point is that every invoice
+   inside it looked fine on its own. */
+.selfcheck{border-left:5px solid var(--over-line);background:linear-gradient(180deg,#fffafa,var(--surface))}
+.selfcheck h2{color:var(--over-ink)}
+.selfcheck .lead{font-size:1.05rem;line-height:1.55;margin:0 0 10px}
+.dupes{display:flex;flex-direction:column;gap:12px;margin-top:14px}
+.dupe{border:1px solid var(--rule);border-radius:var(--r-sm);padding:14px 16px;background:var(--surface)}
+.dupe-head{font-weight:800;margin-bottom:6px}
+.dupe p{margin:0;line-height:1.5}
+.dupe-links{display:flex;gap:9px;flex-wrap:wrap;margin-top:11px}
 .big{font-size:1.9rem;font-weight:800;letter-spacing:-.02em}
 
 /* ---------- buttons: large, obvious, labelled ---------- */

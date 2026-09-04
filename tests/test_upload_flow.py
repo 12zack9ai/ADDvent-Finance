@@ -635,3 +635,52 @@ def test_a_report_with_nothing_at_all_is_still_refused(client):
     resp = client.post("/cashflow/generate", data={"opening_balance": "250000"},
                        follow_redirects=False)
     assert "err=" in resp.headers["location"]
+
+
+# --- the job scorecard, and the system checking its own work ---------------
+
+def test_the_job_page_adds_the_job_up(client, tmp_path):
+    upload(client, _pdf(tmp_path, "q.pdf", "q"), QUOTE_PAYLOAD, job_number="260000")
+    upload(client, _pdf(tmp_path, "i.pdf", "i"), INVOICE_PAYLOAD, job_number="260000")
+
+    page = client.get("/job/260000")
+    assert page.status_code == 200
+    assert "Quoted" in page.text
+    assert "$17,182.90" in page.text        # the quote, lump sum
+    assert "$6,154.00" in page.text         # billed to date
+    assert "Caught by checking" in page.text
+    assert "$91.00" in page.text            # the overbilling the line check found
+    assert "Not on the quote" in page.text
+
+
+def test_a_corrected_invoice_that_never_replaced_the_original_is_called_out(client, tmp_path):
+    """The failure a per-invoice check cannot see: we send an invoice back, the
+    vendor reissues it under a new number, and nobody rejects the first."""
+    upload(client, _pdf(tmp_path, "q.pdf", "q"), QUOTE_PAYLOAD, job_number="260000")
+    upload(client, _pdf(tmp_path, "i1.pdf", "i1"), INVOICE_PAYLOAD, job_number="260000")
+
+    corrected = dict(INVOICE_PAYLOAD, document_number="INV-552140", total="6063.00")
+    corrected["lines"] = [dict(ln) for ln in INVOICE_PAYLOAD["lines"]]
+    corrected["lines"][1]["unit_price"] = "187.00"      # the price we disputed
+    corrected["lines"][1]["extended"] = "1309.00"
+    upload(client, _pdf(tmp_path, "i2.pdf", "i2"), corrected, job_number="260000")
+
+    page = client.get("/job/260000")
+    # The job is still inside its quote, so this is not an overrun - and the
+    # panel has to say the right thing about which of the two it is.
+    assert "Two invoices look like the same material" in page.text
+    assert "This job does not add up" not in page.text
+    assert "Same material billed on two invoices" in page.text
+    assert "INV-551900" in page.text and "INV-552140" in page.text
+
+    # Rejecting the superseded one clears it, and clears the totals with it.
+    session = SessionLocal()
+    first = session.query(Invoice).filter_by(invoice_number="INV-551900").one().id
+    session.close()
+    client.post(f"/invoice/{first}/decide",
+                data={"decision": "reject", "actor": "Zack", "note": "Replaced by 552140"},
+                follow_redirects=False)
+
+    page = client.get("/job/260000")
+    assert "Two invoices look like the same material" not in page.text
+    assert "Same material billed on two invoices" not in page.text

@@ -14,6 +14,160 @@
   </div>
 </div>
 
+{# ---------------- THE JOB, ADDED UP ---------------- #}
+{#  The five numbers that answer "where is this job?" without opening
+    anything. The last two are the ones nobody has today. #}
+<div class="scorecard">
+  <div class="score">
+    <span class="score-k">Quoted</span>
+    <span class="score-v">{{ s.quoted | money }}</span>
+    <span class="score-n">
+      {% if s.change_orders %}
+        + {{ s.change_orders | money }} in change orders
+      {% elif not s.has_quote %}
+        no master quote on this job
+      {% else %}
+        {{ masters|length }} master quote{{ "" if masters|length == 1 else "s" }}
+      {% endif %}
+    </span>
+  </div>
+
+  <div class="score{{ ' bad' if s.needs_explaining }}">
+    <span class="score-k">Billed to date</span>
+    <span class="score-v">{{ s.invoiced | money }}</span>
+    <span class="score-n">
+      {{ s.invoice_count }} invoice{{ "" if s.invoice_count == 1 else "s" }}{% if s.percent_billed is not none %} · {{ s.percent_billed }}% of authorised{% endif %}
+    </span>
+  </div>
+
+  <div class="score">
+    <span class="score-k">Left to bill</span>
+    <span class="score-v {{ 'neg' if s.remaining < 0 }}">{{ s.remaining | money }}</span>
+    <span class="score-n">
+      {% if not s.has_quote %}nothing to measure against
+      {% elif s.remaining < 0 %}billed past the quote
+      {% else %}against quote plus change orders{% endif %}
+    </span>
+  </div>
+
+  <div class="score">
+    <span class="score-k">Not on the quote</span>
+    <span class="score-v">{{ s.off_quote | money }}</span>
+    <span class="score-n">
+      {% if s.off_quote_lines %}
+        {{ s.off_quote_lines }} line{{ "" if s.off_quote_lines == 1 else "s" }} nobody quoted a price for
+      {% else %}
+        every billed line traced to the quote
+      {% endif %}
+    </span>
+  </div>
+
+  <div class="score{{ ' good' if s.found > 0 }}">
+    <span class="score-k">Caught by checking</span>
+    <span class="score-v">{{ s.found | money }}</span>
+    <span class="score-n">
+      {% if s.found <= 0 %}
+        nothing billed above quote
+      {% elif s.approved_anyway > 0 and s.still_held > 0 %}
+        {{ s.still_held | money }} still held · {{ s.approved_anyway | money }} approved anyway
+      {% elif s.approved_anyway > 0 %}
+        approved anyway — not recovered
+      {% else %}
+        held, not yet paid
+      {% endif %}
+    </span>
+  </div>
+</div>
+
+{% if s.needs_explaining or s.overlaps %}
+<div class="panel selfcheck">
+  <h2>
+    {% if s.needs_explaining %}This job does not add up
+    {% else %}Two invoices look like the same material{% endif %}
+  </h2>
+  {% if s.needs_explaining %}
+    <p class="lead">
+      {% for v in s.vendors if v.over_quote > 0 %}
+        <strong>{{ v.vendor }}</strong> has billed {{ v.invoiced | money }} against
+        {{ v.quoted | money }} quoted{% if v.change_orders %} plus
+        {{ v.change_orders | money }} in change orders{% endif %} —
+        <strong class="neg">{{ v.over_quote | money }} more than anyone authorised</strong>,
+        across {{ v.invoice_count }} invoice{{ "" if v.invoice_count == 1 else "s" }}.
+      {% endfor %}
+    </p>
+    <p class="muted">
+      Every one of those invoices may have passed its own price check. That is
+      exactly how a duplicate, or a corrected invoice that never replaced the
+      original, gets through — the comparison is one invoice at a time, and this
+      only shows up when the job is added up.
+    </p>
+  {% endif %}
+
+  {% if s.overlaps and not s.needs_explaining %}
+    <p class="lead">
+      This job is still inside its quote, so nothing here is over-billed yet.
+      These two invoices bill the same material, which is worth settling before
+      either gets paid.
+    </p>
+  {% endif %}
+
+  {% if s.overlaps %}
+    <div class="dupes">
+      {% for o in s.overlaps %}
+      <div class="dupe">
+        <div class="dupe-head">{{ o.headline }}</div>
+        <p>{{ o.explanation }}</p>
+        <div class="dupe-links">
+          <a class="btn ghost sm" href="/invoice/{{ o.earlier.id }}">
+            {{ o.earlier.invoice_number or ("Invoice #" ~ o.earlier.id) }} ·
+            {{ o.earlier.total | money }}</a>
+          <a class="btn ghost sm" href="/invoice/{{ o.later.id }}">
+            {{ o.later.invoice_number or ("Invoice #" ~ o.later.id) }} ·
+            {{ o.later.total | money }}</a>
+        </div>
+        <div class="muted" style="font-size:.88rem;margin-top:8px">
+          If one of these replaces the other, reject the one it replaced — that
+          takes it out of every total on this page.
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  {% elif s.needs_explaining %}
+    <p class="muted">
+      No two invoices here bill the same material, so this is not a duplicate.
+      Either scope was added without a change order, or a price moved after the
+      quote. Worth a call either way.
+    </p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if s.vendors | length > 1 %}
+<div class="panel">
+  <h2>By vendor</h2>
+  <table class="grid">
+    <thead><tr><th>Vendor</th><th class="r">Quoted</th><th class="r">Change orders</th>
+      <th class="r">Billed</th><th class="r">Left to bill</th></tr></thead>
+    <tbody>
+      {% for v in s.vendors %}
+      <tr>
+        <td><strong>{{ v.vendor }}</strong>
+          {% if not v.has_quote %}<span class="chip c-none">no quote</span>{% endif %}</td>
+        <td class="r">{% if v.has_quote %}{{ v.quoted | money }}{% else %}—{% endif %}</td>
+        <td class="r">{% if v.change_orders %}{{ v.change_orders | money }}{% else %}—{% endif %}</td>
+        <td class="r" style="font-weight:700">{{ v.invoiced | money }}</td>
+        <td class="r">
+          {% if not v.has_quote %}—
+          {% elif v.over_quote > 0 %}<span class="chip c-over">{{ v.over_quote | money }} over</span>
+          {% else %}{{ v.remaining | money }}{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 {# ---------------- MASTER QUOTES (one per vendor) ---------------- #}
 {% if not masters %}
 <div class="panel">
@@ -239,13 +393,13 @@
       <h2 style="margin:0">Invoices</h2>
       <div class="muted">
         {{ invoices|length }} invoice{{ "" if invoices|length == 1 else "s" }} ·
-        {{ invoiced_total | money }} billed
-        {% if quoted_total %} against {{ quoted_total | money }} quoted{% endif %}
+        {{ s.invoiced | money }} billed
+        {% if s.quoted %} against {{ s.quoted | money }} quoted{% endif %}
       </div>
     </div>
-    {% if total_overbilled and total_overbilled > 0 %}
+    {% if s.found > 0 %}
       <span class="chip c-over" style="font-size:13px;padding:5px 13px">
-        +{{ total_overbilled | money }} above quote
+        +{{ s.found | money }} above quote
       </span>
     {% endif %}
   </div>

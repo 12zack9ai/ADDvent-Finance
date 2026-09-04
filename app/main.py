@@ -19,7 +19,10 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app import accounting, auth, cashflow, cashflow_pdf, fmt, invoice_pdf, scheduler, trust
+from app import (
+    accounting, auth, cashflow, cashflow_pdf, fmt, invoice_pdf, jobsummary,
+    scheduler, trust,
+)
 from app.config import settings
 from app.db import get_session, init_db, to_decimal
 from app.extract import normalize_job_number
@@ -379,9 +382,9 @@ def job_detail(job_number: str, request: Request, session: Session = Depends(get
         masters=job.masters,
         superseded=superseded,
         invoices=invoices,
-        invoiced_total=sum((i.total or ZERO for i in invoices), ZERO),
-        quoted_total=sum((m.total or ZERO for m in job.masters), ZERO),
-        total_overbilled=sum((i.overbilled_amount or ZERO for i in invoices), ZERO),
+        # The strip at the top: the job added up, and the arithmetic that
+        # catches what a per-invoice comparison structurally cannot see.
+        s=jobsummary.build(job),
     ))
 
 
