@@ -97,6 +97,34 @@
   .row > div{flex:1;min-width:190px}
   .muted{color:var(--mute);font-size:12.5px}
   .mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+
+  /* ---- 13-day cash flow ---- */
+  .cf-headline{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--rule);
+               border:1px solid var(--rule);border-radius:7px;overflow:hidden;margin-bottom:14px}
+  .cf-cell{background:#fff;padding:11px 14px}
+  .cf-cell span{display:block;font-size:.68rem;letter-spacing:.8px;text-transform:uppercase;
+                color:var(--mute);margin-bottom:3px}
+  .cf-cell strong{font-size:1.25rem;font-variant-numeric:tabular-nums}
+  .pos{color:#166534}
+  .neg{color:#9b1c1c}
+  .warn{color:#7a5310}
+  .banner{padding:11px 15px;border-radius:6px;margin-bottom:14px;font-size:.95rem}
+  .banner.bad{background:#fbe4e2;border-left:5px solid #d94a3d;color:#9b1c1c}
+  .banner.good{background:#e3f5ea;border-left:5px solid #2f9e5f;color:#166534}
+  .cf-days td{font-variant-numeric:tabular-nums}
+  .cf-days tr.overdrawn td{background:#fbe4e2}
+  .cf-days tr.overdrawn strong{color:#9b1c1c}
+  table.list td.r, table.list th.r{text-align:right}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media (max-width:640px){ .grid2{grid-template-columns:1fr} .cf-headline{grid-template-columns:1fr 1fr} }
+  form.stack{display:flex;flex-direction:column;gap:12px}
+  form.stack label{display:block;font-weight:600;font-size:.9rem}
+  form.stack input[type=text],form.stack input:not([type]),form.stack input[type=date],
+  form.stack input[type=file]{display:block;width:100%;margin-top:4px;padding:8px 10px;
+    border:1px solid var(--rule);border-radius:6px;font:inherit;font-weight:400}
+  form.stack .hint{display:block;font-weight:400;color:var(--mute);font-size:.8rem;margin-top:3px}
+  form.stack label.check{font-weight:400}
+  form.stack label.check input{margin-right:6px}
 </style>
 </head>
 <body>
@@ -111,6 +139,7 @@
     <nav>
       <a href="/">Jobs</a>
       <a href="/approvals">Approvals</a>
+      <a href="/cashflow">Cash flow</a>
       <a href="/vendors">Vendors</a>
       <a href="/inbox">Inbox{% if unassigned_count %} ({{ unassigned_count }}){% endif %}</a>
       <a href="/upload">Upload</a>

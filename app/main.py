@@ -2,22 +2,23 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime
-from decimal import Decimal
+from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote_plus, urlencode
 
-from fastapi import Depends, FastAPI, Form, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app import auth, fmt, invoice_pdf, scheduler
+from app import accounting, auth, cashflow, cashflow_pdf, fmt, invoice_pdf, scheduler
 from app.config import settings
 from app.db import get_session, init_db, to_decimal
 from app.extract import normalize_job_number
@@ -29,6 +30,7 @@ from app.approval import (
 )
 from app.matching import norm_vendor
 from app.models import (
+    CashReport,
     APPROVAL_APPROVED,
     APPROVAL_HELD,
     APPROVAL_PAID,
@@ -671,3 +673,122 @@ def vendor_scorecard(request: Request, session: Session = Depends(get_session)):
         rows=rows,
         total_overbilled=sum((r["overbilled"] for r in rows), ZERO),
     ))
+
+
+# --- 13-day cash flow forecast -------------------------------------------
+#
+# One button. What has to go out, what is expected in, and what the bank
+# balance does over the next thirteen days.
+#
+# Two sources today, and the report cannot tell them apart:
+#   * bills this system has already checked and approved
+#   * A/P and A/R aging exported from QuickBooks Desktop as CSV
+# A live QuickBooks connection becomes a third, and changes nothing here.
+
+def _report_forecast(report: CashReport) -> cashflow.Forecast:
+    payables = [accounting.payable_from_dict(d) for d in json.loads(report.payables_json)]
+    receivables = [accounting.receivable_from_dict(d) for d in json.loads(report.receivables_json)]
+    return cashflow.build_forecast(
+        opening_balance=report.opening_balance,
+        payables=payables,
+        receivables=receivables,
+        today=date.fromisoformat(report.as_of),
+        horizon_days=report.horizon_days,
+        sources=[s for s in report.source_label.split(" + ") if s],
+    )
+
+
+@app.get("/cashflow", response_class=HTMLResponse)
+def cashflow_index(request: Request, session: Session = Depends(get_session)):
+    reports = session.scalars(
+        select(CashReport).order_by(CashReport.created_at.desc()).limit(30)
+    ).all()
+    return templates.TemplateResponse(request, "cashflow_index.html", {
+        "reports": reports,
+        "today": date.today().isoformat(),
+        "quickbooks_connected": False,
+    })
+
+
+@app.post("/cashflow/generate")
+async def cashflow_generate(
+    request: Request,
+    session: Session = Depends(get_session),
+    opening_balance: str = Form("0"),
+    as_of: str = Form(""),
+    created_by: str = Form(""),
+    note: str = Form(""),
+    include_local: str = Form("on"),
+    ap_file: Optional[UploadFile] = File(None),
+    ar_file: Optional[UploadFile] = File(None),
+):
+    """The button. Build a forecast from whatever sources are available."""
+    try:
+        opening = Decimal((opening_balance or "0").replace(",", "").replace("$", "").strip() or "0")
+    except (InvalidOperation, ValueError):
+        return _redirect("/cashflow", err="Opening balance must be a number.")
+
+    as_of_date = date.fromisoformat(as_of) if as_of else date.today()
+
+    payables: list = []
+    receivables: list = []
+    labels: list[str] = []
+
+    if include_local:
+        local = accounting.LocalSource(session)
+        found = local.payables()
+        if found:
+            payables.extend(found)
+            labels.append(local.name)
+
+    ap_text = (await ap_file.read()).decode("utf-8-sig", "replace") if ap_file and ap_file.filename else ""
+    ar_text = (await ar_file.read()).decode("utf-8-sig", "replace") if ar_file and ar_file.filename else ""
+    if ap_text.strip() or ar_text.strip():
+        try:
+            csv_source = accounting.AgingCsvSource(ap_text, ar_text, opening)
+        except accounting.AgingParseError as exc:
+            return _redirect("/cashflow", err=str(exc))
+        payables.extend(csv_source.payables())
+        receivables.extend(csv_source.receivables())
+        labels.append(csv_source.name)
+
+    if not payables and not receivables:
+        return _redirect("/cashflow", err=(
+            "Nothing to report on. Either approve some invoices here, or attach "
+            "an A/P or A/R aging export."
+        ))
+
+    report = CashReport(
+        as_of=as_of_date.isoformat(),
+        horizon_days=cashflow.DEFAULT_HORIZON_DAYS,
+        opening_balance=opening,
+        source_label=" + ".join(labels),
+        created_by=_actor(created_by),
+        note=note.strip(),
+        payables_json=json.dumps([accounting.payable_to_dict(p) for p in payables]),
+        receivables_json=json.dumps([accounting.receivable_to_dict(r) for r in receivables]),
+    )
+    session.add(report)
+    session.commit()
+    return _redirect(f"/cashflow/{report.id}")
+
+
+@app.get("/cashflow/{report_id}", response_class=HTMLResponse)
+def cashflow_report(report_id: int, request: Request, session: Session = Depends(get_session)):
+    report = session.get(CashReport, report_id)
+    if report is None:
+        return _redirect("/cashflow", err="No such report.")
+    return templates.TemplateResponse(request, "cashflow_report.html", {
+        "report": report,
+        "f": _report_forecast(report),
+    })
+
+
+@app.get("/cashflow/{report_id}/pdf")
+def cashflow_report_pdf(report_id: int, session: Session = Depends(get_session)):
+    report = session.get(CashReport, report_id)
+    if report is None:
+        return _redirect("/cashflow", err="No such report.")
+    out = settings.renders_dir / f"cashflow-{report.as_of}-{report.id}.pdf"
+    cashflow_pdf.build(_report_forecast(report), report, out)
+    return FileResponse(out, media_type="application/pdf", filename=out.name)

@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Cash flow · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>13-day cash flow</h1>
+    <p class="sub">What has to go out, what is coming in, and what the balance does.</p>
+  </div>
+</div>
+
+<div class="panel">
+  <h2 style="margin-bottom:3px">Generate a new report</h2>
+  <p class="muted" style="margin-top:0">
+    {% if quickbooks_connected %}
+      Pulled live from QuickBooks.
+    {% else %}
+      QuickBooks is not connected yet, so bring the numbers in from an export.
+      In QuickBooks: <strong>Reports &rsaquo; Vendors &amp; Payables &rsaquo; A/P Aging
+      Detail</strong>, then <strong>Excel &rsaquo; Create New Worksheet &rsaquo; CSV</strong>.
+      Same again under <strong>Customers &amp; Receivables &rsaquo; A/R Aging Detail</strong>.
+      Don't rename the columns.
+    {% endif %}
+  </p>
+
+  <form method="post" action="/cashflow/generate" enctype="multipart/form-data" class="stack">
+    <div class="grid2">
+      <label>Opening bank balance
+        <input name="opening_balance" inputmode="decimal" placeholder="e.g. 84,500.00" required>
+        <span class="hint">Today's actual balance, from the bank.</span>
+      </label>
+      <label>Starting from
+        <input type="date" name="as_of" value="{{ today }}">
+        <span class="hint">Thirteen days from this date.</span>
+      </label>
+    </div>
+
+    <div class="grid2">
+      <label>A/P aging (CSV)
+        <input type="file" name="ap_file" accept=".csv,text/csv">
+        <span class="hint">Money going out.</span>
+      </label>
+      <label>A/R aging (CSV)
+        <input type="file" name="ar_file" accept=".csv,text/csv">
+        <span class="hint">Money coming in.</span>
+      </label>
+    </div>
+
+    <label class="check">
+      <input type="checkbox" name="include_local" value="on" checked>
+      Also include invoices approved in this system
+      <span class="hint">Bills checked here that QuickBooks may not have yet.
+        Anything held by the three-way match is listed but not scheduled to pay.</span>
+    </label>
+
+    <div class="grid2">
+      <label>Your name <input name="created_by" placeholder="Who generated this"></label>
+      <label>Note (optional) <input name="note" placeholder="e.g. before Friday's run"></label>
+    </div>
+
+    <div><button class="btn" type="submit">Generate 13-day cash flow report</button></div>
+  </form>
+</div>
+
+<div class="panel">
+  <h2>Previous reports</h2>
+  {% if not reports %}
+    <p class="muted">None yet.</p>
+  {% else %}
+  <table class="list">
+    <thead><tr><th>Period</th><th>Generated</th><th>By</th><th>Sources</th><th></th></tr></thead>
+    <tbody>
+      {% for r in reports %}
+      <tr>
+        <td><a href="/cashflow/{{ r.id }}"><strong>{{ r.as_of }}</strong> + {{ r.horizon_days }} days</a>
+          {% if r.note %}<div class="muted">{{ r.note }}</div>{% endif %}</td>
+        <td>{{ r.created_at.strftime("%d %b %Y %H:%M") }}</td>
+        <td>{{ r.created_by or "—" }}</td>
+        <td class="muted">{{ r.source_label or "—" }}</td>
+        <td><a class="btn ghost" href="/cashflow/{{ r.id }}">Open</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% endblock %}

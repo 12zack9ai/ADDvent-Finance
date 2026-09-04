@@ -120,6 +120,32 @@ class Job(Base):
         return None, "none"
 
 
+class CashReport(Base):
+    """A generated 13-day cash flow forecast, kept.
+
+    The inputs are stored rather than the computed output, and the forecast is
+    rebuilt from them on view. That way a fix to the arithmetic corrects every
+    report ever produced, instead of leaving old ones frozen around a bug - and
+    two people opening the same report always see the same numbers, because the
+    as-of date is stored with the inputs.
+    """
+
+    __tablename__ = "cash_report"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    created_by: Mapped[str] = mapped_column(String(120), default="")
+
+    as_of: Mapped[str] = mapped_column(String(10))            # YYYY-MM-DD
+    horizon_days: Mapped[int] = mapped_column(Integer, default=13)
+    opening_balance: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"))
+    source_label: Mapped[str] = mapped_column(String(255), default="")
+    note: Mapped[str] = mapped_column(Text, default="")
+
+    payables_json: Mapped[str] = mapped_column(Text, default="[]")
+    receivables_json: Mapped[str] = mapped_column(Text, default="[]")
+
+
 class Document(Base):
     """A file that arrived, before we know what it is."""
 

@@ -230,6 +230,45 @@ question itself contains an example job number, so the reply is cut at a
 sentinel line before parsing — otherwise a quoted reply answers the question
 with our own example.
 
+## The 13-day cash flow report
+
+One button: **Cash flow → Generate 13-day cash flow report**. What has to go
+out, what is expected in, and what the bank balance does over the next thirteen
+days, day by day, with the low point called out.
+
+**It works before QuickBooks is connected.** QuickBooks Desktop has no cloud
+API — reaching it live needs the Web Connector on an always-logged-in Windows
+machine beside the company file, which is weeks of work and somebody else's
+permission. But it exports the two reports this needs in about four clicks:
+
+```
+Reports › Vendors & Payables  › A/P Aging Detail  → Excel › CSV
+Reports › Customers & Receiv. › A/R Aging Detail  → Excel › CSV
+```
+
+Attach both, type the bank balance, press the button. A live connection later
+becomes a third source (`QuickBooksSource` in `app/accounting.py`) and changes
+nothing else — the report cannot tell where the numbers came from.
+
+**Three judgements are built in**, because leaving them out produces a report
+that is technically correct and practically misleading:
+
+| | |
+|---|---|
+| **Overdue bills are counted on day one** | They still have to be paid. Dropping them for falling outside the window is how a forecast says you are fine when you are not. |
+| **Overdue receivables are *not* counted as arriving** | The opposite treatment, deliberately. Money we owe is certain; money owed to us that is already late is a collections problem, and assuming it turns up today flatters the forecast. |
+| **Invoices held by the three-way match are listed, not scheduled** | Held means disputed. Counting it as leaving overstates the outflow, and paying it would be wrong anyway. This is a view QuickBooks cannot produce, because it does not know an invoice is disputed. |
+
+The report also surfaces early-payment discounts expiring inside the window
+(`2/10 net 30` is free money and it gets missed), and anything with no date at
+all — listed rather than silently excluded.
+
+Reports are stored as their **inputs** and the forecast is rebuilt on view, so a
+correction to the arithmetic fixes every report ever produced, and two people
+opening the same report always see the same numbers.
+
+**The opening bank balance is typed in by hand.** Everything else is read.
+
 ## Current limitations
 
 Worth being straight about:
@@ -246,8 +285,12 @@ Worth being straight about:
   slips item by item is a bigger job and nobody was going to do it by hand either.
 - **SQLite.** Correct and fast at this volume, single-server only. Moving to
   Postgres is a `DATABASE_URL` change.
-- **No QuickBooks connection.** Deliberately deferred — see the separate 13-day
-  cash-flow plan.
+- **No live QuickBooks connection.** The cash flow report runs from A/P and A/R
+  aging exports instead (above). A live connector needs a Windows machine beside
+  the company file; the source interface for it already exists.
+- **No customer invoices in this system**, so receivables come only from the A/R
+  export. `LocalSource.receivables()` returns nothing rather than inventing
+  something, which would make the forecast look solvent.
 - **Extraction accuracy is not yet measured** against a corpus of real documents.
   That is the highest-value next step: collect 30–50 real quote/invoice pairs so
   accuracy can be measured rather than assumed.

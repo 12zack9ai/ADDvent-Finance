@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}Cash flow {{ report.as_of }} · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <div class="muted"><a href="/cashflow">Cash flow</a> &rsaquo;</div>
+    <h1>{{ f.start.strftime("%d %b") }} – {{ f.end.strftime("%d %b %Y") }}</h1>
+    <p class="sub">
+      Generated {{ report.created_at.strftime("%d %b %Y at %H:%M") }}
+      {% if report.created_by %} by {{ report.created_by }}{% endif %}
+      · {{ report.source_label or "no source recorded" }}
+    </p>
+  </div>
+  <div><a class="btn" href="/cashflow/{{ report.id }}/pdf">Download PDF</a></div>
+</div>
+
+<div class="cf-headline">
+  <div class="cf-cell"><span>Opening balance</span><strong>{{ f.opening_balance | money }}</strong></div>
+  <div class="cf-cell"><span>Going out</span><strong class="neg">−{{ f.total_out | money }}</strong></div>
+  <div class="cf-cell"><span>Coming in</span><strong class="pos">+{{ f.total_in | money }}</strong></div>
+  <div class="cf-cell"><span>Projected close</span>
+    <strong class="{{ 'neg' if f.closing_balance < 0 else '' }}">{{ f.closing_balance | money }}</strong></div>
+</div>
+
+{% if f.goes_negative %}
+  <div class="banner bad">
+    <strong>The account goes negative on {{ f.low_point.on.strftime("%A %d %B") }}</strong> —
+    low point {{ f.low_point.closing | money }}.
+    That is the day to act on, not the closing balance.
+  </div>
+{% elif f.low_point %}
+  <div class="banner good">
+    Lowest point is <strong>{{ f.low_point.closing | money }}</strong>
+    on {{ f.low_point.on.strftime("%A %d %B") }}.
+  </div>
+{% endif %}
+
+<div class="panel">
+  <h2>Day by day</h2>
+  <table class="list cf-days">
+    <thead><tr><th>Day</th><th class="r">Out</th><th class="r">In</th>
+      <th class="r">Net</th><th class="r">Balance</th><th>Detail</th></tr></thead>
+    <tbody>
+      {% for d in f.days %}
+      <tr class="{{ 'overdrawn' if d.is_overdrawn else '' }}">
+        <td><strong>{{ d.on.strftime("%a %d %b") }}</strong></td>
+        <td class="r">{% if d.out %}<span class="neg">−{{ d.out | money }}</span>{% endif %}</td>
+        <td class="r">{% if d.incoming %}<span class="pos">+{{ d.incoming | money }}</span>{% endif %}</td>
+        <td class="r">{% if d.net %}{% if d.net < 0 %}<span class="neg">&minus;{{ d.net | abs_money }}</span>{% else %}<span class="pos">+{{ d.net | money }}</span>{% endif %}{% endif %}</td>
+        <td class="r"><strong>{{ d.closing | money }}</strong></td>
+        <td class="muted">
+          {% for p in d.payables %}<div>{{ p.vendor }} · {{ p.reference }}{% if p.job_number %} · job {{ p.job_number }}{% endif %}</div>{% endfor %}
+          {% for r in d.receivables %}<div class="pos">{{ r.customer }} · {{ r.reference }}</div>{% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+
+{% if f.overdue_payables %}
+<div class="panel">
+  <h2>Overdue — pay these first</h2>
+  <p class="muted" style="margin-top:0">Already past due, so they are counted on day one.
+    Leaving them out is how a forecast says you are fine when you are not.</p>
+  <table class="list"><tbody>
+    {% for p in f.overdue_payables %}
+    <tr><td><strong>{{ p.vendor }}</strong> <span class="muted">{{ p.reference }}</span></td>
+      <td class="muted">{{ p.job_number }}</td>
+      <td class="neg">due {{ p.due_date.strftime("%d %b") }}</td>
+      <td class="r"><strong>{{ p.amount | money }}</strong></td></tr>
+    {% endfor %}
+  </tbody></table>
+</div>
+{% endif %}
+
+{% if f.discounts %}
+<div class="panel">
+  <h2>Early-payment discounts expiring</h2>
+  <p class="muted" style="margin-top:0">Free money, and it is missed constantly.
+    Total available: <strong>{{ f.discount_savings | money }}</strong>.</p>
+  <table class="list"><tbody>
+    {% for p in f.discounts %}
+    <tr><td><strong>{{ p.vendor }}</strong> <span class="muted">{{ p.reference }}</span></td>
+      <td class="pos">pay by {{ p.discount_deadline.strftime("%d %b") }}</td>
+      <td class="r"><strong class="pos">save {{ p.discount_amount | money }}</strong></td></tr>
+    {% endfor %}
+  </tbody></table>
+</div>
+{% endif %}
+
+{% if f.held_payables %}
+<div class="panel">
+  <h2>Held — not scheduled to pay</h2>
+  <p class="muted" style="margin-top:0">Stopped by the three-way match. Real money owed,
+    but not going out this week, so it is not in the figures above.
+    Total: <strong>{{ f.held_total | money }}</strong>.</p>
+  <table class="list"><tbody>
+    {% for p in f.held_payables %}
+    <tr><td><strong>{{ p.vendor }}</strong> <span class="muted">{{ p.reference }}</span></td>
+      <td class="muted">{{ p.job_number }}</td>
+      <td class="warn">{{ p.hold_reason or "on hold" }}</td>
+      <td class="r"><strong>{{ p.amount | money }}</strong></td></tr>
+    {% endfor %}
+  </tbody></table>
+</div>
+{% endif %}
+
+{% if f.overdue_receivables %}
+<div class="panel">
+  <h2>Overdue in — collections</h2>
+  <p class="muted" style="margin-top:0">Owed to us and already late. Deliberately
+    <em>not</em> counted as arriving — assuming late money turns up today is how a
+    forecast flatters itself.</p>
+  <table class="list"><tbody>
+    {% for r in f.overdue_receivables %}
+    <tr><td><strong>{{ r.customer }}</strong> <span class="muted">{{ r.reference }}</span></td>
+      <td class="muted">{{ r.job_number }}</td>
+      <td class="warn">{% if r.due_date %}due {{ r.due_date.strftime("%d %b") }}{% endif %}</td>
+      <td class="r"><strong>{{ r.amount | money }}</strong></td></tr>
+    {% endfor %}
+  </tbody></table>
+</div>
+{% endif %}
+
+{% if f.unscheduled_payables or f.unscheduled_receivables %}
+<div class="panel">
+  <h2>No date on file</h2>
+  <p class="muted" style="margin-top:0">Not in the day-by-day figures, because nothing
+    says when. Listed so they are not invisible.</p>
+  <table class="list"><tbody>
+    {% for p in f.unscheduled_payables %}
+    <tr><td><strong>{{ p.vendor }}</strong> <span class="muted">{{ p.reference }}</span></td>
+      <td class="neg">out</td><td class="r">{{ p.amount | money }}</td></tr>
+    {% endfor %}
+    {% for r in f.unscheduled_receivables %}
+    <tr><td><strong>{{ r.customer }}</strong> <span class="muted">{{ r.reference }}</span></td>
+      <td class="pos">in</td><td class="r">{{ r.amount | money }}</td></tr>
+    {% endfor %}
+  </tbody></table>
+</div>
+{% endif %}
+
+<p class="muted" style="font-size:.85rem">
+  Opening balance was entered by hand. Overdue payables are counted on day one because
+  they still have to be paid; overdue receivables are not counted as arriving.
+  {% if report.note %}<br>Note: {{ report.note }}{% endif %}
+</p>
+{% endblock %}
