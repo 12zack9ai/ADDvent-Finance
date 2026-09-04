@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}Job {{ job.job_number }} · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <div class="muted"><a href="/">Jobs</a> &rsaquo;</div>
+    <h1>Job {{ job.job_number }}</h1>
+    <p class="sub">{{ job.name or "No job name set" }}</p>
+  </div>
+  <div style="display:flex;gap:9px;flex-wrap:wrap">
+    <a class="btn ghost" href="/upload?job={{ job.job_number }}">Add invoice</a>
+    <a class="btn" href="/upload?job={{ job.job_number }}&amp;master=1">Add / replace master quote</a>
+  </div>
+</div>
+
+{# ---------------- MASTER QUOTES (one per vendor) ---------------- #}
+{% if not masters %}
+<div class="panel">
+  <h2 style="margin-bottom:3px">Master quote</h2>
+  <div class="muted">Every invoice price on this job is checked against this quote.</div>
+  <div class="empty" style="padding:24px">
+    <div class="big">No master quote on this job yet.</div>
+    Invoices can still be filed here, but their prices are not being checked against anything.
+    <div style="margin-top:14px">
+      <a class="btn" href="/upload?job={{ job.job_number }}&amp;master=1">Upload the master quote</a>
+    </div>
+  </div>
+</div>
+{% else %}
+  {% for master in masters %}
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+      <div>
+        <h2 style="margin-bottom:3px">
+          Master quote{% if masters|length > 1 %} · {{ master.vendor or "Unknown vendor" }}{% endif %}
+        </h2>
+        <div class="muted">
+          {% if masters|length == 1 %}{{ master.vendor or "Unknown vendor" }} · {% endif %}
+          {{ master.quote_number or "no quote number" }} ·
+          {{ master.quote_date or "no date" }} ·
+          {{ master.lines|length }} line{{ "" if master.lines|length == 1 else "s" }}
+          {% if master.page_info %} · page {{ master.page_info }}{% endif %}
+        </div>
+        {% if master.po_reference %}
+          <div class="muted">Vendor reference: <strong>{{ master.po_reference }}</strong></div>
+        {% endif %}
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:20px;font-weight:800;color:var(--navy)">{{ master.total | money }}</div>
+        <div class="muted"><a href="/document/{{ master.document_id }}/file" target="_blank">Original PDF</a></div>
+      </div>
+    </div>
+
+    {% if master.page_info and " of " in master.page_info
+          and master.page_info.split(" of ")[0] != master.page_info.split(" of ")[1] %}
+      <div class="flash warn" style="margin:12px 0 0">
+        This quote says <strong>page {{ master.page_info }}</strong> — the remaining pages have
+        not been uploaded, so some quoted items may be missing.
+      </div>
+    {% endif %}
+
+    <details style="margin-top:13px">
+      <summary style="cursor:pointer;font-weight:700;color:var(--accent);font-size:13px">
+        Show the {{ master.lines|length }} quoted line{{ "" if master.lines|length == 1 else "s" }}
+      </summary>
+      <table class="grid" style="margin-top:11px">
+        <thead>
+          <tr><th>#</th><th>Item</th><th>Description</th><th class="r">Qty</th>
+              <th class="r">Unit price</th><th class="r">Amount</th></tr>
+        </thead>
+        <tbody>
+          {% for line in master.lines %}
+          <tr>
+            <td class="muted">{{ line.line_no }}</td>
+            <td class="mono">{{ line.sku or "—" }}</td>
+            <td>{{ line.description or "—" }}</td>
+            <td class="r">{{ line.qty | qty }} <span class="muted">{{ line.uom }}</span></td>
+            <td class="r" style="font-weight:700">
+              {{ line.unit_price | money4 }}{% if line.price_uom %}<span class="muted">/{{ line.price_uom }}</span>{% endif %}
+            </td>
+            <td class="r">{{ line.extended | money }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </details>
+  </div>
+  {% endfor %}
+{% endif %}
+
+{% if superseded %}
+<div class="panel tight">
+  <div class="muted">
+    {{ superseded|length }} earlier quote{{ "" if superseded|length == 1 else "s" }} superseded ·
+    {% for old in superseded %}
+      <a href="/document/{{ old.document_id }}/file" target="_blank">{{ old.quote_number or ("#" ~ old.id) }}</a>{% if not loop.last %}, {% endif %}
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if job.aliases %}
+<div class="panel tight">
+  <div class="muted">
+    Also files under:
+    {% for a in job.aliases %}<strong>{{ a.alias }}</strong>{% if not loop.last %}, {% endif %}{% endfor %}
+    — references vendors use for this job.
+  </div>
+</div>
+{% endif %}
+
+{# ---------------- INVOICES ---------------- #}
+<div class="panel" style="padding:0;overflow:hidden">
+  <div style="padding:16px 20px 12px;display:flex;justify-content:space-between;
+              align-items:center;gap:14px;flex-wrap:wrap">
+    <div>
+      <h2 style="margin:0">Invoices</h2>
+      <div class="muted">
+        {{ invoices|length }} invoice{{ "" if invoices|length == 1 else "s" }} ·
+        {{ invoiced_total | money }} billed
+        {% if quoted_total %} against {{ quoted_total | money }} quoted{% endif %}
+      </div>
+    </div>
+    {% if total_overbilled and total_overbilled > 0 %}
+      <span class="chip c-over" style="font-size:13px;padding:5px 13px">
+        +{{ total_overbilled | money }} above quote
+      </span>
+    {% endif %}
+  </div>
+
+  {% if not invoices %}
+    <div class="empty">
+      <div class="big">No invoices on this job yet.</div>
+      Forward one to the finance inbox, or upload it here.
+      <div style="margin-top:14px">
+        <a class="btn ghost" href="/upload?job={{ job.job_number }}">Add an invoice</a>
+      </div>
+    </div>
+  {% else %}
+    <table class="grid">
+      <thead>
+        <tr>
+          <th style="padding-left:20px">Invoice</th>
+          <th>Vendor</th>
+          <th>Date</th>
+          <th class="r">Lines</th>
+          <th class="r">Total</th>
+          <th class="r">Vs. quote</th>
+          <th class="r" style="padding-right:20px">Marked-up copy</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for inv in invoices %}
+        <tr>
+          <td style="padding-left:20px">
+            <a href="/invoice/{{ inv.id }}" style="font-weight:700">
+              {{ inv.invoice_number or ("Invoice #" ~ inv.id) }}
+            </a>
+            <div class="muted"><a href="/document/{{ inv.document_id }}/file" target="_blank">original</a></div>
+          </td>
+          <td>{{ inv.vendor or "—" }}</td>
+          <td class="muted">{{ inv.invoice_date or "—" }}</td>
+          <td class="r">
+            {% if inv.lines_over %}<span class="chip c-over">{{ inv.lines_over }} over</span> {% endif %}
+            {% if inv.lines_under %}<span class="chip c-ok">{{ inv.lines_under }} under</span> {% endif %}
+            {% if inv.lines_match %}<span class="chip c-match">{{ inv.lines_match }} ok</span> {% endif %}
+            {% if inv.lines_unmatched %}<span class="chip c-none">{{ inv.lines_unmatched }} ?</span>{% endif %}
+          </td>
+          <td class="r" style="font-weight:700">{{ inv.total | money }}</td>
+          <td class="r">
+            {% if inv.overbilled_amount and inv.overbilled_amount > 0 %}
+              <span class="chip c-over">+{{ inv.overbilled_amount | money }}</span>
+            {% elif not inv.quote_id %}
+              <span class="chip c-none">no quote</span>
+            {% else %}
+              <span class="chip c-ok">on quote</span>
+            {% endif %}
+          </td>
+          <td class="r" style="padding-right:20px">
+            <a class="btn ghost" href="/invoice/{{ inv.id }}">View</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+{% endblock %}

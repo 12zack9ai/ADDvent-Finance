@@ -1,0 +1,14 @@
+[Unit]
+Description=Poll the Adventures Finance invoice mailbox every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+# Spread runs slightly so polls don't all land on the same second.
+RandomizedDelaySec=30
+# If the server was off, run once on the next boot rather than skipping silently.
+Persistent=true
+Unit=finance-mail.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Jobs · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>{% if q %}Search results{% else %}Jobs{% endif %}</h1>
+    <p class="sub">
+      {% if q %}
+        {{ jobs|length }} job{{ "" if jobs|length == 1 else "s" }} matching
+        &ldquo;<strong>{{ q }}</strong>&rdquo; · <a href="/">clear search</a>
+      {% else %}
+        One folder per job. Master quote at the top of each, every invoice underneath.
+      {% endif %}
+    </p>
+  </div>
+  <div style="display:flex;gap:9px">
+    <a class="btn" href="/upload">Upload quote or invoice</a>
+  </div>
+</div>
+
+{% if needs_attention %}
+<div class="panel tight" style="border-left:4px solid var(--over-line)">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">
+    <div>
+      <strong style="color:var(--over-ink)">
+        {{ needs_attention }} invoice{{ "" if needs_attention == 1 else "s" }} billed above the master quote
+      </strong>
+      <div class="muted">Total above quoted pricing: <strong>{{ total_overbilled | money }}</strong> across all open jobs.</div>
+    </div>
+    <a class="btn ghost" href="/?flagged=1">Show only these</a>
+  </div>
+</div>
+{% endif %}
+
+{% if not jobs %}
+  <div class="panel">
+    <div class="empty">
+      <div class="big">{% if q %}Nothing matched that search.{% else %}No jobs yet.{% endif %}</div>
+      {% if q %}
+        Try a job number, a vendor name, or an invoice number.
+      {% else %}
+        Upload a quote and give it a job number — that becomes the master quote for the job.
+        <div style="margin-top:15px"><a class="btn" href="/upload">Upload the first quote</a></div>
+      {% endif %}
+    </div>
+  </div>
+{% else %}
+  <div class="panel" style="padding:0;overflow:hidden">
+    <table class="grid">
+      <thead>
+        <tr>
+          <th style="padding-left:20px">Job</th>
+          <th>Master quote</th>
+          <th class="r">Invoices</th>
+          <th class="r">Quoted</th>
+          <th class="r">Invoiced</th>
+          <th class="r" style="padding-right:20px">Vs. quote</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in jobs %}
+        <tr onclick="location.href='/job/{{ row.job.job_number }}'" style="cursor:pointer">
+          <td style="padding-left:20px">
+            <div style="font-weight:800;font-size:14.5px;color:var(--navy)">
+              <a href="/job/{{ row.job.job_number }}">{{ row.job.job_number }}</a>
+            </div>
+            {% if row.job.name %}<div class="muted">{{ row.job.name }}</div>{% endif %}
+          </td>
+          <td>
+            {% if row.master %}
+              <div>{{ row.master.vendor or "—" }}</div>
+              <div class="muted">
+                {{ row.master.quote_number or "no number" }}
+                · {{ row.master.lines|length }} line{{ "" if row.master.lines|length == 1 else "s" }}
+              </div>
+            {% else %}
+              <span class="chip c-warn">No master quote</span>
+            {% endif %}
+          </td>
+          <td class="r">{{ row.invoice_count }}</td>
+          <td class="r">{{ row.master.total | money if row.master else "—" }}</td>
+          <td class="r">{{ row.invoiced_total | money }}</td>
+          <td class="r" style="padding-right:20px">
+            {% if row.overbilled and row.overbilled > 0 %}
+              <span class="chip c-over">+{{ row.overbilled | money }}</span>
+            {% elif not row.master %}
+              <span class="chip c-none">—</span>
+            {% elif row.invoice_count == 0 %}
+              <span class="chip c-none">no invoices</span>
+            {% else %}
+              <span class="chip c-ok">On quote</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+{% endblock %}

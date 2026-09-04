@@ -1,0 +1,1028 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Automating Bill Review — A Plain-English Guide</title>
+<style>
+  @page { size: Letter; margin: 0.75in 0.8in; }
+
+  :root {
+    --ink:      #1a1f2b;
+    --ink-soft: #4a5262;
+    --ink-mute: #6b7382;
+    --rule:     #d9dde4;
+    --rule-lt:  #eceef2;
+    --navy:     #1e3a5f;
+    --accent:   #2563a8;
+    --ok:       #1f6b46;
+    --ok-bg:    #eaf5ef;
+    --warn:     #8a5a00;
+    --warn-bg:  #fdf3e0;
+    --stop:     #9b2222;
+    --stop-bg:  #fbeceb;
+    --paper:    #ffffff;
+    --tint:     #f5f7fa;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 10.35pt;
+    line-height: 1.46;
+    color: var(--ink);
+    background: var(--paper);
+    margin: 0;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .page { page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+  .nobreak { page-break-inside: avoid; }
+
+  h1, h2, h3, .kicker, .label, table, .num, .badge, .stepnum, .tag {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  }
+
+  h1 { font-size: 25pt; line-height: 1.15; margin: 0 0 10px; color: var(--navy); letter-spacing: -0.4px; }
+  h2 {
+    font-size: 15pt; margin: 0 0 4px; color: var(--navy); letter-spacing: -0.2px;
+    page-break-after: avoid;
+  }
+  h3 { font-size: 11pt; margin: 14px 0 5px; color: var(--ink); page-break-after: avoid; }
+
+  .kicker {
+    font-size: 8.5pt; letter-spacing: 1.6px; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; margin-bottom: 6px;
+  }
+  .sectionhead { border-bottom: 2px solid var(--navy); padding-bottom: 6px; margin-bottom: 13px; }
+  .sub { color: var(--ink-mute); font-size: 10pt; font-style: italic; margin: 2px 0 0; }
+
+  p { margin: 0 0 8px; }
+  strong { color: var(--navy); }
+  em.term { font-style: normal; font-weight: 700; color: var(--accent); }
+
+  ul, ol { margin: 0 0 9px; padding-left: 20px; }
+  li { margin-bottom: 4px; }
+
+  /* ---------- cover ---------- */
+  .cover { display: flex; flex-direction: column; height: 9.1in; }
+  .cover-top { flex: 0 0 auto; }
+  .cover-mid { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; }
+  .cover-rule { height: 5px; background: var(--navy); width: 90px; margin: 0 0 26px; }
+  .cover h1 { font-size: 34pt; margin-bottom: 16px; }
+  .cover .deck { font-size: 13pt; color: var(--ink-soft); line-height: 1.5; max-width: 5.2in; }
+  .cover-foot {
+    flex: 0 0 auto; border-top: 1px solid var(--rule); padding-top: 14px;
+    font-size: 9pt; color: var(--ink-mute); font-family: Helvetica, Arial, sans-serif;
+    display: flex; justify-content: space-between;
+  }
+  .whofor {
+    background: var(--tint); border-left: 4px solid var(--accent);
+    padding: 14px 18px; margin-top: 34px; font-size: 10pt;
+  }
+  .whofor .label { font-size: 8pt; letter-spacing: 1.2px; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; display: block; margin-bottom: 5px; }
+
+  /* ---------- callouts ---------- */
+  .callout {
+    border-left: 4px solid var(--accent); background: var(--tint);
+    padding: 10px 15px; margin: 12px 0; font-size: 9.9pt;
+  }
+  .callout.plain { border-left-color: var(--ink-mute); }
+  .callout .label {
+    font-size: 8pt; letter-spacing: 1.2px; text-transform: uppercase;
+    color: var(--accent); font-weight: 700; display: block; margin-bottom: 4px;
+  }
+  .callout.plain .label { color: var(--ink-mute); }
+
+  .analogy {
+    border: 1px solid var(--rule); border-radius: 3px;
+    background: #fcfdfe; padding: 11px 16px; margin: 12px 0;
+  }
+  .analogy .label {
+    font-size: 8pt; letter-spacing: 1.2px; text-transform: uppercase;
+    color: var(--ink-mute); font-weight: 700; display: block; margin-bottom: 5px;
+  }
+  .analogy p:last-child { margin-bottom: 0; }
+
+  /* ---------- tables ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 9.3pt; margin: 10px 0 14px; }
+  th {
+    text-align: left; font-size: 8pt; letter-spacing: 0.8px; text-transform: uppercase;
+    color: var(--ink-mute); font-weight: 700; padding: 0 10px 7px 0;
+    border-bottom: 1.5px solid var(--navy); vertical-align: bottom;
+  }
+  td { padding: 6.5px 10px 6.5px 0; border-bottom: 1px solid var(--rule-lt); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td.w40 { width: 40%; } td.w33 { width: 33%; } td.w25 { width: 25%; }
+  .t-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  /* ---------- numbered problem/step blocks ---------- */
+  .steps { margin: 0; padding: 0; list-style: none; counter-reset: s; }
+  .steps > li {
+    position: relative; padding-left: 44px; margin-bottom: 13px;
+    page-break-inside: avoid; counter-increment: s;
+  }
+  .steps > li::before {
+    content: counter(s);
+    position: absolute; left: 0; top: -1px;
+    width: 30px; height: 30px; border-radius: 50%;
+    background: var(--navy); color: #fff;
+    font-family: Helvetica, Arial, sans-serif; font-size: 12pt; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .steps > li h3 { margin: 4px 0 5px; font-size: 11.5pt; color: var(--navy); }
+  .steps > li p { margin-bottom: 6px; }
+  .steps > li p:last-child { margin-bottom: 0; }
+
+  .who {
+    display: inline-block; font-family: Helvetica, Arial, sans-serif;
+    font-size: 7.8pt; letter-spacing: 0.8px; text-transform: uppercase; font-weight: 700;
+    padding: 2px 8px; border-radius: 2px; margin-bottom: 6px;
+  }
+  .who.bot   { background: #e8eef6; color: var(--accent); }
+  .who.human { background: var(--ok-bg); color: var(--ok); }
+
+  /* ---------- three-card row ---------- */
+  .cards { display: flex; gap: 14px; margin: 14px 0 16px; }
+  .card {
+    flex: 1; border: 1px solid var(--rule); border-top: 4px solid var(--accent);
+    padding: 12px 14px; page-break-inside: avoid;
+  }
+  .card .num {
+    font-size: 8pt; letter-spacing: 1.2px; color: var(--accent);
+    font-weight: 700; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .card h3 { margin: 0 0 7px; font-size: 11pt; color: var(--navy); }
+  .card p { font-size: 9.6pt; line-height: 1.45; margin: 0; color: var(--ink-soft); }
+
+  /* ---------- flow diagram ---------- */
+  .flow { margin: 15px 0; page-break-inside: avoid; }
+  .flow-row { display: flex; align-items: stretch; gap: 0; }
+  .fbox {
+    flex: 1; border: 1px solid var(--rule); background: #fff;
+    padding: 11px 10px; text-align: center; font-size: 9pt; line-height: 1.35;
+  }
+  .fbox .ftitle {
+    font-family: Helvetica, Arial, sans-serif; font-weight: 700;
+    font-size: 9pt; color: var(--navy); display: block; margin-bottom: 3px;
+  }
+  .fbox .fwho {
+    font-family: Helvetica, Arial, sans-serif; font-size: 7.4pt;
+    letter-spacing: 0.7px; text-transform: uppercase; display: block; margin-top: 5px;
+  }
+  .fbox.bot   { background: #f4f8fc; }
+  .fbox.bot .fwho   { color: var(--accent); font-weight: 700; }
+  .fbox.human { background: var(--ok-bg); border-color: #bcdcc9; }
+  .fbox.human .fwho { color: var(--ok); font-weight: 700; }
+  .farr {
+    flex: 0 0 26px; display: flex; align-items: center; justify-content: center;
+    color: var(--ink-mute); font-size: 15pt; font-family: Helvetica, Arial, sans-serif;
+  }
+
+  /* ---------- verdict chips ---------- */
+  .verdicts { display: flex; gap: 12px; margin: 12px 0 14px; }
+  .verdict { flex: 1; padding: 11px 13px; border-radius: 3px; page-break-inside: avoid; }
+  .verdict .tag {
+    font-size: 8pt; letter-spacing: 1.1px; text-transform: uppercase;
+    font-weight: 700; display: block; margin-bottom: 5px;
+  }
+  .verdict p { font-size: 9.4pt; line-height: 1.42; margin: 0; }
+  .v-ok   { background: var(--ok-bg);   border-left: 4px solid var(--ok); }
+  .v-ok   .tag { color: var(--ok); }
+  .v-warn { background: var(--warn-bg); border-left: 4px solid var(--warn); }
+  .v-warn .tag { color: var(--warn); }
+  .v-stop { background: var(--stop-bg); border-left: 4px solid var(--stop); }
+  .v-stop .tag { color: var(--stop); }
+
+  /* ---------- two computers ---------- */
+  .machines { display: flex; gap: 16px; margin: 15px 0; }
+  .machine { flex: 1; border: 1px solid var(--rule); page-break-inside: avoid; }
+  .machine .mhead {
+    background: var(--navy); color: #fff; padding: 9px 14px;
+    font-family: Helvetica, Arial, sans-serif; font-size: 10pt; font-weight: 700;
+  }
+  .machine .mbody { padding: 11px 13px; font-size: 9.3pt; }
+  .machine ul { padding-left: 16px; margin-bottom: 0; }
+  .machine li { margin-bottom: 5px; }
+
+  /* ---------- timeline ---------- */
+  .phase {
+    display: flex; gap: 14px; padding: 8px 0;
+    border-bottom: 1px solid var(--rule-lt); page-break-inside: avoid;
+  }
+  .phase:last-child { border-bottom: none; }
+  .phase .pwhen {
+    flex: 0 0 92px; font-family: Helvetica, Arial, sans-serif;
+    font-size: 8.6pt; font-weight: 700; color: var(--accent);
+    text-transform: uppercase; letter-spacing: 0.6px; padding-top: 2px;
+  }
+  .phase .pbody { flex: 1; }
+  .phase h3 { margin: 0 0 4px; font-size: 10.5pt; }
+  .phase p { margin: 0; font-size: 9.7pt; color: var(--ink-soft); }
+
+  .footnote { font-size: 8.8pt; color: var(--ink-mute); font-style: italic; }
+  .tight { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+
+<!-- ============================ COVER ============================ -->
+<section class="page cover">
+  <div class="cover-top">
+    <div class="kicker">Proposal · Finance Department</div>
+  </div>
+
+  <div class="cover-mid">
+    <div class="cover-rule"></div>
+    <h1>Automating the<br>Bill Review Process</h1>
+    <p class="deck">
+      Right now, someone compares every vendor bill to the quote by hand, then types
+      it into QuickBooks a second time. This is a plan to have a computer do the
+      comparing and the typing — while people keep making every decision that
+      involves money.
+    </p>
+
+    <div class="whofor">
+      <span class="label">Who this is for</span>
+      This is the plain-English version. No technical background needed. It is meant to be
+      read by anyone who has to understand, approve, use, or help set up this system —
+      including our IT company. A separate technical document exists for whoever builds it.
+    </div>
+  </div>
+
+  <div class="cover-foot">
+    <span>Plain-English Guide</span>
+    <span>Version 1 · Planning stage</span>
+  </div>
+</section>
+
+<!-- ============================ 1. PROBLEM ============================ -->
+<section class="page">
+  <div class="sectionhead">
+    <div class="kicker">Part One</div>
+    <h2>The problem we are trying to solve</h2>
+    <p class="sub">Four things that happen today, every week.</p>
+  </div>
+
+  <p>
+    Here is how buying something for a job works today. We ask vendors for
+    <strong>quotes</strong>. We pick one and place the order — sometimes with a formal
+    purchase order, often with just an email saying "go ahead." Weeks later, the vendor's
+    <strong>bill</strong> shows up. Then someone has to check it.
+  </p>
+
+  <ol class="steps">
+    <li>
+      <h3>Checking the bill against the quote is done by eye</h3>
+      <p>
+        Someone opens the quote and the bill side by side and reads down both lists,
+        line by line, looking for anything that doesn't match. On a bill with forty
+        line items, that is forty comparisons. It is slow, it is boring, and boring is
+        exactly when people miss things.
+      </p>
+    </li>
+    <li>
+      <h3>When something is wrong, it is usually small and easy to miss</h3>
+      <p>
+        A price quoted at $4.10 arrives at $5.85. A quantity is billed higher than what
+        was delivered. Freight and handling appear that were supposed to be included.
+        Any one of those is easy to overlook. Across hundreds of bills a year, they
+        add up to real money that we simply paid.
+      </p>
+    </li>
+    <li>
+      <h3>Everything gets typed in twice</h3>
+      <p>
+        After the bill is checked, someone types the vendor, the amount, the date, the
+        job, and the account codes into QuickBooks — copying information off a document
+        they just finished reading. That is the same work done twice, and each retype
+        is another chance for a typo.
+      </p>
+    </li>
+    <li>
+      <h3>Nobody has a reliable picture of the week ahead</h3>
+      <p>
+        "What do we owe over the next seven days, and what's coming in to cover it?"
+        is a question that requires someone to go and assemble the answer. So it gets
+        asked less often than it should.
+      </p>
+    </li>
+  </ol>
+
+  <div class="callout">
+    <span class="label">The short version</span>
+    We are paying skilled people to do comparison work that a computer is better at,
+    and the comparison still isn't reliable — because it depends on a person being
+    alert on the fortieth line of the ninth bill that day.
+  </div>
+</section>
+
+<!-- ============================ 2. WHAT WE BUILD ============================ -->
+<section class="page">
+  <div class="sectionhead">
+    <div class="kicker">Part Two</div>
+    <h2>What we want to build</h2>
+    <p class="sub">Three things, in the order they'd be built.</p>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="num">First</div>
+      <h3>Catch the bills that don't match</h3>
+      <p>
+        The computer reads every quote and every bill, compares them line by line, and
+        flags anything that doesn't line up — with the dollar amount attached.
+      </p>
+    </div>
+    <div class="card">
+      <div class="num">Second</div>
+      <h3>Put approved bills into QuickBooks</h3>
+      <p>
+        Once a person has reviewed and approved a bill on screen, the system enters it
+        into QuickBooks for them. No retyping.
+      </p>
+    </div>
+    <div class="card">
+      <div class="num">Third</div>
+      <h3>A seven-day money report</h3>
+      <p>
+        Every Monday morning: what has to go out this week, what should come in, and
+        where that leaves us. Sent automatically.
+      </p>
+    </div>
+  </div>
+
+  <h3>What each one actually changes</h3>
+
+  <table>
+    <thead>
+      <tr><th class="w25">&nbsp;</th><th class="w33">Today</th><th>After</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Checking bills</strong></td>
+        <td>Read every line of every bill and hope you catch it.</td>
+        <td>Read only the bills the system flagged — typically a small fraction — and it tells you which line and why.</td>
+      </tr>
+      <tr>
+        <td><strong>Entering bills</strong></td>
+        <td>Type the whole thing into QuickBooks by hand.</td>
+        <td>Check what the system read off the bill, correct anything wrong, click approve. It does the entry.</td>
+      </tr>
+      <tr>
+        <td><strong>Cash view</strong></td>
+        <td>Someone builds it when asked.</td>
+        <td>In your inbox Monday morning, and on screen any time.</td>
+      </tr>
+      <tr>
+        <td><strong>Vendor overcharges</strong></td>
+        <td>Caught sometimes. Nobody knows the real rate.</td>
+        <td>Caught consistently, with a record of which vendors do it repeatedly.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="analogy">
+    <span class="label">One thing to be clear about</span>
+    <p>
+      This does <strong>not</strong> pay anybody, and it does not decide anything. It reads,
+      compares, flags, and — only after a person approves — types. Every decision that
+      involves money stays with a person. That is a deliberate design choice, not a
+      limitation we plan to remove later.
+    </p>
+  </div>
+</section>
+
+<!-- ============================ 3. THE STORY ============================ -->
+<section class="page">
+  <div class="sectionhead">
+    <div class="kicker">Part Three</div>
+    <h2>One bill, all the way through</h2>
+    <p class="sub">This is the whole system. If you follow this page, you understand it.</p>
+  </div>
+
+  <div class="flow">
+    <div class="flow-row">
+      <div class="fbox bot"><span class="ftitle">Arrives</span>Email or upload<span class="fwho">Automatic</span></div>
+      <div class="farr">→</div>
+      <div class="fbox bot"><span class="ftitle">Read</span>Turned into data<span class="fwho">Automatic</span></div>
+      <div class="farr">→</div>
+      <div class="fbox bot"><span class="ftitle">Compared</span>Against the quote<span class="fwho">Automatic</span></div>
+      <div class="farr">→</div>
+      <div class="fbox human"><span class="ftitle">Reviewed</span>On screen<span class="fwho">A person</span></div>
+      <div class="farr">→</div>
+      <div class="fbox human"><span class="ftitle">Approved</span>Then entered<span class="fwho">A person</span></div>
+    </div>
+  </div>
+
+  <p class="footnote" style="margin-top:-6px;">
+    Example below uses made-up names and figures purely to illustrate the steps.
+  </p>
+
+  <ol class="steps" style="margin-top:16px;">
+    <li>
+      <span class="who bot">Automatic</span>
+      <h3>The bill arrives</h3>
+      <p>
+        Baker Supply emails an invoice for job 4417 to our accounts-payable inbox. The
+        system picks it up within five minutes. Nobody forwards it, files it, or does
+        anything. If a bill comes in some other way — handed over, faxed, downloaded —
+        anyone can drag it onto the screen instead.
+      </p>
+    </li>
+
+    <li>
+      <span class="who bot">Automatic</span>
+      <h3>It gets read</h3>
+      <p>
+        The system reads the PDF and pulls out the vendor, invoice number, date, due
+        date, every line item, quantity, unit price, tax, freight, and the total. It
+        works on scanned and photographed documents too, not just clean PDFs.
+      </p>
+      <p>
+        It also checks straight away whether we have seen this invoice before — same
+        file, or same vendor and invoice number. <strong>Vendors resend invoices, and
+        paying one twice is real money out the door.</strong>
+      </p>
+    </li>
+
+    <li>
+      <span class="who bot">Automatic</span>
+      <h3>It gets compared to what we agreed to</h3>
+      <p>
+        The system finds the matching quote — by purchase order number, by quote
+        number, or by vendor and job — lines the two documents up item by item, and
+        checks every number. It also re-adds the bill to confirm the vendor's own
+        arithmetic is right.
+      </p>
+      <p>
+        In our example it finds two problems: the copper fitting was quoted at $4.10
+        and billed at $5.85 across 400 units, and $180 of freight was added that the
+        quote showed as included. <strong>Total overcharge: $880.</strong>
+      </p>
+    </li>
+  </ol>
+
+  <div class="callout plain" style="margin-top:14px;">
+    <span class="label">Everything so far happened without anyone touching it</span>
+    Steps 1 to 3 run on their own, within minutes of the bill landing. A person's first
+    involvement is the next step — and by then the work is already laid out for them.
+  </div>
+</section>
+
+<section class="page">
+  <div class="sectionhead">
+    <div class="kicker">Part Three, continued</div>
+    <h2>One bill, all the way through</h2>
+    <p class="sub">Where a person picks it up.</p>
+  </div>
+
+  <ol class="steps" style="counter-reset: s 3;">
+    <li>
+      <span class="who human">A person</span>
+      <h3>Someone reviews it</h3>
+      <p>
+        The bill appears in a review list. On one screen: the actual PDF on the left,
+        and what the system read from it on the right, with the two problems highlighted
+        and explained in a sentence. Every number links back to the exact spot on the
+        page it came from, so nothing has to be taken on faith.
+      </p>
+      <p>
+        The reviewer can correct anything the system got wrong, and either accept the
+        charge with a note, or hold the bill and query it with the vendor.
+      </p>
+    </li>
+
+    <li>
+      <span class="who human">A person</span>
+      <h3>They approve it, and it goes into QuickBooks</h3>
+      <p>
+        One click. The system enters the bill in QuickBooks with the vendor, the lines,
+        the job, the account codes, and the due date already filled in, and links it to
+        the purchase order if there is one. Then it reads the entry back to confirm it
+        went in correctly.
+      </p>
+      <p>
+        Nobody retypes anything. The paperwork stays attached to the record on our
+        side, one click away from the QuickBooks entry.
+      </p>
+    </li>
+  </ol>
+
+  <h3>What that changes for the person doing it</h3>
+
+  <table>
+    <thead>
+      <tr><th class="w40">For one ordinary bill</th><th class="w25">Today</th><th>After</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Find the matching quote</td>
+        <td>Search email and folders</td>
+        <td>Already attached</td>
+      </tr>
+      <tr>
+        <td>Compare the lines</td>
+        <td>Read both documents in full</td>
+        <td>Read the flagged lines only</td>
+      </tr>
+      <tr>
+        <td>Enter it in QuickBooks</td>
+        <td>Type it all in</td>
+        <td>Check and click approve</td>
+      </tr>
+      <tr>
+        <td><strong>What the person is actually doing</strong></td>
+        <td><strong>Copying and comparing</strong></td>
+        <td><strong>Judging the exceptions</strong></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <span class="label">The point of the whole thing</span>
+    The work that disappears is the copying and the line-by-line reading — the part that
+    is tiring, repetitive, and unreliable when done by a person. The work that stays is
+    the part that needs judgement: <strong>is this charge acceptable, and do we pay it?</strong>
+    Nobody is removed from the process. The boring half of their job is.
+  </div>
+</section>
+
+<!-- ============================ 4. TRUST ============================ -->
+<section class="page">
+  <div class="sectionhead">
+    <div class="kicker">Part Four</div>
+    <h2>What the computer does, and what it never does</h2>
+    <p class="sub">This is the part people worry about, and it is worth being precise.</p>
+  </div>
+
+  <div class="analogy">
+    <span class="label">The simplest way to think about it</span>
+    <p>
+      Think of it as an extremely fast, extremely literal clerk who reads every page and
+      never gets bored, never skims, and never has a bad afternoon — <strong>but who is
+      not allowed to do the arithmetic and is not allowed to decide anything.</strong>
+    </p>
+    <p style="margin-bottom:0;">
+      It reads. A calculator does the maths. A person decides. Those three jobs are kept
+      separate on purpose, and that separation is what makes the system safe to trust.
+    </p>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th class="w40">The computer does this</th><th>A person always does this</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Reads the document and pulls out the numbers</td>
+        <td>Confirms the numbers are right, with the original on screen beside them</td>
+      </tr>
+      <tr>
+        <td>Compares the bill to the quote, line by line</td>
+        <td>Decides whether a difference is acceptable or gets challenged</td>
+      </tr>
+      <tr>
+        <td>Adds everything up and flags what doesn't match</td>
+        <td>Approves the bill — nothing reaches QuickBooks without this</td>
+      </tr>
+      <tr>
+        <td>Enters the approved bill into QuickBooks</td>
+        <td>Decides what actually gets paid, and when</td>
+      </tr>
+      <tr>
+        <td>Drafts the email querying an overcharge</td>
+        <td>Reads it, changes it if needed, and sends it</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>The arithmetic point, because it matters</h3>
+  <p>
+    The part that reads documents is artificial intelligence, and AI can make mistakes.
+    So it is used only for reading — turning a picture of an invoice into a list of
+    numbers. <strong>Every comparison and calculation afterwards is ordinary accounting
+    arithmetic</strong>, the way a spreadsheet does it: same inputs, same answer, every time.
+  </p>
+  <p>
+    The AI is never the thing that decides whether two numbers are different — and that
+    distinction is what separates a tool a finance department can rely on from one it can't.
+  </p>
+
+  <h3>Three possible outcomes for any bill</h3>
+
+  <div class="verdicts">
+    <div class="verdict v-ok">
+      <span class="tag">Clean</span>
+      <p>Everything matches the quote. Goes to review as a quick confirmation, not an investigation.</p>
+    </div>
+    <div class="verdict v-warn">
+      <span class="tag">Worth a look</span>
+      <p>Something differs but within reason — a small price move, an extra line. Flagged with the amount.</p>
+    </div>
+    <div class="verdict v-stop">
+      <span class="tag">Stop</span>
+      <p>Duplicate invoice, the maths doesn't add up, or billed for more than was ordered. <strong>Cannot be approved until a person resolves it.</strong></p>
+    </div>
+  </div>
+
+  <div class="callout plain">
+    <span class="label">On tolerances</span>
+    We set what counts as "worth a look" per vendor — a 2% move on steel is market noise,
+    a 2% move on a fixed-price subcontract is not. Those thresholds are ours to change,
+    and they are written down rather than living in someone's head.
+  </div>
+</section>
+
+<!-- ============================ 5. QUICKBOOKS ============================ -->
+<section class="page">
+  <div class="sectionhead">
+    <div class="kicker">Part Five</div>
+    <h2>The QuickBooks complication</h2>
+    <p class="sub">Why this needs two computers instead of one.</p>
+  </div>
+
+  <p>
+    There are two versions of QuickBooks, and which one you have changes how hard this
+    is. <strong>We have QuickBooks Desktop</strong> — the one installed on a computer,
+    with the company file on our server.
+  </p>
+
+  <div class="analogy">
+    <span class="label">The analogy</span>
+    <p>
+      <strong>QuickBooks Online is like a phone number.</strong> Any authorised system
+      can call it from anywhere and ask it to do something.
+    </p>
+    <p style="margin-bottom:0;">
+      <strong>QuickBooks Desktop is like a filing cabinet in a locked office.</strong>
+      You cannot phone a filing cabinet. Somebody has to physically be in that room to
+      open the drawer. That "somebody" is the second computer.
+    </p>
+  </div>
+
+  <p>
+    So the system is in two pieces. This is not a design choice we made; it is a
+    condition QuickBooks Desktop imposes.
+  </p>
+
+  <div class="machines">
+    <div class="machine">
+      <div class="mhead">1 · The main system</div>
+      <div class="mbody">
+        <p style="margin-bottom:8px;">Runs everything you actually see and use.</p>
+        <ul>
+          <li>Reads the emails and documents</li>
+          <li>Does the comparing</li>
+          <li>Hosts the review screen staff log into</li>
+          <li>Sends the Monday report</li>
+        </ul>
+        <p style="margin:9px 0 0; font-size:9.2pt; color:var(--ink-mute);">
+          Can live at our IT company or with a hosting provider. Nobody has to be near it.
+        </p>
+      </div>
+    </div>
+    <div class="machine">
+      <div class="mhead">2 · The QuickBooks messenger</div>
+      <div class="mbody">
+        <p style="margin-bottom:8px;">A small Windows computer that sits next to the QuickBooks file.</p>
+        <ul>
+          <li>Its only job is passing messages</li>
+          <li>Fetches bills and invoices out</li>
+          <li>Puts approved bills in</li>
+          <li>Nobody logs into it or uses it</li>
+        </ul>
+        <p style="margin:9px 0 0; font-size:9.2pt; color:var(--ink-mute);">
+          Must be on our network with the QuickBooks file, and must stay switched on.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <h3>Two practical consequences, stated plainly</h3>
+  <p class="tight">
+    <strong>It is not instant.</strong> The messenger checks in on a schedule rather than
+    reacting the moment something happens. In practice that means minutes, not seconds.
+    For accounts payable, that is fine.
+  </p>
+  <p>
+    <strong>If we ever move to QuickBooks Online, that second computer disappears</strong>
+    and this gets simpler. The system will be built so switching is a change to one
+    component, not starting over. Worth knowing, because Intuit has been steadily pushing
+    customers toward the online version.
+  </p>
+
+  <div class="callout">
+    <span class="label">The one thing to check first</span>
+    Our IT company has to be willing to run that second computer — a small Windows machine
+    that stays permanently switched on and logged in, running software that talks to the
+    QuickBooks file. Most will. Some have policies against it. <strong>That conversation
+    should happen before anything is built</strong>, because a "no" changes the plan.
+  </div>
+</section>
+
+<!-- ============================ 6. RUNNING ============================ -->
+<section class="page">
+  <div class="sectionhead">
+    <div class="kicker">Part Six</div>
+    <h2>Who has to run it day to day</h2>
+    <p class="sub">Nobody. That is the honest answer, and here is why.</p>
+  </div>
+
+  <p>
+    A fair question about anything automatic is: what happens when the person who set it
+    up is on holiday? The answer is that <strong>there is no daily start-up step.</strong>
+    Setting it up happens once. After that it runs the way a phone system or an email
+    server runs — continuously, without anyone starting it.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th class="w40">Task</th><th class="w25">Who</th><th>How often</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Set up the two computers</td>
+        <td>IT company</td>
+        <td><strong>Once</strong>, at the start</td>
+      </tr>
+      <tr>
+        <td>Check the email inbox, read documents, compare bills, sync QuickBooks, send the Monday report</td>
+        <td>The system itself</td>
+        <td>Continuously, on its own schedule</td>
+      </tr>
+      <tr>
+        <td>Start back up after a power cut or a restart</td>
+        <td>Automatic</td>
+        <td>Whenever needed, unattended</td>
+      </tr>
+      <tr>
+        <td>Review flagged bills and approve them</td>
+        <td>Accounts payable</td>
+        <td>As bills arrive — <em>this is the job they already do</em></td>
+      </tr>
+      <tr>
+        <td>Respond if an alert says something broke</td>
+        <td>One named person</td>
+        <td>Rarely</td>
+      </tr>
+      <tr>
+        <td>Updates and password rotation</td>
+        <td>IT company</td>
+        <td>Quarterly</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>How it restarts itself</h3>
+  <p>
+    Both computers are configured to bring everything back automatically after a restart
+    — including after a Windows update reboots the messenger machine overnight, which it
+    will. The timetable for recurring work lives inside the software, not in someone's
+    calendar. It runs whether anyone is logged in, at their desk, or away.
+  </p>
+
+  <h3>The alarm that actually matters</h3>
+  <p>
+    The real risk with anything that runs quietly in the background is not that it
+    crashes loudly — it is that it stops and <strong>nobody notices for a week.</strong>
+    A system that has quietly stopped looks exactly like one with nothing to do.
+  </p>
+  <p>
+    So it watches itself: if QuickBooks hasn't been checked in hours, or the inbox
+    hasn't been read, or an approved bill is sitting unsent, it sends an alert to a
+    person by email. <strong>That alarm is what replaces someone checking on it.</strong>
+  </p>
+
+  <div class="callout plain">
+    <span class="label">One thing we do need</span>
+    Name one person the alerts go to. Not to run it — just so a problem has somewhere to
+    land, and a stalled system isn't discovered by the controller wondering where Monday's
+    report went.
+  </div>
+</section>
+
+<!-- ============================ 7. TIME & MONEY ============================ -->
+<section class="page">
+  <div class="sectionhead">
+    <div class="kicker">Part Seven</div>
+    <h2>How long, and what it costs</h2>
+    <p class="sub">Estimates. The first two weeks exist specifically to firm these up.</p>
+  </div>
+
+  <h3>Roughly three months to all three pieces working</h3>
+  <p style="margin-bottom:4px;">
+    Each stage is usable on its own, so value arrives before the end rather than all at once.
+  </p>
+
+  <div style="margin: 14px 0 22px;">
+    <div class="phase">
+      <div class="pwhen">Weeks 1–2</div>
+      <div class="pbody">
+        <h3>Prove it works</h3>
+        <p>
+          Confirm we can read from and write to our QuickBooks. Gather 30–50 real
+          quote-and-bill pairs and measure how accurately the system reads them.
+          <strong>If something here doesn't work, we find out now — before spending
+          money on the rest.</strong>
+        </p>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="pwhen">Weeks 3–6</div>
+      <div class="pbody">
+        <h3>Catching mismatched bills</h3>
+        <p>
+          The reading, comparing, and review screen. Runs <em>alongside</em> the current
+          manual process, not instead of it, so we can measure whether it agrees with our
+          people before anyone relies on it.
+        </p>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="pwhen">Weeks 7–10</div>
+      <div class="pbody">
+        <h3>Entering bills into QuickBooks</h3>
+        <p>
+          The approve-and-enter step. This is the one accounts payable will feel most,
+          because it removes the retyping.
+        </p>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="pwhen">Weeks 11–12</div>
+      <div class="pbody">
+        <h3>The seven-day money report</h3>
+        <p>Automatic Monday report and a live version on screen any time.</p>
+      </div>
+    </div>
+  </div>
+
+  <h3>Ongoing running cost</h3>
+
+  <table>
+    <thead>
+      <tr><th class="w40">What</th><th class="w25">Rough monthly</th><th>Note</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>The AI that reads documents</td>
+        <td class="t-num">$40–60</td>
+        <td>Charged per document read. At our volume this is small.</td>
+      </tr>
+      <tr>
+        <td>Hosting the main system</td>
+        <td class="t-num">$50–100</td>
+        <td>May be less if our IT company hosts it on the server they already run.</td>
+      </tr>
+      <tr>
+        <td>QuickBooks Desktop connection</td>
+        <td class="t-num">$200–500</td>
+        <td><strong>The number to confirm.</strong> Buying this saves roughly a month of build work.</td>
+      </tr>
+      <tr>
+        <td><strong>Estimated total</strong></td>
+        <td class="t-num"><strong>$300–650</strong></td>
+        <td>To be confirmed with vendors in the first two weeks.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <span class="label">Worth putting next to that number</span>
+    A single missed overcharge of the size in the earlier example — $880 on one invoice —
+    is more than a month of running the whole system. The question worth asking is not
+    whether it pays for itself, but <strong>how often this is happening now without
+    anyone knowing.</strong> Nobody can currently answer that, which is itself part of
+    the problem.
+  </div>
+</section>
+
+<!-- ============================ 8. RISKS & DECISIONS ============================ -->
+<section class="page">
+  <div class="sectionhead">
+    <div class="kicker">Part Eight</div>
+    <h2>What could go wrong</h2>
+    <p class="sub">The fair objections, and the honest answer to each.</p>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th class="w40">The worry</th><th>What we do about it</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>"It reads a number wrong and we pay the wrong amount."</strong></td>
+        <td>A person sees the original document beside every number before approving, and each figure links to where it came from on the page. The bill's own totals are re-added independently — if they don't agree, it cannot be approved.</td>
+      </tr>
+      <tr>
+        <td><strong>"It enters the same bill twice."</strong></td>
+        <td>Duplicate checking happens before anything else, and each entry carries a unique marker so a retry after a dropped connection can't create a second copy.</td>
+      </tr>
+      <tr>
+        <td><strong>"Our IT company won't allow the second computer."</strong></td>
+        <td>We ask them in week one, before anything is built. There is a fallback that uses outside hosting instead.</td>
+      </tr>
+      <tr>
+        <td><strong>"Staff won't trust it and will keep checking everything anyway."</strong></td>
+        <td>It runs alongside the manual process first, and we publish how often it agreed, what it caught that a person missed, and what it missed. Trust comes from those numbers, not from a demo.</td>
+      </tr>
+      <tr>
+        <td><strong>"It stops working and nobody notices."</strong></td>
+        <td>It alerts a named person when it hasn't done its work — the alarm is on <em>silence</em>, not just on errors.</td>
+      </tr>
+      <tr>
+        <td><strong>"Half our orders have no purchase order, so there's nothing to compare to."</strong></td>
+        <td>The system treats the "go ahead and order it" email as the record of what was agreed. That also finally answers "did anyone actually approve this order?" — which today is a memory test.</td>
+      </tr>
+      <tr>
+        <td><strong>"An auditor asks why something was approved and we can't explain it."</strong></td>
+        <td>Every action is permanently recorded — what was read, what was flagged, who approved it, when, and what they changed. That is a better trail than we have today, where the reasoning lived in someone's head.</td>
+      </tr>
+      <tr>
+        <td><strong>"Vendor bank details and tax numbers are on these documents."</strong></td>
+        <td>Documents are stored encrypted, access is limited to the people who need it, and nothing sensitive is written into logs. Worth reviewing with our IT company as part of setup.</td>
+      </tr>
+      <tr>
+        <td><strong>"What if we hate it and want to stop?"</strong></td>
+        <td>QuickBooks stays the official record throughout — this system feeds it, never replaces it. Switch it off and you are back to the current process with nothing lost and nothing to unpick.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout plain">
+    <span class="label">The risk nobody lists</span>
+    Doing nothing is not the safe option. Today we do not know how much we are overpaying,
+    because nothing measures it. That number is not zero, and it stays invisible for as
+    long as the checking is done by eye.
+  </div>
+
+</section>
+
+<section class="page">
+  <div class="sectionhead">
+    <div class="kicker">Part Nine</div>
+    <h2>What we need from you</h2>
+    <p class="sub">Three decisions, and one thing that can start today.</p>
+  </div>
+
+  <ol class="steps" style="margin-top:14px;">
+    <li>
+      <h3>Will our IT company host this?</h3>
+      <p>
+        Specifically: a small Windows computer that stays on and logged in next to the
+        QuickBooks file, plus space for the main system. <strong>Ask them this week</strong> —
+        their answer shapes everything else, and there is a workable fallback either way.
+      </p>
+    </li>
+    <li>
+      <h3>Do we buy the QuickBooks connection or build it?</h3>
+      <p>
+        Companies sell a ready-made connection to QuickBooks Desktop for a few hundred a
+        month. Building our own saves that fee but adds roughly a month of work and
+        leaves us maintaining it forever. <strong>The recommendation is to buy it</strong>
+        — it is not the part of this that makes us money, and it is the part most likely
+        to break on a QuickBooks upgrade.
+      </p>
+    </li>
+    <li>
+      <h3>Who owns this?</h3>
+      <p>
+        One named person who gets the alerts and makes the calls on thresholds. Not a
+        daily job — but "everyone" and "nobody" are the same answer in practice.
+      </p>
+    </li>
+  </ol>
+
+  <h3>What to actually ask the IT company</h3>
+  <p style="margin-bottom:6px;">
+    Four questions. Their answers decide the shape of everything else, so this call is
+    worth making before any other step.
+  </p>
+  <ul style="margin-bottom:12px;">
+    <li>Where does our QuickBooks company file physically live, and which version is it?</li>
+    <li>Can you run a small Windows machine that stays switched on and logged in, next to
+      that file, running software that reads from and writes to QuickBooks? At what cost?</li>
+    <li>Can you also host the main system, or should we host it elsewhere?</li>
+    <li>Do you have any policy against third-party software connecting to QuickBooks?</li>
+  </ul>
+  <p class="footnote" style="margin-bottom:12px;">
+    If the answer to the second question is no, that is fine — it means hosting the main
+    system outside and finding another home for the small Windows machine. Better to know
+    in week one than in week eight.
+  </p>
+
+  <div class="callout">
+    <span class="label">One thing that can start immediately</span>
+    Collecting <strong>30–50 real quote-and-bill pairs</strong> — including the messy ones
+    and the ones with no purchase order — needs no decisions, no budget, and no computers.
+    It is how we measure whether any of this works, and it is on the critical path.
+    <strong>It could start this afternoon.</strong>
+  </div>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,27 @@
+[Unit]
+Description=Adventures Finance — poll the invoice mailbox once
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=finance
+Group=finance
+WorkingDirectory=/opt/finance-automation
+EnvironmentFile=/opt/finance-automation/.env
+ExecStart=/opt/finance-automation/.venv/bin/python scripts/poll_mail.py
+
+# One-shot by design: if a run fails, the next timer tick simply tries again.
+# A long-lived polling loop can die quietly and stop fetching invoices with
+# nothing to show for it.
+TimeoutStartSec=600
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/finance-automation
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=finance-mail

@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Invoice {{ invoice.invoice_number or invoice.id }} — Job {{ job.job_number }}</title>
+<style>
+  @page { size: Letter; margin: 0.55in 0.5in; }
+
+  :root {
+    --ink:#1a1f2b; --soft:#4a5262; --mute:#727a88;
+    --rule:#dfe3e9; --rule-lt:#eef0f4; --navy:#1e3a5f;
+    --over-bg:#fbe4e2;   --over-ink:#9b1c1c;  --over-line:#d94a3d;
+    --under-bg:#e3f5ea;  --under-ink:#166534; --under-line:#2f9e5f;
+    --ok-bg:#fbefc4;     --ok-ink:#7a5c00;    --ok-line:#d9a908;
+    --none-bg:#eef0f3;   --none-ink:#5a6270;  --none-line:#a8b0bd;
+  }
+  *{box-sizing:border-box}
+  body{
+    font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+    font-size:9.6pt; line-height:1.4; color:var(--ink); background:#fff; margin:0;
+    -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  }
+  .sheet{max-width:8.5in;margin:0 auto;padding:18px 22px}
+
+  /* ---- screen-only toolbar ---- */
+  .toolbar{
+    background:var(--navy);color:#fff;padding:9px 22px;display:flex;
+    align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
+  }
+  .toolbar a{color:#cfe0f5;text-decoration:none;font-size:9.5pt;font-weight:600}
+  .toolbar a:hover{color:#fff;text-decoration:underline}
+  .toolbar .btn{
+    background:#fff;color:var(--navy);padding:5px 13px;border-radius:3px;
+    font-weight:700;font-size:9pt;
+  }
+  @media print{ .toolbar{display:none} .sheet{padding:0;max-width:none} }
+
+  /* ---- header ---- */
+  .head{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;
+        border-bottom:2.5px solid var(--navy);padding-bottom:11px;margin-bottom:13px}
+  .vendor{font-size:17pt;font-weight:700;color:var(--navy);line-height:1.15;margin:0 0 3px}
+  .doclabel{font-size:8pt;letter-spacing:1.5px;text-transform:uppercase;color:var(--mute);
+            font-weight:700;margin-bottom:5px}
+  .meta{text-align:right;font-size:9pt;min-width:2.3in}
+  .meta div{margin-bottom:2px}
+  .meta .k{color:var(--mute);display:inline-block;min-width:74px;text-align:left}
+  .meta .v{font-weight:600}
+  .jobchip{
+    display:inline-block;background:var(--navy);color:#fff;padding:3px 11px;
+    border-radius:3px;font-weight:700;font-size:10pt;letter-spacing:.4px;
+  }
+
+  /* ---- verdict banner ---- */
+  .banner{padding:10px 14px;border-radius:3px;margin-bottom:13px;display:flex;
+          justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+  .banner .msg{font-size:10.5pt;font-weight:700}
+  .banner .sub{font-size:8.8pt;font-weight:400;margin-top:2px;opacity:.9}
+  .banner .amt{font-size:16pt;font-weight:800;white-space:nowrap}
+  .b-over{background:var(--over-bg);border-left:5px solid var(--over-line);color:var(--over-ink)}
+  .b-ok{background:var(--under-bg);border-left:5px solid var(--under-line);color:var(--under-ink)}
+  .b-none{background:var(--none-bg);border-left:5px solid var(--none-line);color:var(--none-ink)}
+
+  /* ---- line table ---- */
+  table{width:100%;border-collapse:collapse;font-size:9pt}
+  thead th{
+    text-align:left;font-size:7.6pt;letter-spacing:.9px;text-transform:uppercase;
+    color:var(--mute);font-weight:700;padding:0 7px 6px;border-bottom:1.5px solid var(--navy);
+  }
+  thead th.r{text-align:right}
+  tbody td{padding:6px 7px;border-bottom:1px solid var(--rule-lt);vertical-align:top}
+  tbody td.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  tbody tr{page-break-inside:avoid}
+  .ln{color:var(--mute);font-size:8.3pt;width:24px}
+  .sku{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:8.3pt;color:var(--soft);
+       white-space:nowrap}
+  .desc{width:40%}
+
+  /* the unit-price cell is the whole point of this document */
+  .price{font-weight:700;border-radius:3px;padding:5px 8px !important;white-space:nowrap}
+  .price .was{display:block;font-size:7.8pt;font-weight:600;opacity:.95;margin-top:2px}
+  .p-over{background:var(--over-bg);color:var(--over-ink);box-shadow:inset 3px 0 0 var(--over-line)}
+  .p-under{background:var(--under-bg);color:var(--under-ink);box-shadow:inset 3px 0 0 var(--under-line)}
+  .p-match{background:var(--ok-bg);color:var(--ok-ink);box-shadow:inset 3px 0 0 var(--ok-line)}
+  .p-none{background:var(--none-bg);color:var(--none-ink);box-shadow:inset 3px 0 0 var(--none-line)}
+
+  .delta{font-size:8.3pt;font-weight:700;white-space:nowrap}
+  .d-over{color:var(--over-ink)} .d-under{color:var(--under-ink)}
+  .d-none{color:var(--none-ink);font-weight:600;font-size:8pt}
+
+  /* ---- totals ---- */
+  .totals{margin-top:14px;display:flex;justify-content:flex-end;page-break-inside:avoid}
+  .totals table{width:3.5in;font-size:9.2pt}
+  .totals td{padding:4px 7px;border:none}
+  .totals td.r{text-align:right;font-variant-numeric:tabular-nums}
+  .totals tr.grand td{border-top:1.5px solid var(--navy);font-weight:800;font-size:11pt;
+                      padding-top:7px;color:var(--navy)}
+  .totals tr.var td{color:var(--over-ink);font-weight:700}
+
+  /* ---- legend + footer ---- */
+  .legend{margin-top:16px;padding-top:11px;border-top:1px solid var(--rule);
+          display:flex;gap:16px;flex-wrap:wrap;font-size:8.4pt;page-break-inside:avoid}
+  .legend .item{display:flex;align-items:center;gap:6px}
+  .swatch{width:22px;height:13px;border-radius:2px;display:inline-block}
+  .s-over{background:var(--over-bg);box-shadow:inset 3px 0 0 var(--over-line)}
+  .s-under{background:var(--under-bg);box-shadow:inset 3px 0 0 var(--under-line)}
+  .s-match{background:var(--ok-bg);box-shadow:inset 3px 0 0 var(--ok-line)}
+  .s-none{background:var(--none-bg);box-shadow:inset 3px 0 0 var(--none-line)}
+  .foot{margin-top:12px;font-size:7.9pt;color:var(--mute);line-height:1.45;
+        border-top:1px solid var(--rule-lt);padding-top:8px}
+  .foot strong{color:var(--soft)}
+  .warn{margin-top:10px;background:#fdf3e0;border-left:4px solid #c98a12;color:#7a5310;
+        padding:8px 12px;font-size:8.6pt;border-radius:2px}
+</style>
+</head>
+<body>
+
+{% if not print_mode %}
+<div class="toolbar">
+  <div>
+    <a href="/job/{{ job.job_number }}">&larr; Job {{ job.job_number }}</a>
+  </div>
+  <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+    <a href="/document/{{ invoice.document_id }}/file" target="_blank">Original invoice</a>
+    <a class="btn" href="/invoice/{{ invoice.id }}/pdf">Download PDF</a>
+  </div>
+</div>
+{% endif %}
+
+<div class="sheet">
+
+  <div class="head">
+    <div>
+      <div class="doclabel">Invoice · checked against master quote</div>
+      <h1 class="vendor">{{ invoice.vendor or "Unknown vendor" }}</h1>
+      <div class="jobchip">JOB {{ job.job_number }}</div>
+      {% if job.name %}<div style="margin-top:5px;color:var(--soft)">{{ job.name }}</div>{% endif %}
+    </div>
+    <div class="meta">
+      <div><span class="k">Invoice no.</span> <span class="v">{{ invoice.invoice_number or "—" }}</span></div>
+      <div><span class="k">Invoice date</span> <span class="v">{{ invoice.invoice_date or "—" }}</span></div>
+      <div><span class="k">Due date</span> <span class="v">{{ invoice.due_date or "—" }}</span></div>
+      {% if quote %}
+      <div style="margin-top:6px;padding-top:5px;border-top:1px solid var(--rule-lt)">
+        <span class="k">Master quote</span> <span class="v">{{ quote.quote_number or ("#" ~ quote.id) }}</span>
+      </div>
+      <div><span class="k">Quote date</span> <span class="v">{{ quote.quote_date or "—" }}</span></div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if not quote %}
+    <div class="banner b-none">
+      <div>
+        <div class="msg">No master quote on this job yet</div>
+        <div class="sub">Nothing to compare against. Add the quote and this page updates automatically.</div>
+      </div>
+    </div>
+  {% elif invoice.lines_over > 0 %}
+    <div class="banner b-over">
+      <div>
+        <div class="msg">Billed above the master quote</div>
+        <div class="sub">
+          {{ invoice.lines_over }} line{{ "" if invoice.lines_over == 1 else "s" }} priced higher than quoted{% if invoice.lines_under %}, {{ invoice.lines_under }} lower{% endif %}.
+        </div>
+      </div>
+      <div class="amt">+{{ invoice.overbilled_amount | money }}</div>
+    </div>
+  {% else %}
+    <div class="banner b-ok">
+      <div>
+        <div class="msg">Every priced line matches the master quote</div>
+        <div class="sub">
+          {{ invoice.lines_match }} at quote{% if invoice.lines_under %}, {{ invoice.lines_under }} below quote{% endif %}{% if invoice.lines_unmatched %}, {{ invoice.lines_unmatched }} not on the quote{% endif %}.
+        </div>
+      </div>
+      {% if invoice.underbilled_amount and invoice.underbilled_amount > 0 %}
+      <div class="amt">−{{ invoice.underbilled_amount | money }}</div>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if invoice.quote_match == "sole" %}
+  <div class="warn" style="margin:0 0 12px">
+    <strong>Vendor name differs.</strong> This invoice is from
+    &ldquo;{{ invoice.vendor }}&rdquo; and the master quote is from
+    &ldquo;{{ quote.vendor }}&rdquo;. It is the only quote on this job, so it was used
+    &mdash; worth a glance to confirm they are the same supplier.
+  </div>
+  {% endif %}
+
+  <table>
+    <thead>
+      <tr>
+        <th class="ln">#</th>
+        <th>Item</th>
+        <th class="desc">Description</th>
+        <th class="r">Qty</th>
+        <th class="r">Unit price</th>
+        <th class="r">Vs. quote</th>
+        <th class="r">Amount</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in lines %}
+      <tr>
+        <td class="ln">{{ line.line_no }}</td>
+        <td class="sku">{{ line.sku or "—" }}</td>
+        <td class="desc">{{ line.description or "—" }}</td>
+        <td class="r">{{ line.qty | qty }}{% if line.uom %} <span style="color:var(--mute);font-size:8.2pt">{{ line.uom }}</span>{% endif %}</td>
+
+        {# THE MARKED-UP CELL. red = billed high, green = billed low, gold = exact. #}
+        {% if line.verdict == "over" %}
+          <td class="r price p-over">
+            {{ line.unit_price | money4 }}{% if line.price_uom %}<span style="font-weight:600;opacity:.75">/{{ line.price_uom }}</span>{% endif %}
+            <span class="was">quoted {{ line.quote_unit_price | money4 }}{% if line.quote_line and line.quote_line.price_uom %}/{{ line.quote_line.price_uom }}{% endif %}</span>
+          </td>
+          <td class="r delta d-over">
+            +{{ line.unit_variance | money4 }}/{{ line.uom or "unit" }}
+            {% if line.extended_variance %}<br><span style="font-size:7.8pt">+{{ line.extended_variance | money }} this line</span>{% endif %}
+            {% if "effective" in line.match_method %}<br><span style="font-size:7.4pt;font-weight:600;opacity:.8">packaging adjusted</span>{% endif %}
+          </td>
+        {% elif line.verdict == "under" %}
+          <td class="r price p-under">
+            {{ line.unit_price | money4 }}{% if line.price_uom %}<span style="font-weight:600;opacity:.75">/{{ line.price_uom }}</span>{% endif %}
+            <span class="was">quoted {{ line.quote_unit_price | money4 }}{% if line.quote_line and line.quote_line.price_uom %}/{{ line.quote_line.price_uom }}{% endif %}</span>
+          </td>
+          <td class="r delta d-under">
+            −{{ line.unit_variance | abs_money4 }}/{{ line.uom or "unit" }}
+            {% if line.extended_variance %}<br><span style="font-size:7.8pt">−{{ line.extended_variance | abs_money }} this line</span>{% endif %}
+          </td>
+        {% elif line.verdict == "match" %}
+          <td class="r price p-match">{{ line.unit_price | money4 }}{% if line.price_uom %}<span style="font-weight:600;opacity:.75">/{{ line.price_uom }}</span>{% endif %}</td>
+          <td class="r delta" style="color:var(--ok-ink);font-weight:700">As quoted</td>
+        {% else %}
+          <td class="r price p-none">{{ line.unit_price | money4 }}{% if line.price_uom %}<span style="font-weight:600;opacity:.75">/{{ line.price_uom }}</span>{% endif %}</td>
+          <td class="r delta d-none">
+            {% if not quote %}no quote yet
+            {% elif "no_price" in line.match_method %}no price to compare
+            {% else %}not on quote{% endif %}
+          </td>
+        {% endif %}
+
+        <td class="r">{{ line.extended | money }}</td>
+      </tr>
+      {% endfor %}
+      {% if not lines %}
+      <tr><td colspan="7" style="padding:18px;text-align:center;color:var(--mute)">
+        No line items were read from this document.
+      </td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <div class="totals">
+    <table>
+      <tr><td>Subtotal</td><td class="r">{{ invoice.subtotal | money }}</td></tr>
+      {% if invoice.freight %}<tr><td>Freight / delivery</td><td class="r">{{ invoice.freight | money }}</td></tr>{% endif %}
+      {% if invoice.tax %}<tr><td>Tax</td><td class="r">{{ invoice.tax | money }}</td></tr>{% endif %}
+      <tr class="grand"><td>Invoice total</td><td class="r">{{ invoice.total | money }}</td></tr>
+      {% if invoice.overbilled_amount and invoice.overbilled_amount > 0 %}
+      <tr class="var"><td>Above quoted pricing</td><td class="r">+{{ invoice.overbilled_amount | money }}</td></tr>
+      {% endif %}
+    </table>
+  </div>
+
+  <div class="legend">
+    <div class="item"><span class="swatch s-over"></span> Higher than quoted — quoted price shown beneath</div>
+    <div class="item"><span class="swatch s-under"></span> Lower than quoted</div>
+    <div class="item"><span class="swatch s-match"></span> Exactly as quoted</div>
+    <div class="item"><span class="swatch s-none"></span> Not on the master quote</div>
+  </div>
+
+  {% if lines | selectattr("match_method", "in", ["sku:effective","exact:effective","fuzzy:effective"]) | list %}
+  <div class="warn" style="background:#eef2f8;border-left-color:#2563a8;color:#1e3a5f">
+    <strong>Packaging adjusted.</strong> On some lines the vendor quotes a price per one unit
+    (a box, say) but counts the quantity in another (packs). Those prices are not comparable
+    as printed, so the comparison uses the line total divided by the quantity on both
+    documents &mdash; the same money, on the same basis.
+  </div>
+  {% endif %}
+
+  {% if invoice.lines_unmatched %}
+  <div class="warn">
+    <strong>{{ invoice.lines_unmatched }} line{{ "" if invoice.lines_unmatched == 1 else "s" }}</strong>
+    could not be matched to the master quote. That may be legitimate — an extra item, a
+    delivery charge, or wording that differs from the quote — but it means those prices
+    were not checked against anything.
+  </div>
+  {% endif %}
+
+  <div class="foot">
+    <strong>How to read this.</strong> Every unit price on the vendor's invoice was compared
+    against the same item on the master quote for job {{ job.job_number }}. Prices were read
+    from the documents automatically; the comparison itself is exact arithmetic.
+    <strong>Check anything highlighted against the original invoice before acting on it.</strong>
+    <br>
+    Generated {{ generated_at }} · source file <em>{{ invoice.document.filename }}</em>
+    {%- if quote %} · master quote <em>{{ quote.document.filename }}</em>{% endif %}
+  </div>
+
+</div>
+</body>
+</html>

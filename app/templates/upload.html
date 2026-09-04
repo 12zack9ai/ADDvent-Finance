@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Upload · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>Upload a quote or invoice</h1>
+    <p class="sub">
+      PDF, PNG, or JPG. The system works out whether it's a quote or an invoice,
+      reads the line items, and files it under the job number.
+    </p>
+  </div>
+</div>
+
+<form class="panel" method="post" action="/upload" enctype="multipart/form-data">
+  <div style="margin-bottom:15px">
+    <label class="fld" for="files">Document(s)</label>
+    <input type="file" id="files" name="files" accept=".pdf,.png,.jpg,.jpeg" multiple required>
+    <div class="muted" style="margin-top:5px">
+      Several files can be selected at once. Each is read separately.
+    </div>
+  </div>
+
+  <div class="row" style="margin-bottom:15px">
+    <div>
+      <label class="fld" for="job_number">Job number</label>
+      <input type="text" id="job_number" name="job_number" value="{{ job or '' }}"
+             placeholder="e.g. 4417" autocomplete="off">
+      <div class="muted" style="margin-top:5px">
+        Leave blank to use the job number printed on the document. If neither has one,
+        it waits in the Inbox for you to assign.
+      </div>
+    </div>
+    <div>
+      <label class="fld" for="note">Note (optional)</label>
+      <input type="text" id="note" name="note" placeholder="e.g. master updated to job 4417"
+             autocomplete="off">
+      <div class="muted" style="margin-top:5px">
+        Same wording you'd put in a forwarded email subject line.
+      </div>
+    </div>
+  </div>
+
+  <div style="background:var(--accent-soft);border-radius:5px;padding:12px 14px;margin-bottom:16px">
+    <label style="display:flex;gap:9px;align-items:flex-start;cursor:pointer;font-size:13.5px">
+      <input type="checkbox" name="force_master" value="1" {% if force_master %}checked{% endif %}
+             style="width:auto;margin-top:2px">
+      <span>
+        <strong>Make this the master quote for the job.</strong>
+        <span class="muted" style="display:block">
+          Replaces the current master and re-checks every invoice already on the job
+          against the new pricing. The old quote is kept in the history.
+          Only applies to quotes.
+        </span>
+      </span>
+    </label>
+  </div>
+
+  <button class="btn" type="submit">Upload and read</button>
+  <a class="btn ghost" href="/" style="margin-left:6px">Cancel</a>
+
+  <div class="muted" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--rule-lt)">
+    Reading a document takes a few seconds per file — the page will wait.
+  </div>
+</form>
+{% endblock %}
