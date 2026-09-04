@@ -32,7 +32,7 @@ class Settings:
     anthropic_workspace_id: str = os.getenv("ANTHROPIC_WORKSPACE_ID", "").strip()
 
     # --- site --------------------------------------------------------------
-    site_name: str = os.getenv("SITE_NAME", "Addventures Inc · Finance")
+    site_name: str = os.getenv("SITE_NAME", "Add Ventures Inc · Finance")
     base_url: str = os.getenv("BASE_URL", "http://127.0.0.1:8000")
 
     # --- access control ----------------------------------------------------

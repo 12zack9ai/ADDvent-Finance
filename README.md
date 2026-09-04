@@ -1,4 +1,4 @@
-# Addventures Finance — invoice checking
+# Add Ventures Inc — invoice checking
 
 Checks every vendor invoice against the master quote for its job, and produces a
 marked-up copy showing exactly where the pricing differs.

@@ -98,6 +98,12 @@ templates.env.filters.update(
     abs_money=fmt.abs_money, abs_money4=fmt.abs_money4, ago=f_ago,
 )
 
+# The company name is on every page, so it is a global rather than something
+# each route has to remember to pass. It was being passed by _ctx() only, which
+# meant pages not using _ctx rendered an empty <title> and nobody noticed,
+# because an undefined value renders as nothing at all.
+templates.env.globals["site_name"] = settings.site_name
+
 
 def _configure_logging() -> None:
     """Make this application's own log lines visible in production.

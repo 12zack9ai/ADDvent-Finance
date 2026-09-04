@@ -401,3 +401,16 @@ def test_a_job_page_with_real_content_renders(client, tmp_path):
     markup = client.get(f"/invoice/{invoice_id}", follow_redirects=True)
     assert markup.status_code == 200
     assert "Internal Server Error" not in markup.text
+
+
+def test_the_company_name_comes_from_configuration(client):
+    """The header hard-coded "Addventures", so the server could be configured
+    correctly and the page still say something else. The company is
+    "Add Ventures Inc." - two words. The domain has no space because a domain
+    cannot, which is how the code drifted."""
+    from app.config import settings
+
+    body = client.get("/", follow_redirects=True).text
+    assert "Add Ventures" in body
+    assert ">Addventures" not in body
+    assert settings.site_name.startswith("Add Ventures Inc")

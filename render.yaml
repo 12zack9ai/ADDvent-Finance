@@ -32,7 +32,7 @@ services:
       - key: BASE_URL
         value: https://finance.addventuresinc.com
       - key: SITE_NAME
-        value: Addventures Inc · Finance
+        value: Add Ventures Inc · Finance
 
       # sync: false means Render prompts for the value and keeps it out of git.
       - key: ANTHROPIC_API_KEY

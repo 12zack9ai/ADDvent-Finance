@@ -429,7 +429,8 @@ tr.overdrawn td{background:var(--over-bg)}
 
 <header class="top">
   <div class="top-inner">
-    <a class="brand" href="/">Addventures <span>· Finance</span></a>
+    {# The name comes from SITE_NAME. Hard-coding it here meant the server could be configured correctly and the page still say something else. #}
+    <a class="brand" href="/">{{ site_name.split("·")[0].strip() }}<span>{% if "·" in site_name %} · {{ site_name.split("·")[1].strip() }}{% endif %}</span></a>
     <form class="search" action="/" method="get" role="search">
       <input type="text" name="q" value="{{ q or '' }}"
              placeholder="Search job number, vendor, or invoice number…" autocomplete="off">
