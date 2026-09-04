@@ -143,6 +143,25 @@
   .ap-note{font-size:9pt;color:var(--mute);margin-top:7px}
   .ap-done{background:var(--under-bg);color:var(--under-ink);padding:8px 12px;
            border-radius:4px;font-size:9.4pt}
+  /* Provenance. Deliberately louder than everything else on the page: the
+     question "is this bill even ours?" comes before any question about price. */
+  .trust{max-width:8.5in;margin:14px auto 0;padding:0 22px}
+  .trust-card{border:2px solid #b3261e;border-radius:8px;background:#fff5f4;
+              padding:14px 16px}
+  .trust-card.soft{border:1px solid #d9a300;background:#fffaed}
+  .trust-kicker{font-size:8.5pt;font-weight:800;letter-spacing:.6px;
+                text-transform:uppercase;color:#b3261e}
+  .trust-card.soft .trust-kicker{color:#8a6100}
+  .trust-title{font-size:13pt;font-weight:700;color:#1f2937;margin:3px 0 8px}
+  .trust-list{margin:0;padding-left:18px;font-size:9.6pt;line-height:1.5;color:#3a3f4a}
+  .trust-list li{margin-bottom:5px}
+  .trust-cleared{color:var(--mute);font-size:8.8pt;display:block}
+  .trust-form{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px;
+              padding-top:12px;border-top:1px solid #edd6d4}
+  .trust-form input{flex:1;min-width:140px;padding:7px 10px;border:1px solid var(--rule);
+                    border-radius:5px;font-size:9.6pt;font-family:inherit}
+  .trust-form button{background:#b3261e;color:#fff;border:none;padding:7px 15px;
+                     border-radius:5px;font-weight:700;font-size:9.6pt;cursor:pointer}
   .ap-trail{margin-top:11px;font-size:9pt}
   .ap-trail summary{cursor:pointer;color:#2563a8;font-weight:700}
   .ap-trail table{width:100%;margin-top:7px;font-size:8.8pt}
@@ -405,6 +424,40 @@
 
 </div>
 
+{% if not print_mode and routing and routing.trust_flags %}
+<div class="trust">
+  <div class="trust-card{% if not routing.untrusted %} soft{% endif %}">
+    <div class="trust-kicker">
+      {% if routing.untrusted %}Stop &mdash; check where this came from{% else %}Worth a look{% endif %}
+    </div>
+    <div class="trust-title">
+      {% if routing.untrusted %}
+        This bill does not line up with anyone we do business with
+      {% else %}
+        Something about this sender is new
+      {% endif %}
+    </div>
+    <ul class="trust-list">
+      {% for f in routing.trust_flags %}
+        <li>
+          {{ f.message }}
+          {% if f.cleared %}
+            <span class="trust-cleared">Cleared by {{ f.cleared_by }} on {{ f.cleared_at }}.</span>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+    {% if routing.untrusted %}
+      <form method="post" action="/invoice/{{ invoice.id }}/trust" class="trust-form">
+        <input type="text" name="actor" placeholder="Your name" required style="max-width:180px">
+        <input type="text" name="note" placeholder="How you confirmed it (who you spoke to)" required>
+        <button type="submit">I confirmed this is real</button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 {% if not print_mode and routing %}
 <div style="max-width:8.5in;margin:14px auto 0;padding:0 22px">
   <div class="approval">
@@ -450,8 +503,13 @@
       </form>
       {% if not routing.can_approve %}
         <div class="ap-note">
-          Approval is blocked until receipt is confirmed &mdash;
-          <a href="/job/{{ job.job_number }}#receipts">confirm it on the job page</a>.
+          {% if routing.untrusted %}
+            Approval is blocked until somebody confirms this bill is genuinely
+            ours &mdash; see the panel above.
+          {% else %}
+            Approval is blocked until receipt is confirmed &mdash;
+            <a href="/job/{{ job.job_number }}#receipts">confirm it on the job page</a>.
+          {% endif %}
         </div>
       {% endif %}
     {% elif invoice.approval_status == "approved" %}

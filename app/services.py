@@ -24,7 +24,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import jobnum, segment
+from app import jobnum, segment, trust
 from app.config import settings
 
 log = logging.getLogger(__name__)
@@ -341,6 +341,18 @@ def ingest_file(
     ))
 
     document.kind = result.doc_type
+
+    # Where did this come from, and do we deal with them? Runs before any of
+    # the price work, because a perfectly-priced invoice from a supplier
+    # nobody ordered from is the thing we are trying not to pay.
+    #
+    # Invoices only. A quote is a document we asked somebody for, and new
+    # suppliers quote us constantly - flagging every one of those would be
+    # noise, and noise is how a warning stops being read. A quote also asks
+    # for no money. An invoice does.
+    if result.doc_type == "invoice":
+        _screen(session, document, result)
+
     if result.doc_type not in ("quote", "invoice"):
         document.status = ST_OTHER
         document.error = "Not a quote or invoice - filed without comparison."
@@ -392,6 +404,21 @@ def ingest_file(
 
     session.flush()
     return document
+
+
+def _screen(session: Session, document: Document, result: ExtractionResult) -> None:
+    """Record what is questionable about the document's provenance."""
+    vendor = (result.payload.get("vendor") or "").strip()
+    flags = trust.screen(
+        session, document, vendor, own_domains=settings.reply_domains()
+    )
+    document.trust_json = trust.dump(flags)
+    if flags:
+        log.info(
+            "document %s (%s): %s",
+            document.id, vendor or "unknown vendor",
+            "; ".join(f"{f.severity}:{f.code}" for f in flags),
+        )
 
 
 def file_stored_document(

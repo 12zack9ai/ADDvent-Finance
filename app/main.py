@@ -18,7 +18,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app import accounting, auth, cashflow, cashflow_pdf, fmt, invoice_pdf, scheduler
+from app import accounting, auth, cashflow, cashflow_pdf, fmt, invoice_pdf, scheduler, trust
 from app.config import settings
 from app.db import get_session, init_db, to_decimal
 from app.extract import normalize_job_number
@@ -47,6 +47,7 @@ from app.models import (
     Quote,
     Receipt,
     TIER_LABELS,
+    TIER_OWNER,
     utcnow,
 )
 from app.pdf import PdfUnavailable, pdf_available, render_html_to_pdf
@@ -103,6 +104,9 @@ templates.env.filters.update(
 # meant pages not using _ctx rendered an empty <title> and nobody noticed,
 # because an undefined value renders as nothing at all.
 templates.env.globals["site_name"] = settings.site_name
+# Provenance flags, so any list of invoices can show that one of them came
+# from somewhere unexpected without every route having to look it up.
+templates.env.globals["trust_flags"] = trust.flags_for
 
 
 def _configure_logging() -> None:
@@ -704,6 +708,53 @@ def decide_invoice(
     ))
     session.commit()
     return _redirect(f"/invoice/{invoice.id}", ok=message)
+
+
+@app.post("/invoice/{invoice_id}/trust")
+def clear_trust_flags(
+    invoice_id: int,
+    actor: str = Form(""),
+    note: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    """Somebody checked, and this bill is genuinely ours.
+
+    The flags are not deleted - they stay on the document with the name of
+    whoever signed for them. If a fake invoice ever does get paid, the useful
+    question is not "did the system warn us" but "who cleared the warning".
+    """
+    invoice = session.get(Invoice, invoice_id)
+    if invoice is None:
+        return _redirect("/jobs", err="No such invoice.")
+
+    who = _actor(actor)
+    reason = note.strip()
+    if not reason:
+        return _redirect(
+            f"/invoice/{invoice.id}",
+            err="Say how you confirmed it before clearing the warning.",
+        )
+
+    cleared = trust.clear(
+        invoice.document, f"{who} ({reason})", date.today().strftime("%d %b %Y")
+    )
+    if not cleared:
+        return _redirect(f"/invoice/{invoice.id}", err="Nothing to clear.")
+
+    session.add(Approval(
+        invoice_id=invoice.id,
+        decision="trust_cleared",
+        tier=TIER_OWNER,
+        actor=who,
+        note=reason,
+        required_tier=TIER_OWNER,
+        variance_at_decision=invoice.overbilled_amount,
+    ))
+    session.commit()
+    return _redirect(
+        f"/invoice/{invoice.id}",
+        ok="Recorded. The invoice can now be reviewed on its numbers.",
+    )
 
 
 @app.get("/approvals", response_class=HTMLResponse)

@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from app import trust  # noqa: E402
 from app.approval import (  # noqa: E402
     ACTION_APPROVE,
     ACTION_HOLD,
@@ -24,6 +25,7 @@ from app.models import (  # noqa: E402
     TIER_OWNER,
     TIER_PM,
     ChangeOrder,
+    Document,
     Invoice,
     Job,
     Quote,
@@ -218,3 +220,71 @@ def test_each_vendor_gets_its_own_master_on_a_shared_job():
     assert baker is not waste
     assert baker.vendor == "Baker Building Supply"
     assert waste.vendor == "ABC Waste Removal"
+
+
+# --- provenance: a well-priced bill from a stranger ------------------------
+
+def _with_flags(invoice, flags):
+    """Attach a screened document to an otherwise ordinary invoice."""
+    invoice.document = Document(
+        filename="x.pdf", sha256="0" * 64, stored_path="/tmp/x.pdf",
+        source="email", trust_json=trust.dump(flags),
+    )
+    return invoice
+
+
+def test_a_perfectly_priced_bill_from_an_unknown_sender_cannot_be_approved():
+    """The whole point. Nothing is wrong with the numbers - the bill is not
+    ours, and no amount of price checking would ever say so."""
+    invoice = _with_flags(make(total="4200.00", over="0"), [
+        trust.Flag(trust.UNSOLICITED_BILL, trust.SEV_BLOCK,
+                   "A bill from a supplier we have no record of."),
+    ])
+    r = route(invoice)
+
+    assert not r.can_approve
+    assert r.untrusted
+    assert r.tier == TIER_OWNER
+
+
+def test_a_warning_is_shown_but_does_not_block():
+    invoice = _with_flags(make(), [
+        trust.Flag(trust.NEW_VENDOR, trust.SEV_WARN, "First time we have seen them."),
+    ])
+    r = route(invoice)
+
+    assert r.can_approve
+    assert not r.untrusted
+    assert any("First time" in reason for reason in r.reasons)
+
+
+def test_a_cleared_flag_stops_blocking_but_stays_on_the_record():
+    invoice = _with_flags(make(), [
+        trust.Flag(trust.SENDER_MISMATCH, trust.SEV_BLOCK, "New billing address.",
+                   cleared_by="Zack (phoned ABC)", cleared_at="04 Sep 2026"),
+    ])
+    r = route(invoice)
+
+    assert r.can_approve
+    assert not r.untrusted
+    assert len(r.trust_flags) == 1
+
+
+def test_provenance_is_checked_before_anything_about_price():
+    """A held invoice returns early from the price logic. The provenance
+    blocker has to survive that, so it is recorded first."""
+    invoice = _with_flags(make(total="1000.00", over="500.00"), [
+        trust.Flag(trust.REMITTANCE_CHANGE, trust.SEV_BLOCK, "Banking details changed."),
+    ])
+    r = route(invoice)
+
+    assert r.action == ACTION_HOLD          # still over quote
+    assert not r.can_approve
+    assert any("Banking details" in b for b in r.blockers)
+
+
+def test_an_invoice_with_no_document_is_not_flagged():
+    """Receipts and change orders are entered by hand and carry no document."""
+    r = route(make())
+    assert r.trust_flags == []
+    assert not r.untrusted

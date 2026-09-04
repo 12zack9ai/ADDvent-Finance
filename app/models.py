@@ -178,6 +178,10 @@ class Document(Base):
 
     received_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
+    # Sender/vendor screening, as JSON. See app/trust.py - this is about
+    # whether the document is genuinely ours, not whether its prices are right.
+    trust_json: Mapped[str] = mapped_column(Text, default="")
+
     # When we emailed the sender back asking which job this belongs to.
     # Vendors routinely leave the job field blank, so the question has to be
     # asked - but only once per document, however many times the poller runs.

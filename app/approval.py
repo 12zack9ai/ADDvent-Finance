@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Optional
 
+from app import trust
 from app.config import settings
 from app.matching import vendor_matches
 from app.models import (
@@ -74,6 +75,7 @@ class Routing:
     blockers: list[str] = field(default_factory=list)
     covering_change_order: Optional[ChangeOrder] = None
     available_change_orders: list[ChangeOrder] = field(default_factory=list)
+    trust_flags: list = field(default_factory=list)
 
     @property
     def can_approve(self) -> bool:
@@ -83,6 +85,11 @@ class Routing:
     @property
     def needs_owner(self) -> bool:
         return self.tier == TIER_OWNER
+
+    @property
+    def untrusted(self) -> bool:
+        """Something about where this came from does not add up."""
+        return any(f.blocks for f in self.trust_flags)
 
     @property
     def headline(self) -> str:
@@ -143,7 +150,20 @@ def route(invoice: Invoice) -> Routing:
         tolerance=tolerance,
         within_tolerance=within,
         available_change_orders=covering_change_orders(invoice),
+        trust_flags=trust.flags_for(invoice.document),
     )
+
+    # --- blocker: is this invoice even ours? -------------------------------
+    # Deliberately first. Everything below asks whether the price is right,
+    # which is the wrong question about a bill from a supplier nobody ordered
+    # from. A person can still approve it - but only after clearing this.
+    for flag in trust.blocking(routing.trust_flags):
+        routing.blockers.append(flag.message)
+    for flag in routing.trust_flags:
+        if not flag.blocks:
+            routing.reasons.append(flag.message)
+    if routing.blockers:
+        routing.tier = TIER_OWNER
 
     # --- blocker: was it actually received? --------------------------------
     if settings.require_receipt:

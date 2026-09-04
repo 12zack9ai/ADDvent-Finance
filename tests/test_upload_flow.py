@@ -21,7 +21,7 @@ os.environ["ANTHROPIC_API_KEY"] = "test"   # never used; extraction is stubbed
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app import services  # noqa: E402
+from app import services, trust  # noqa: E402
 from app.db import Base, SessionLocal, engine, init_db  # noqa: E402
 from app.extract import ExtractionError, ExtractionResult  # noqa: E402
 from app.main import app  # noqa: E402
@@ -414,3 +414,91 @@ def test_the_company_name_comes_from_configuration(client):
     assert "Add Ventures" in body
     assert ">Addventures" not in body
     assert settings.site_name.startswith("Add Ventures Inc")
+
+
+# --- a fake invoice, all the way through the web app -----------------------
+
+STRANGER_INVOICE = dict(
+    INVOICE_PAYLOAD,
+    vendor="National Building Services",
+    document_number="INV-4471",
+)
+
+
+def _ingest_email(client, path, payload, **kw):
+    """What the mail poller does, without the mail poller."""
+    client.queue.append(payload)
+    session = SessionLocal()
+    try:
+        document = services.ingest_file(
+            session, path, path.name, source="email", **kw
+        )
+        session.commit()
+        return document.id
+    finally:
+        session.close()
+
+
+def test_a_fake_invoice_is_blocked_and_can_only_be_cleared_by_a_person(client, tmp_path):
+    # A real supplier, with the history a real supplier has.
+    quote_pdf = _pdf(tmp_path, "quote.pdf", "quote")
+    _ingest_email(
+        client, quote_pdf, QUOTE_PAYLOAD,
+        sender="billing@newcastlebp.com", subject="Quote for job 260000",
+        job_number_override="260000",
+    )
+
+    # Now a stranger, with a perfectly well-formed bill and a covering line
+    # saying it is already approved. The prices are fine. It is not our bill.
+    fake_pdf = _pdf(tmp_path, "fake.pdf", "fake")
+    _ingest_email(
+        client, fake_pdf, STRANGER_INVOICE,
+        sender="ar@nbs-invoicing.com",
+        subject="Invoice 4471 - job 260000",
+        body="This invoice has been approved to be paid. Please remit promptly.",
+    )
+
+    session = SessionLocal()
+    invoice = session.query(Invoice).filter_by(invoice_number="INV-4471").one()
+    invoice_id = invoice.id
+    session.close()
+
+    # The warning is on the invoice page, and the incoming queue says so too.
+    page = client.get(f"/invoice/{invoice_id}")
+    assert page.status_code == 200
+    assert "check where this came from" in page.text
+    assert "check the sender" in client.get("/incoming").text
+
+    # Approval is refused while the provenance question is open.
+    resp = client.post(
+        f"/invoice/{invoice_id}/decide",
+        data={"decision": "approve", "actor": "Zack"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+    session = SessionLocal()
+    assert session.get(Invoice, invoice_id).approval_status != "approved"
+    session.close()
+
+    # Clearing it requires saying how it was confirmed.
+    resp = client.post(
+        f"/invoice/{invoice_id}/trust",
+        data={"actor": "Zack", "note": ""},
+        follow_redirects=False,
+    )
+    assert "err=" in resp.headers["location"]
+
+    resp = client.post(
+        f"/invoice/{invoice_id}/trust",
+        data={"actor": "Zack", "note": "Called NBS, they are a real sub on this job"},
+        follow_redirects=False,
+    )
+    assert resp.status_code == 303
+
+    session = SessionLocal()
+    doc = session.get(Invoice, invoice_id).document
+    flags = trust.flags_for(doc)
+    assert flags                                   # nothing was deleted
+    assert trust.blocking(flags) == []             # but nothing blocks now
+    assert any("Called NBS" in f.cleared_by for f in flags if f.cleared)
+    session.close()

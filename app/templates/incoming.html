@@ -38,7 +38,9 @@
 {% else %}
 <div class="feed">
   {% for inv in invoices %}
-  <a class="item {{ 'attn' if inv.overbilled_amount and inv.overbilled_amount > 0 else '' }}"
+  {% set tflags = trust_flags(inv.document) %}
+  {% set tblocked = tflags | selectattr("blocks") | list %}
+  <a class="item {{ 'attn' if tblocked or (inv.overbilled_amount and inv.overbilled_amount > 0) else '' }}"
      href="/invoice/{{ inv.id }}">
     <div class="item-when">
       <strong>{{ inv.created_at | ago }}</strong>
@@ -57,6 +59,8 @@
         {% if inv.lines_match %}<span class="chip ok">{{ inv.lines_match }} as quoted</span>{% endif %}
         {% if inv.lines_unmatched %}<span class="chip none">{{ inv.lines_unmatched }} not on quote</span>{% endif %}
         {% if not inv.quote_id %}<span class="chip none">no master quote</span>{% endif %}
+        {% if tblocked %}<span class="chip over">check the sender</span>
+        {% elif tflags %}<span class="chip none">new sender</span>{% endif %}
       </div>
     </div>
 
