@@ -146,10 +146,30 @@ class Receivable:
     source: str = ""
     memo: str = ""
     is_backlog: bool = False           # unbilled contract value on a live job
-    assigned_week: Optional[int] = None  # a person has said which week
+    # For backlog, `assigned_week` is the week the requisition goes OUT, not the
+    # week the money comes in. On a progress-billed roof the two are weeks
+    # apart: the draw is submitted, the association's board meets, the check is
+    # cut. `collect_weeks` is that gap.
+    assigned_week: Optional[int] = None   # a person has said which week to bill
+    collect_weeks: Optional[int] = None   # weeks from billing to money in hand
+    # Held back by the customer until closeout - typically 10% on a condo
+    # contract. Real money, but not this quarter's money, so it is taken off
+    # the draw and reported separately rather than being forecast.
+    retainage_pct: Decimal = ZERO
     bucket: str = ""                   # filled in when the forecast is built
     expected_amount: Decimal = ZERO    # after collectability
     expected_week: Optional[int] = None
+    billed_week: Optional[int] = None  # backlog only: when it goes out
+
+    @property
+    def retained_amount(self) -> Decimal:
+        if self.retainage_pct <= ZERO:
+            return ZERO
+        return _money(self.amount * self.retainage_pct / Decimal(100))
+
+    @property
+    def net_of_retainage(self) -> Decimal:
+        return _money(self.amount - self.retained_amount)
 
 
 @dataclass
@@ -205,6 +225,7 @@ class Forecast:
     unscheduled_payables: list[Payable] = field(default_factory=list)
     beyond_horizon: list[Payable] = field(default_factory=list)
     backlog: list[Receivable] = field(default_factory=list)
+    retained: list[Receivable] = field(default_factory=list)
     unscheduled_receivables: list[Receivable] = field(default_factory=list)
     discounts: list[Payable] = field(default_factory=list)
 
@@ -247,6 +268,19 @@ class Forecast:
     @property
     def backlog_total(self) -> Decimal:
         return _money(sum((r.amount for r in self.backlog), ZERO))
+
+    @property
+    def retained_total(self) -> Decimal:
+        """Money earned and withheld until closeout. Owed, but not soon."""
+        return _money(sum((r.retained_amount for r in self.retained), ZERO))
+
+    @property
+    def scheduled_draws(self) -> list[Receivable]:
+        """Progress billings a person has phased, in the order they go out."""
+        placed = [
+            r for w in self.weeks for r in w.receivables if r.is_backlog
+        ]
+        return sorted(placed, key=lambda r: (r.billed_week or 0, r.customer))
 
     @property
     def held_total(self) -> Decimal:
@@ -357,16 +391,36 @@ def _place_receivables(f: Forecast, receivables: Iterable[Receivable], today: da
         r.amount = _money(r.amount)
 
         if r.is_backlog:
-            # Real work, but no cash date until somebody assigns one.
+            # A progress billing. Real work, and nobody but a person knows when
+            # it gets requisitioned - that is the judgement this asks for.
+            if r.retainage_pct > ZERO:
+                f.retained.append(r)
+
             if r.assigned_week is None:
                 f.backlog.append(r)
                 continue
-            index = r.assigned_week - 1
-            if not 0 <= index < len(f.weeks):
+            if not 1 <= r.assigned_week <= len(f.weeks):
                 f.backlog.append(r)
                 continue
-            r.expected_amount = r.amount
-            r.expected_week = r.assigned_week
+
+            r.billed_week = r.assigned_week
+            # Billed in one week, paid in another. Default the gap to whatever
+            # the report assumes for a current invoice, since that is exactly
+            # what this becomes the moment it is sent.
+            lag = r.collect_weeks
+            if lag is None:
+                current = f.assumptions.get(BUCKET_CURRENT)
+                lag = current.weeks_out if current and current.weeks_out else 0
+            index = r.assigned_week - 1 + max(lag, 0)
+            if index >= len(f.weeks):
+                # Billed inside the horizon, collected past the end of it.
+                r.expected_amount = r.net_of_retainage
+                r.expected_week = None
+                f.backlog.append(r)
+                continue
+
+            r.expected_amount = r.net_of_retainage
+            r.expected_week = index + 1
             week = f.weeks[index]
             week.receivables.append(r)
             week.inflow += r.expected_amount

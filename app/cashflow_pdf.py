@@ -273,6 +273,16 @@ def _detail(pdf: _Doc, f: Forecast) -> None:
         _list(pdf, [(r.customer, r.reference, r.bucket,
                      f"{fmt.money(r.expected_amount)} likely",
                      fmt.money(r.amount)) for r in f.unscheduled_receivables], ink=AMBER_INK)
+    if f.scheduled_draws:
+        _heading(pdf, "Progress billings - phased by hand")
+        _list(pdf, [(r.customer, r.job_number, r.memo[:24],
+                     f"bill wk {r.billed_week} / in wk {r.expected_week}",
+                     fmt.money(r.expected_amount)) for r in f.scheduled_draws])
+    if f.retained:
+        _heading(pdf, f"Retainage - withheld until closeout ({fmt.money(f.retained_total)})")
+        _list(pdf, [(r.customer, r.job_number, f"{r.retainage_pct}% held",
+                     fmt.money(r.amount), fmt.money(r.retained_amount))
+                    for r in f.retained], ink=MUTE)
     if f.backlog:
         _heading(pdf, f"Backlog - real work, no assigned week ({fmt.money(f.backlog_total)})")
         _list(pdf, [(r.customer, r.memo[:30], "", "unscheduled",

@@ -165,6 +165,14 @@ div.grid{display:grid;gap:16px}
 }
 .btn.ghost:hover{background:var(--brand-lt);filter:none}
 .btn[disabled],.btn:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
+.btn.sm{padding:7px 13px;min-height:0;font-size:.88rem}
+
+/* Entering a progress billing. A grid rather than a stack: these six fields
+   are one thought, and stacking them makes it read like six decisions. */
+.drawform{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+          gap:0 16px;margin-top:18px;padding-top:18px;border-top:1px solid var(--rule)}
+.drawform .fld.wide{grid-column:1/-1}
+.drawgo{grid-column:1/-1;margin-top:2px}
 button.btn{font-family:inherit}
 
 /* ---------- flash messages ---------- */

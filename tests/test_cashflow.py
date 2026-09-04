@@ -143,16 +143,87 @@ def test_unbilled_backlog_produces_no_cash_until_a_week_is_assigned():
     assert f.backlog_total == D("280420.00")
 
 
-def test_assigning_a_week_to_backlog_puts_it_in_the_forecast():
-    r = Receivable(customer="Daul", amount=D("280420.00"), is_backlog=True, assigned_week=5)
-    f = build(receivables=[r])
-    assert f.weeks[4].inflow == D("280420.00")
-    assert f.backlog == []
-
-
 def test_a_week_outside_the_horizon_leaves_backlog_unscheduled():
     r = Receivable(customer="Daul", amount=D("1000.00"), is_backlog=True, assigned_week=40)
     assert build(receivables=[r]).backlog_total == D("1000.00")
+
+
+# --- progress billings: the week it goes out is not the week it lands ----
+
+def test_a_draw_is_billed_in_one_week_and_collected_in_another():
+    """The judgement a person supplies. On a nine-building roof the draw is
+    submitted, the board meets, then the check is cut - weeks apart."""
+    r = Receivable(customer="Daul", amount=D("280420.00"), is_backlog=True,
+                   assigned_week=5, collect_weeks=4)
+    f = build(receivables=[r])
+
+    assert f.weeks[4].inflow == D("0.00")        # week 5: billed, no money
+    assert f.weeks[8].inflow == D("280420.00")   # week 9: paid
+    assert r.billed_week == 5
+    assert r.expected_week == 9
+    assert f.backlog == []
+
+
+def test_a_draw_with_no_stated_lag_uses_the_reports_own_current_assumption():
+    """Because the moment it is sent, that is exactly what it becomes."""
+    r = Receivable(customer="Daul", amount=D("100000.00"), is_backlog=True,
+                   assigned_week=2)
+    f = build(receivables=[r], assumptions={
+        cf.BUCKET_CURRENT: CollectionAssumption(3, D("1.00")),
+    })
+    assert r.expected_week == 5                  # billed week 2, +3 weeks
+    assert f.weeks[4].inflow == D("100000.00")
+
+
+def test_a_draw_collected_past_the_horizon_is_not_counted_as_cash():
+    r = Receivable(customer="Daul", amount=D("100000.00"), is_backlog=True,
+                   assigned_week=12, collect_weeks=6)
+    f = build(receivables=[r])
+    assert f.total_in == D("0.00")
+    assert f.backlog_total == D("100000.00")
+
+
+# --- retainage: earned, withheld, and not this quarter's money ----------
+
+def test_retainage_comes_off_the_draw_and_is_reported_separately():
+    """The condo association holds it until closeout. Forecasting it as cash
+    is how a project looks solvent and the bank account does not."""
+    r = Receivable(customer="Daul", amount=D("100000.00"), is_backlog=True,
+                   assigned_week=1, collect_weeks=2, retainage_pct=D("10"))
+    f = build(receivables=[r])
+
+    assert r.retained_amount == D("10000.00")
+    assert f.weeks[2].inflow == D("90000.00")    # only what they will release
+    assert f.retained_total == D("10000.00")
+    assert f.total_in == D("90000.00")
+
+
+def test_retainage_on_an_unphased_draw_is_still_reported():
+    """It is owed whether or not anyone has said when the draw goes out."""
+    r = Receivable(customer="Daul", amount=D("50000.00"), is_backlog=True,
+                   retainage_pct=D("10"))
+    f = build(receivables=[r])
+    assert f.retained_total == D("5000.00")
+    assert f.backlog_total == D("50000.00")
+    assert f.total_in == D("0.00")
+
+
+def test_no_retainage_means_no_retainage_line():
+    r = Receivable(customer="Daul", amount=D("50000.00"), is_backlog=True,
+                   assigned_week=1, collect_weeks=1)
+    f = build(receivables=[r])
+    assert f.retained == []
+    assert f.retained_total == D("0.00")
+    assert f.weeks[1].inflow == D("50000.00")
+
+
+def test_scheduled_draws_read_in_the_order_they_go_out():
+    late = Receivable(customer="Daul", amount=D("10000.00"), is_backlog=True,
+                      assigned_week=6, collect_weeks=1)
+    early = Receivable(customer="Bergen", amount=D("20000.00"), is_backlog=True,
+                       assigned_week=2, collect_weeks=1)
+    f = build(receivables=[late, early])
+    assert [r.customer for r in f.scheduled_draws] == ["Bergen", "Daul"]
 
 
 # --- payables: overdue, held, beyond the horizon ------------------------

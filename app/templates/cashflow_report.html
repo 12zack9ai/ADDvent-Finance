@@ -131,13 +131,93 @@
 </div>
 {% endif %}
 
+<div class="panel" id="draws">
+  <h2>Progress billings — the part only a person knows</h2>
+  <p class="muted" style="margin-top:0">
+    A nine-building roof gets requisitioned building by building, and nothing in
+    QuickBooks knows when the next draw goes out. That judgement is yours. Put a
+    draw in below and the forecast picks it up — billed in the week you say,
+    collected however many weeks later the association actually pays, less
+    whatever they hold back.
+  </p>
+
+  {% if f.scheduled_draws %}
+  <table class="list"><tbody>
+    {% for r in f.scheduled_draws %}
+    <tr>
+      <td><strong>{{ r.customer }}</strong>
+        {% if r.job_number %}<span class="muted">job {{ r.job_number }}</span>{% endif %}
+        {% if r.memo %}<span class="muted">· {{ r.memo }}</span>{% endif %}</td>
+      <td class="muted">bill week {{ r.billed_week }} → in week {{ r.expected_week }}</td>
+      <td class="r muted">
+        {% if r.retainage_pct %}
+          {{ r.amount | money }} less {{ r.retainage_pct }}% retainage
+        {% endif %}
+      </td>
+      <td class="r"><strong>{{ r.expected_amount | money }}</strong></td>
+      <td class="r">
+        <form method="post" action="/cashflow/{{ report.id }}/draw/{{ r.reference }}/remove"
+              onsubmit="return confirm('Remove this draw from the forecast?')">
+          <button class="btn ghost sm" type="submit">Remove</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody></table>
+  {% endif %}
+
+  <form method="post" action="/cashflow/{{ report.id }}/draw" class="drawform">
+    <label class="fld"><span>Customer / association</span>
+      <input type="text" name="customer" required placeholder="Daul Gardens Condo Assn"></label>
+    <label class="fld"><span>Job number</span>
+      <input type="text" name="job_number" placeholder="260000"></label>
+    <label class="fld"><span>Amount of the draw</span>
+      <input type="text" name="amount" required inputmode="decimal" placeholder="280,420.00"></label>
+    <label class="fld"><span>Retainage held</span>
+      <input type="text" name="retainage_pct" inputmode="decimal" placeholder="10" value="10"></label>
+    <label class="fld"><span>Bill it in week</span>
+      <select name="assigned_week">
+        {% for n in range(1, 14) %}<option value="{{ n }}">Week {{ n }}</option>{% endfor %}
+      </select></label>
+    <label class="fld"><span>Paid how many weeks later</span>
+      <select name="collect_weeks">
+        {% for n in range(0, 13) %}
+          <option value="{{ n }}" {{ 'selected' if n == 4 }}>
+            {{ "same week" if n == 0 else (n ~ " week" ~ ("" if n == 1 else "s")) }}</option>
+        {% endfor %}
+      </select></label>
+    <label class="fld wide"><span>Note (optional)</span>
+      <input type="text" name="memo" placeholder="Buildings 1–3, requisition 2"></label>
+    <div class="drawgo"><button class="btn" type="submit">Add to the forecast</button></div>
+  </form>
+</div>
+
+{% if f.retained %}
+<div class="panel">
+  <h2>Retainage — earned, withheld until closeout</h2>
+  <p class="muted" style="margin-top:0">
+    <strong>{{ f.retained_total | money }}</strong> held back by customers on the
+    draws above. It is owed, and it is not this quarter's money, so it is taken
+    off every draw rather than forecast as cash.
+  </p>
+  <table class="list"><tbody>
+    {% for r in f.retained %}
+    <tr><td><strong>{{ r.customer }}</strong>
+        {% if r.job_number %}<span class="muted">job {{ r.job_number }}</span>{% endif %}</td>
+      <td class="muted">{{ r.retainage_pct }}% of {{ r.amount | money }}</td>
+      <td class="r"><strong>{{ r.retained_amount | money }}</strong></td></tr>
+    {% endfor %}
+  </tbody></table>
+</div>
+{% endif %}
+
 {% if f.backlog %}
 <div class="panel">
   <h2>Backlog — real work, no assigned week</h2>
   <p class="muted" style="margin-top:0">Unbilled contract value on jobs in progress:
     <strong>{{ f.backlog_total | money }}</strong>. Deliberately excluded from the figures
     above — it is real work, but it produces no cash on a date nobody has set.
-    Assign a week to bring it in.</p>
+    Give it a week above to bring it in.</p>
   <table class="list"><tbody>
     {% for r in f.backlog %}
     <tr><td><strong>{{ r.customer }}</strong> <span class="muted">{{ r.memo }}</span></td>

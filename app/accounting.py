@@ -365,7 +365,8 @@ def receivable_to_dict(r: Receivable) -> dict:
         "due_date": r.due_date.isoformat() if r.due_date else None,
         "reference": r.reference, "job_number": r.job_number, "entity": r.entity,
         "source": r.source, "memo": r.memo, "is_backlog": r.is_backlog,
-        "assigned_week": r.assigned_week, "bucket": r.bucket,
+        "assigned_week": r.assigned_week, "collect_weeks": r.collect_weeks,
+        "retainage_pct": str(r.retainage_pct), "bucket": r.bucket,
     }
 
 
@@ -378,6 +379,8 @@ def receivable_from_dict(d: dict) -> Receivable:
         reference=d.get("reference", ""), job_number=d.get("job_number", ""),
         entity=d.get("entity", ""), source=d.get("source", ""), memo=d.get("memo", ""),
         is_backlog=bool(d.get("is_backlog")), assigned_week=d.get("assigned_week"),
+        collect_weeks=d.get("collect_weeks"),
+        retainage_pct=Decimal(str(d.get("retainage_pct", "0") or "0")),
         bucket=d.get("bucket", ""),
     )
 

@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import tempfile
+import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
@@ -962,10 +963,14 @@ async def cashflow_generate(
         receivables.extend(csv_source.receivables())
         labels.append(csv_source.name)
 
-    if not payables and not receivables:
+    # Run-rates alone make a real report: payroll, rent and insurance go out
+    # whether or not a bill has been entered anywhere, and a forecast of just
+    # those against the opening balance is a fair question to ask. Progress
+    # billings are then added to it by hand.
+    if not payables and not receivables and not run_rates:
         return _redirect("/cashflow", err=(
-            "Nothing to report on. Either approve some invoices here, or attach "
-            "an A/P or A/R aging export."
+            "Nothing to report on. Attach an A/P or A/R aging export, approve "
+            "some invoices here, or at least put in the weekly run-rates."
         ))
 
     report = CashReport(
@@ -976,7 +981,7 @@ async def cashflow_generate(
         minimum_cash=_decimal_or_zero(minimum_cash),
         run_rates_json=json.dumps({k: str(v) for k, v in run_rates.items()}),
         assumptions_json=json.dumps(accounting.assumptions_to_dict(assumptions)),
-        source_label=" + ".join(labels),
+        source_label=" + ".join(labels) or "run-rates and progress billings",
         created_by=_actor(created_by),
         note=note.strip(),
         payables_json=json.dumps([accounting.payable_to_dict(p) for p in payables]),
@@ -996,6 +1001,95 @@ def cashflow_report(report_id: int, request: Request, session: Session = Depends
         "report": report,
         "f": _report_forecast(report),
     })
+
+
+DRAW_SOURCE = "progress billing"
+
+
+@app.post("/cashflow/{report_id}/draw")
+def add_draw(
+    report_id: int,
+    customer: str = Form(""),
+    job_number: str = Form(""),
+    amount: str = Form("0"),
+    retainage_pct: str = Form("0"),
+    assigned_week: str = Form("1"),
+    collect_weeks: str = Form(""),
+    memo: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    """Phase a progress billing by hand.
+
+    The one number in this report that no accounting system holds. QuickBooks
+    knows what has been invoiced; it has no idea when the next requisition on a
+    nine-building roof goes out, or how long that association takes to release
+    a check. A person does, and this is where they say so.
+    """
+    report = session.get(CashReport, report_id)
+    if report is None:
+        return _redirect("/cashflow", err="No such report.")
+
+    who = customer.strip()
+    if not who:
+        return _redirect(f"/cashflow/{report_id}#draws", err="Say who is being billed.")
+
+    value = _decimal_or_zero(amount)
+    if value <= ZERO:
+        return _redirect(f"/cashflow/{report_id}#draws",
+                         err="A draw needs an amount greater than zero.")
+
+    week = int(assigned_week) if assigned_week.strip().isdigit() else 1
+    week = min(max(week, 1), report.weeks or cashflow.DEFAULT_WEEKS)
+
+    lag_text = (collect_weeks or "").strip()
+    lag = int(lag_text) if lag_text.isdigit() else None
+
+    pct = _decimal_or_zero(retainage_pct)
+    if not ZERO <= pct < Decimal(100):
+        return _redirect(f"/cashflow/{report_id}#draws",
+                         err="Retainage has to be between 0 and 100 percent.")
+
+    draw = cashflow.Receivable(
+        customer=who,
+        amount=value,
+        job_number=job_number.strip(),
+        memo=memo.strip(),
+        reference=uuid.uuid4().hex[:10],
+        source=DRAW_SOURCE,
+        is_backlog=True,
+        assigned_week=week,
+        collect_weeks=lag,
+        retainage_pct=pct,
+    )
+
+    rows = json.loads(report.receivables_json or "[]")
+    rows.append(accounting.receivable_to_dict(draw))
+    report.receivables_json = json.dumps(rows)
+    session.commit()
+    return _redirect(f"/cashflow/{report_id}#draws",
+                     ok=f"Draw added — billed in week {week}.")
+
+
+@app.post("/cashflow/{report_id}/draw/{reference}/remove")
+def remove_draw(report_id: int, reference: str, session: Session = Depends(get_session)):
+    report = session.get(CashReport, report_id)
+    if report is None:
+        return _redirect("/cashflow", err="No such report.")
+
+    rows = json.loads(report.receivables_json or "[]")
+    # Only hand-entered draws can be removed here. Anything that came off an
+    # aging export belongs to QuickBooks, and deleting it from the report would
+    # make the two disagree with nothing to show why.
+    kept = [
+        r for r in rows
+        if not (r.get("reference") == reference and r.get("source") == DRAW_SOURCE)
+    ]
+    if len(kept) == len(rows):
+        return _redirect(f"/cashflow/{report_id}#draws", err="No such draw on this report.")
+
+    report.receivables_json = json.dumps(kept)
+    session.commit()
+    return _redirect(f"/cashflow/{report_id}#draws", ok="Draw removed.")
 
 
 @app.get("/cashflow/{report_id}/pdf")

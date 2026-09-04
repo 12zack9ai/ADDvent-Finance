@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -502,3 +503,135 @@ def test_a_fake_invoice_is_blocked_and_can_only_be_cleared_by_a_person(client, t
     assert trust.blocking(flags) == []             # but nothing blocks now
     assert any("Called NBS" in f.cleared_by for f in flags if f.cleared)
     session.close()
+
+
+# --- phasing a progress billing through the web app ------------------------
+
+def _report(**kw):
+    """A saved 13-week report with nothing in it but an opening balance."""
+    from app.models import CashReport
+    session = SessionLocal()
+    try:
+        report = CashReport(
+            as_of="2026-09-01", weeks=13, opening_balance=Decimal("100000"),
+            **kw,
+        )
+        session.add(report)
+        session.commit()
+        return report.id
+    finally:
+        session.close()
+
+
+def test_a_draw_is_phased_by_hand_and_lands_where_the_person_said(client):
+    report_id = _report()
+
+    resp = client.post(f"/cashflow/{report_id}/draw", data={
+        "customer": "Daul Gardens Condo Assn",
+        "job_number": "260000",
+        "amount": "280,420.00",
+        "retainage_pct": "10",
+        "assigned_week": "3",
+        "collect_weeks": "4",
+        "memo": "Buildings 1-3, requisition 2",
+    }, follow_redirects=False)
+    assert resp.status_code == 303
+    assert "err=" not in resp.headers["location"]
+
+    page = client.get(f"/cashflow/{report_id}")
+    assert page.status_code == 200
+    assert "Daul Gardens Condo Assn" in page.text
+    # Billed in week 3, four weeks to collect, so the money is week 7.
+    assert "bill week 3 \u2192 in week 7" in page.text
+    # 10% held back, so $252,378 is what the forecast counts.
+    assert "252,378.00" in page.text
+    assert "28,042.00" in page.text          # the retainage, shown separately
+
+    # And it survives a round trip through storage.
+    from app.models import CashReport
+    session = SessionLocal()
+    rows = json.loads(session.get(CashReport, report_id).receivables_json)
+    session.close()
+    assert len(rows) == 1
+    assert rows[0]["retainage_pct"] == "10"
+    assert rows[0]["collect_weeks"] == 4
+    assert rows[0]["source"] == "progress billing"
+
+
+def test_a_draw_with_no_amount_is_refused(client):
+    report_id = _report()
+    resp = client.post(f"/cashflow/{report_id}/draw", data={
+        "customer": "Daul", "amount": "0", "assigned_week": "1",
+    }, follow_redirects=False)
+    assert "err=" in resp.headers["location"]
+
+
+def test_a_draw_can_be_removed_again(client):
+    report_id = _report()
+    client.post(f"/cashflow/{report_id}/draw", data={
+        "customer": "Daul", "amount": "50000", "assigned_week": "2",
+        "retainage_pct": "0", "collect_weeks": "1",
+    }, follow_redirects=False)
+
+    from app.models import CashReport
+    session = SessionLocal()
+    ref = json.loads(session.get(CashReport, report_id).receivables_json)[0]["reference"]
+    session.close()
+
+    resp = client.post(f"/cashflow/{report_id}/draw/{ref}/remove", follow_redirects=False)
+    assert resp.status_code == 303
+    assert "err=" not in resp.headers["location"]
+
+    session = SessionLocal()
+    assert json.loads(session.get(CashReport, report_id).receivables_json) == []
+    session.close()
+
+
+def test_money_from_quickbooks_cannot_be_deleted_off_a_report(client):
+    """A draw is ours to remove. A row off an A/R aging export belongs to
+    QuickBooks, and quietly dropping it would make the two disagree."""
+    report_id = _report(receivables_json=json.dumps([{
+        "customer": "Bergen Point", "amount": "9000.00", "reference": "INV-3",
+        "source": "A/R aging export", "invoice_date": "2026-08-01",
+    }]))
+
+    resp = client.post(f"/cashflow/{report_id}/draw/INV-3/remove", follow_redirects=False)
+    assert "err=" in resp.headers["location"]
+
+    from app.models import CashReport
+    session = SessionLocal()
+    assert len(json.loads(session.get(CashReport, report_id).receivables_json)) == 1
+    session.close()
+
+
+def test_the_report_pdf_still_builds_with_draws_on_it(client):
+    report_id = _report()
+    client.post(f"/cashflow/{report_id}/draw", data={
+        "customer": "Daul", "amount": "50000", "assigned_week": "2",
+        "retainage_pct": "10", "collect_weeks": "3",
+    }, follow_redirects=False)
+
+    resp = client.get(f"/cashflow/{report_id}/pdf")
+    assert resp.status_code == 200
+    assert resp.content[:4] == b"%PDF"
+
+
+def test_run_rates_alone_are_enough_to_start_a_report(client):
+    """So a forecast can be built and then phased by hand, without waiting on
+    an export from anybody."""
+    resp = client.post("/cashflow/generate", data={
+        "opening_balance": "250000", "rate_payroll": "42000", "rate_rent": "6500",
+    }, follow_redirects=False)
+    assert resp.status_code == 303
+    assert "/cashflow/" in resp.headers["location"]
+    assert "err=" not in resp.headers["location"]
+
+    report_id = int(resp.headers["location"].rsplit("/", 1)[-1].split("?")[0])
+    page = client.get(f"/cashflow/{report_id}")
+    assert "Progress billings" in page.text
+
+
+def test_a_report_with_nothing_at_all_is_still_refused(client):
+    resp = client.post("/cashflow/generate", data={"opening_balance": "250000"},
+                       follow_redirects=False)
+    assert "err=" in resp.headers["location"]
