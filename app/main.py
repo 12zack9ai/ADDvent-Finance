@@ -16,7 +16,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app import auth
+from app import auth, scheduler
 from app.config import settings
 from app.db import get_session, init_db, to_decimal
 from app.extract import normalize_job_number
@@ -116,10 +116,18 @@ templates.env.filters.update(
 
 
 @app.on_event("startup")
-def _startup() -> None:
+async def _startup() -> None:
     init_db()
     for problem in auth.warnings():
         logging.getLogger("finance").warning("CONFIG: %s", problem)
+    # Polls the mailbox from inside this process, so it shares the database and
+    # document store rather than needing a second service with its own disk.
+    scheduler.start()
+
+
+@app.on_event("shutdown")
+async def _shutdown() -> None:
+    await scheduler.stop()
 
 
 # --- access control -------------------------------------------------------
@@ -231,7 +239,18 @@ def _job_rows(session: Session, jobs: list[Job]) -> list[JobRow]:
 
 @app.get("/healthz")
 def healthz() -> dict:
-    return {"ok": True, "pdf": pdf_available(), "mail": settings.mail_configured()}
+    """Liveness plus the things that fail quietly.
+
+    `mail.stale` is the one to alert on: it means a mailbox is configured but
+    nothing has been read for several cycles, which is how a background poller
+    fails - silently, with the site still serving pages perfectly.
+    """
+    return {
+        "ok": True,
+        "pdf": pdf_available(),
+        "server_pdf": pdf_available(),
+        "mail": scheduler.status(),
+    }
 
 
 @app.get("/", response_class=HTMLResponse)

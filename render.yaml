@@ -1,0 +1,71 @@
+# One-click deploy to Render. See docs/DEPLOY-RENDER.md.
+#
+# Chosen because this app needs something Supabase and ordinary web hosting
+# cannot provide: a Python process that stays running, with a disk it can write
+# to. Render gives both, deploys straight from GitHub, and puts the site on
+# finance.addventuresinc.com with TLS handled for us.
+
+services:
+  - type: web
+    name: addvent-finance
+    runtime: python
+    plan: starter          # ~$7/month. The free plan sleeps, which breaks the mailbox poller.
+    region: ohio           # nearest US region; change if you prefer another
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers
+    healthCheckPath: /healthz
+
+    # The database, every uploaded document and the approval trail live here.
+    # Without a disk, Render's filesystem resets on every deploy and the data
+    # is gone. This is the one setting that must not be skipped.
+    disk:
+      name: finance-data
+      mountPath: /var/lib/finance-automation
+      sizeGB: 10           # ~10,000 scanned documents; raise later without downtime
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"
+      - key: DATA_DIR
+        value: /var/lib/finance-automation
+      - key: BASE_URL
+        value: https://finance.addventuresinc.com
+
+      # sync: false means "prompt me for this, don't store it in git".
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_WORKSPACE_ID     # only for an organisation-scoped key
+        sync: false
+      - key: APP_PASSWORD               # the shared password staff sign in with
+        sync: false
+
+      # Generated once and kept, so people are not signed out on every deploy.
+      - key: SECRET_KEY
+        generateValue: true
+
+      # Mailbox: off until the credentials are added in the dashboard.
+      - key: MAIL_ENABLED
+        value: "false"
+      - key: IMAP_HOST
+        value: addventuresinc.com
+      - key: IMAP_PORT
+        value: "993"
+      - key: IMAP_USER
+        value: aiap@addventuresinc.com
+      - key: IMAP_PASSWORD
+        sync: false
+
+  # Reads the mailbox every 5 minutes. Leave it suspended until MAIL_ENABLED
+  # is true and scripts/test_mail.py passes.
+  - type: cron
+    name: addvent-finance-mail
+    runtime: python
+    plan: starter
+    region: ohio
+    branch: main
+    schedule: "*/5 * * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python scripts/poll_mail.py
+    envVars:
+      - fromGroup: addvent-finance-shared

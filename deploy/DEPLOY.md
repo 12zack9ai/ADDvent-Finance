@@ -114,20 +114,32 @@ Check it before switching the timer on — this files nothing and marks nothing 
 sudo -u finance .venv/bin/python scripts/test_mail.py
 ```
 
-Then:
+Then restart the app:
 
 ```bash
-sudo cp deploy/finance-mail.service deploy/finance-mail.timer /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now finance-mail.timer
 sudo systemctl restart finance-app
-
-sudo systemctl start finance-mail       # run once now
-sudo journalctl -u finance-mail -n 50   # check what it did
+curl -s localhost:8000/healthz | python3 -m json.tool
 ```
 
-The timer runs every 5 minutes. It is a one-shot script rather than a loop, so a
-failure can never leave polling silently stopped — the next tick just runs again.
+**Polling runs inside the app itself** — no second service, no cron, no timer.
+It shares the database and document store, which a separate service on a managed
+host generally cannot reach.
+
+The usual risk with a background loop is that it dies quietly and nobody notices
+the invoices stopped arriving, so `/healthz` reports it:
+
+```json
+"mail": { "enabled": true, "alive": true, "seconds_since_success": 42,
+          "stale": false, "last_summary": "3 message(s): 2 filed, 1 skipped" }
+```
+
+**Alert on `"stale": true`.** That means a mailbox is configured but nothing has
+been read for several cycles — the site still serves pages perfectly while
+quietly receiving nothing. Repeated failures back off automatically so a wrong
+password doesn't hammer the mail server.
+
+*(`deploy/finance-mail.service` and `.timer` remain for running polls out of
+process if you ever prefer that. They are not needed for a normal install.)*
 
 (If the mailbox ever moves to Microsoft 365, `app/mailbox.py` holds the Graph
 backend and its header lists what to ask IT for. Nothing to do while it is on
