@@ -74,20 +74,26 @@ comparison, subtraction and total is ordinary `Decimal` arithmetic in
 `app/matching.py`, so the same inputs always produce the same answer and the
 logic is unit-tested. The AI never decides whether two numbers differ.
 
-## Running locally
+## Getting it running
+
+**[QUICKSTART.md](QUICKSTART.md)** — running it on your own computer, about 10
+minutes, Mac and Windows, no server needed. Start here.
+
+**[deploy/DEPLOY.md](deploy/DEPLOY.md)** — the server install at
+`finance.adventuresinc.com`, for whoever administers it.
+
+The short version:
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 cp .env.example .env          # add ANTHROPIC_API_KEY
 .venv/bin/python scripts/seed_demo.py --reset    # optional demo data
-.venv/bin/uvicorn app.main:app --reload
+.venv/bin/uvicorn app.main:app --port 8000
 ```
 
-Then open http://127.0.0.1:8000. With `APP_PASSWORD` unset there is no login,
-which is fine on localhost and **not** fine anywhere else.
-
-To deploy to `finance.adventuresinc.com`, see **[deploy/DEPLOY.md](deploy/DEPLOY.md)**.
+With `APP_PASSWORD` unset there is no login, which is fine on localhost and
+**not** fine anywhere else.
 
 ## Tests
 
