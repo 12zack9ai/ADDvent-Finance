@@ -28,6 +28,7 @@ from app.extract import (
     ExtractionResult,
     extract_document,
     normalize_job_number,
+    parse_job_answer,
     parse_job_directive,
 )
 from app.approval import apply_routing
@@ -313,6 +314,7 @@ def ingest_file(
     subject: str = "",
     body: str = "",
     note: str = "",
+    message_id: str = "",
     job_number_override: str = "",
     force_master: bool = False,
 ) -> Document:
@@ -332,6 +334,7 @@ def ingest_file(
         sender=sender,
         subject=subject,
         body_text=body,
+        email_message_id=message_id,
         status="pending",
     )
     session.add(document)

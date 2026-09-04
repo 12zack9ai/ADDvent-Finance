@@ -7,12 +7,13 @@ images that are not attachments, and filenames that arrive RFC 2047 encoded.
 from __future__ import annotations
 
 import sys
+import pytest
 from email.message import EmailMessage
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.extract import parse_job_directive  # noqa: E402
+from app.extract import parse_job_answer, parse_job_directive, strip_quoted_reply  # noqa: E402
 from app.mail_imap import _attachments, _body_text, _decode  # noqa: E402
 
 
@@ -132,3 +133,78 @@ def test_forwarded_subject_lines_resolve_to_a_job():
         directive = parse_job_directive(subject)
         assert directive.job_number == expected_job, subject
         assert directive.is_master_update is expected_master, subject
+
+
+# --- recognising the answer to a job number we asked for -----------------
+# The reply is matched on the Message-ID we asked from, carried back in
+# In-Reply-To. Subject lines get edited, forwarded and reused; a message ID
+# does not, so it is the only thing worth trusting to tie an answer to a
+# document.
+
+from app.mail_imap import _MSGID  # noqa: E402
+
+
+def test_message_ids_are_pulled_out_of_a_references_header():
+    header = "<first@ncbp.com> <second@ncbp.com>\n <third@abcsupply.com>"
+    assert _MSGID.findall(header) == [
+        "<first@ncbp.com>", "<second@ncbp.com>", "<third@abcsupply.com>"
+    ]
+
+
+def test_no_message_ids_in_an_empty_header():
+    assert _MSGID.findall("") == []
+
+
+@pytest.mark.parametrize("body", [
+    "260000", "Job 260000", "job #260000", "That's job number 260000.",
+    "260000 thanks", "260000, thanks!", "  260000  ",
+    "Hi\n\n260000\n\nSent from my iPhone",
+])
+def test_a_bare_number_is_a_valid_answer_because_we_asked(body):
+    """Asked a direct question, people reply with the number and nothing else."""
+    assert parse_job_answer("", body).job_number == "260000", body
+
+
+def test_a_bare_number_is_still_ignored_in_an_unsolicited_email():
+    """Unasked, "260000" could be an invoice number, a quantity or an extension."""
+    assert parse_job_directive("", "260000").job_number is None
+
+
+def test_our_own_example_in_the_quoted_reply_is_not_read_as_the_answer():
+    """The dangerous case: the question contains "Job 260000" as an example.
+
+    Reply with the original quoted underneath and a naive parser answers the
+    question with our own example, filing the document against a job the sender
+    never named.
+    """
+    reply = ("999123\n\n"
+             "----- please reply above this line -----\n"
+             "Could you reply with the job number? For example:\n"
+             "    Job 260000\n")
+    assert parse_job_answer("", reply).job_number == "999123"
+
+
+@pytest.mark.parametrize("quoted", [
+    "> Could you reply with the job number? For example:\n>     Job 260000",
+    "On Thu, 4 Sep 2026 at 14:02, Add Ventures wrote:\n    Job 260000",
+    "-----Original Message-----\nFrom: ap@addventuresinc.com\n Job 260000",
+    "From: ap@addventuresinc.com\nSent: Thursday\n Job 260000",
+])
+def test_quoted_originals_are_stripped_whatever_the_mail_client(quoted):
+    assert parse_job_answer("", f"999123\n\n{quoted}").job_number == "999123"
+    assert "260000" not in strip_quoted_reply(f"999123\n\n{quoted}")
+
+
+def test_a_reply_can_also_declare_the_master_quote():
+    directive = parse_job_answer("", "master updated to job 260000")
+    assert directive.job_number == "260000"
+    assert directive.is_master_update
+
+
+@pytest.mark.parametrize("body", [
+    "Thanks!", "I'll check with the office.", "See attached.", "",
+    "260000 or 260001", "260000 tomorrow",
+])
+def test_an_ambiguous_reply_is_not_guessed_at(body):
+    """Better to keep waiting than to file a document against the wrong job."""
+    assert not parse_job_answer("", body).job_number, body

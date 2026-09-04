@@ -310,6 +310,80 @@ _MASTER_UPDATE_RE = re.compile(
 )
 
 
+# Everything below this line in a reply is the quoted original, including the
+# example job number in the question we sent. Parsing that would file the
+# document against the number from our own example.
+REPLY_SENTINEL = "----- please reply above this line -----"
+
+_QUOTE_MARKERS = (
+    REPLY_SENTINEL,
+    "-----Original Message-----",
+    "________________________________",
+)
+_ON_WROTE = re.compile(r"^\s*On .{0,120}\bwrote:\s*$", re.M)
+_OUTLOOK_HEADER = re.compile(r"^\s*From:\s.+$", re.M)
+# A bare job number, alone on its line or the whole reply. Three to eight
+# digits: long enough not to catch "2" or a day of the month, short enough not
+# to catch a phone number or an invoice number like 07RM0002847012.
+_BARE_NUMBER = re.compile(r"^\s*#?\s*(\d{3,8})\s*[.!]?\s*$", re.M)
+# "260000 thanks" is how a busy person answers. Trimming a known courtesy word
+# is safe; trimming arbitrary trailing text would not be, because the number
+# would then be read out of sentences that were never an answer.
+_COURTESY = re.compile(
+    r"[\s,.-]*\b(?:thanks|thank you|thx|cheers|please|pls|ta)\b[\s,.!]*$", re.I | re.M
+)
+
+
+def strip_quoted_reply(body: str) -> str:
+    """Just the words this person actually typed.
+
+    A reply usually carries the whole original beneath it. Our question
+    contains an example job number, so reading the quoted part would answer the
+    question with our own example - filing the document against a job the
+    sender never named.
+    """
+    text = body or ""
+    for marker in _QUOTE_MARKERS:
+        index = text.find(marker)
+        if index != -1:
+            text = text[:index]
+    for pattern in (_ON_WROTE, _OUTLOOK_HEADER):
+        match = pattern.search(text)
+        if match:
+            text = text[:match.start()]
+    kept = [ln for ln in text.splitlines() if not ln.lstrip().startswith(">")]
+    return "\n".join(kept).strip()
+
+
+def parse_job_answer(*texts: Optional[str]) -> JobDirective:
+    """Read a reply to "which job is this?".
+
+    Looser than parse_job_directive on purpose. Asked a direct question, people
+    answer with the number and nothing else - "260000" - and that is a valid
+    answer here precisely because we asked. In an unsolicited email the same
+    bare number could be an invoice number, a quantity or a phone extension, so
+    the general parser is right to ignore it and this one is right not to.
+    """
+    cleaned = [strip_quoted_reply(t) for t in texts if t]
+
+    directive = parse_job_directive(*cleaned)
+    if directive.job_number:
+        return directive
+
+    for text in cleaned:
+        found = _BARE_NUMBER.findall(_COURTESY.sub("", text))
+        # Exactly one candidate, or we do not guess. Two numbers in a reply
+        # means we do not know which is the job.
+        if len(set(found)) == 1:
+            return JobDirective(
+                job_number=normalize_job_number(found[0]),
+                is_master_update=False,
+                raw=text,
+                matched_phrase=found[0],
+            )
+    return JobDirective(job_number=None, is_master_update=False, raw="", matched_phrase="")
+
+
 def parse_job_directive(*texts: Optional[str]) -> JobDirective:
     """Find a job number, and whether this is an explicit master-quote update.
 

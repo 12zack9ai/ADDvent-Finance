@@ -6,10 +6,12 @@ $4,182.5999999. Never use Float for money here.
 """
 from __future__ import annotations
 
+import logging
+
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
-from sqlalchemy import String, TypeDecorator, create_engine
+from sqlalchemy import String, TypeDecorator, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.config import settings
@@ -85,6 +87,9 @@ def qty_str(value: Optional[Decimal]) -> str:
     return format(normalized, "f")
 
 
+log = logging.getLogger(__name__)
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -109,3 +114,42 @@ def init_db() -> None:
     from app import models  # noqa: F401  (registers mappers)
 
     Base.metadata.create_all(engine)
+    _add_missing_columns()
+
+
+def _add_missing_columns() -> None:
+    """Add columns the models declare but the existing database lacks.
+
+    create_all() creates missing tables and nothing else, so a new column on an
+    existing table is invisible to it. On a server that already holds real
+    documents the next deploy would then fail on every query naming that
+    column - and the fix people reach for under pressure is deleting the
+    database, which is the one irreversible mistake available here.
+
+    Only additive, only nullable, and only on SQLite. Anything else - a dropped
+    column, a changed type, a backfill - needs a considered migration, and this
+    deliberately will not pretend to handle it.
+    """
+    if engine.dialect.name != "sqlite":
+        return
+
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            rows = conn.execute(text(f'PRAGMA table_info("{table.name}")')).fetchall()
+            if not rows:
+                continue                      # table is new; create_all made it
+            existing = {row[1] for row in rows}
+            for column in table.columns:
+                if column.name in existing or column.primary_key:
+                    continue
+                if not column.nullable and column.default is None:
+                    log.warning(
+                        "SCHEMA: %s.%s is missing and NOT NULL - needs a real "
+                        "migration, skipping", table.name, column.name,
+                    )
+                    continue
+                ddl = column.type.compile(engine.dialect)
+                conn.execute(
+                    text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {ddl}')
+                )
+                log.warning("SCHEMA: added %s.%s", table.name, column.name)

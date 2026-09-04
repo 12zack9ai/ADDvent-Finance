@@ -169,7 +169,17 @@ class Document(Base):
 
     received_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
+    # When we emailed the sender back asking which job this belongs to.
+    # Vendors routinely leave the job field blank, so the question has to be
+    # asked - but only once per document, however many times the poller runs.
+    job_query_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    job_query_to: Mapped[str] = mapped_column(String(255), default="")
+
     job: Mapped[Optional[Job]] = relationship(back_populates="documents")
+
+    @property
+    def awaiting_job_answer(self) -> bool:
+        return self.job_id is None and self.job_query_sent_at is not None
 
 
 class Extraction(Base):

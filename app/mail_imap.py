@@ -34,11 +34,17 @@ from email.message import Message
 from pathlib import Path
 from typing import Iterator, Optional
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app import mail_send
 from app.mail_types import ALLOWED_SUFFIXES, MAX_ATTACHMENT_BYTES, MailboxError, PollResult
-from app.services import DuplicateDocument, IngestError, ingest_file
+from app.models import Document, utcnow
+from app.services import (
+    DuplicateDocument, IngestError, file_stored_document, ingest_file,
+    parse_job_answer,
+)
 
 log = logging.getLogger(__name__)
 
@@ -184,6 +190,69 @@ class ImapMailbox:
             log.warning("Could not move message to %s: %s", folder, exc)
 
 
+
+# --- asking for a missing job number, and recognising the answer ----------
+
+_MSGID = re.compile(r"<[^<>@\s]+@[^<>\s]+>")
+
+
+def _ask_about(session: Session, document: Document) -> str:
+    """Email the sender asking which job this is. Returns who was asked, or ""."""
+    if document.job_id is not None:
+        return ""
+    try:
+        asked = mail_send.ask_for_job_number(document)
+    except mail_send.SendError as exc:
+        # Not being able to ask must never lose the document. It stays in the
+        # Inbox, which is exactly where it would have sat anyway.
+        log.warning("could not ask about %s: %s", document.filename, exc)
+        return ""
+    if not asked:
+        return ""
+    document.job_query_sent_at = utcnow()
+    document.job_query_to = asked
+    session.commit()
+    return asked
+
+
+def _apply_job_answer(session: Session, references: str, subject: str, body: str) -> list[str]:
+    """File any documents this message answers the job number for.
+
+    Matched on the Message-ID we asked from, carried back in In-Reply-To, so a
+    reply is tied to the exact document. Subject lines get edited, forwarded and
+    re-used; a message ID does not.
+    """
+    ids = _MSGID.findall(references or "")
+    if not ids:
+        return []
+
+    waiting = session.scalars(
+        select(Document)
+        .where(Document.email_message_id.in_(ids))
+        .where(Document.job_id.is_(None))
+    ).all()
+    if not waiting:
+        return []
+
+    directive = parse_job_answer(subject, body)
+    if not directive.job_number:
+        return []
+
+    filed = []
+    for document in waiting:
+        try:
+            file_stored_document(
+                session, document, directive.job_number,
+                force_master=directive.is_master_update,
+            )
+            session.commit()
+            filed.append(f"{document.filename} -> job {directive.job_number} (from reply)")
+        except Exception as exc:                       # noqa: BLE001
+            session.rollback()
+            log.warning("reply named job %s but filing %s failed: %s",
+                        directive.job_number, document.filename, exc)
+    return filed
+
 def poll_once(session: Session, limit: int = 25) -> PollResult:
     """Read new mail, ingest every usable attachment, then file the message away.
 
@@ -207,9 +276,20 @@ def poll_once(session: Session, limit: int = 25) -> PollResult:
             subject = _decode(message.get("Subject"))
             sender = _decode(message.get("From"))
             body = _body_text(message)
+            message_id = (message.get("Message-ID") or "").strip()
+            references = " ".join(filter(None, [
+                message.get("In-Reply-To") or "", message.get("References") or "",
+            ]))
 
             handled_all = True
             found_any = False
+
+            # Is this the answer to a job number we asked for? A reply carries
+            # the original Message-ID in In-Reply-To, so the answer can be tied
+            # back to the exact document rather than guessed at by subject line.
+            answered = _apply_job_answer(session, references, subject, body)
+            for filed in answered:
+                result.filed.append(filed)
 
             for filename, content in _attachments(message):
                 found_any = True
@@ -222,10 +302,16 @@ def poll_once(session: Session, limit: int = 25) -> PollResult:
                     doc = ingest_file(
                         session, tmp_path, filename,
                         source="email", sender=sender, subject=subject, body=body,
+                        message_id=message_id,
                     )
                     session.commit()
                     where = f"job {doc.job.job_number}" if doc.job else "the Inbox"
                     result.filed.append(f"{filename} -> {where} ({doc.status})")
+
+                    # Nothing said which job this is. Ask, once.
+                    asked = _ask_about(session, doc)
+                    if asked:
+                        result.skipped.append(f"{filename} - asked {asked} for the job number")
                 except DuplicateDocument:
                     session.rollback()
                     result.skipped.append(f"{filename} (already received)")

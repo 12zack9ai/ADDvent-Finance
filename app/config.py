@@ -43,6 +43,19 @@ class Settings:
     secret_key: str = os.getenv("SECRET_KEY", "").strip()
     session_days: int = int(os.getenv("SESSION_DAYS", "14"))
 
+    # --- sending mail ------------------------------------------------------
+    # Used to ask the sender which job a document belongs to when nothing on the
+    # document or in the email says. Defaults are derived from the IMAP settings,
+    # because on ordinary mail hosting it is the same mailbox and password.
+    smtp_host: str = os.getenv("SMTP_HOST", "").strip()
+    smtp_port: int = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user: str = os.getenv("SMTP_USER", "").strip()
+    smtp_password: str = os.getenv("SMTP_PASSWORD", "")
+    smtp_from: str = os.getenv("SMTP_FROM", "").strip()
+    # Off by default: replying to people is the one thing this app does that
+    # leaves the building, and it should never start happening by surprise.
+    ask_for_job_number: bool = _bool("ASK_FOR_JOB_NUMBER", False)
+
     # --- sample data -------------------------------------------------------
     # Loads samples/job-260000 into an empty install, once, in the background.
     # Off unless explicitly set; see scripts/load_samples.py.
@@ -120,6 +133,23 @@ class Settings:
             and self.ms_client_secret
             and self.ms_mailbox
         )
+
+    def smtp_settings(self) -> tuple[str, int, str, str, str]:
+        """Host, port, user, password, from-address for sending.
+
+        Falls back to the IMAP credentials, because on ordinary mail hosting
+        (cPanel, Plesk) it is the same mailbox with the same password, and
+        asking someone to type it twice invites one of the two being wrong.
+        """
+        host = self.smtp_host or self.imap_host
+        user = self.smtp_user or self.imap_user
+        password = self.smtp_password or self.imap_password
+        sender = self.smtp_from or user
+        return host, self.smtp_port, user, password, sender
+
+    def can_send_mail(self) -> bool:
+        host, _, user, password, sender = self.smtp_settings()
+        return bool(host and user and password and sender)
 
     def active_mail_backend(self) -> str:
         """Which backend to use: "imap", "graph", or "" when none is set up."""
