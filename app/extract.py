@@ -134,10 +134,25 @@ _LINE_SCHEMA = {
     },
 }
 
+# NOTE: deliberately NOT strict.
+#
+# "strict": True looks like the safer choice - the schema is enforced server
+# side, so tool_use.input is guaranteed to validate against it. On this schema
+# it does the opposite. Measured on a real two-page New Castle quote: same
+# model, same prompt, same image, back to back.
+#
+#     strict: True   ->   0 line items. Every value landed one key late,
+#                         wrapped in raw tool-call markup that leaked into the
+#                         strings, so `total` held the job number and `lines`
+#                         came back empty.
+#     no strict      ->  11 line items, correct, nothing malformed.
+#
+# Zero lines is the dangerous shape: an invoice with no lines has nothing to
+# compare, so it would read as clean rather than as broken. Validation below
+# turns that into a loud failure instead of a quiet pass.
 RECORD_TOOL = {
     "name": "record_document",
     "description": "Record the transcribed contents of the quote or invoice.",
-    "strict": True,
     "input_schema": {
         "type": "object",
         "additionalProperties": False,
@@ -173,6 +188,62 @@ RECORD_TOOL = {
 class ExtractionError(RuntimeError):
     pass
 
+
+
+# Markup that must never appear inside an extracted value. When a tool call is
+# serialised badly, fragments of the call format itself end up inside the field
+# values - see the note above RECORD_TOOL. Detecting it is trivial; the reason
+# it matters is that the result still looks like a well-formed payload.
+_MARKUP_MARKERS = ("<parameter name=", "antml")
+
+
+def _markup_leak(value: Any) -> bool:
+    if isinstance(value, str):
+        low = value.lower()
+        return any(m in low for m in _MARKUP_MARKERS)
+    if isinstance(value, dict):
+        return any(_markup_leak(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_markup_leak(v) for v in value)
+    return False
+
+
+def validate_payload(payload: Any) -> dict[str, Any]:
+    """Reject an extraction that cannot be trusted, rather than storing it.
+
+    A finance system fails safe by refusing to answer, never by answering
+    emptily. Each check below corresponds to a way a bad payload would
+    otherwise reach the matching engine and produce a confident wrong verdict.
+    """
+    if not isinstance(payload, dict):
+        raise ExtractionError(
+            f"Extraction returned {type(payload).__name__}, not a document."
+        )
+
+    if _markup_leak(payload):
+        raise ExtractionError(
+            "The document was read but the result came back malformed - field "
+            "values contain fragments of the response format itself, so the "
+            "numbers cannot be trusted. Nothing was saved. Try uploading it "
+            "again; if it keeps happening the document needs entering by hand."
+        )
+
+    lines = payload.get("lines")
+    if lines is not None and not isinstance(lines, list):
+        raise ExtractionError(
+            "The line items came back malformed, so nothing was saved."
+        )
+
+    doc_type = (payload.get("doc_type") or "other").strip().lower()
+    if doc_type in {"quote", "invoice"} and not lines:
+        raise ExtractionError(
+            f"This was read as a {doc_type} but no line items came out of it. "
+            "A priced document with no lines would compare as clean against "
+            "anything, so it has not been saved. If the page genuinely has no "
+            "line items - a covering page or a statement - upload the page "
+            "that does."
+        )
+    return payload
 
 @dataclass
 class ExtractionResult:
@@ -363,6 +434,7 @@ def extract_document(path: Path, hint: str = "") -> ExtractionResult:
             # Tool inputs are already parsed objects in the SDK; re-serialise for
             # the audit trail rather than string-matching anything.
             payload = block.input if isinstance(block.input, dict) else json.loads(block.input)
+            validate_payload(payload)
             return ExtractionResult(
                 payload=payload,
                 model=message.model,
