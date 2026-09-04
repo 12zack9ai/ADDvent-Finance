@@ -43,6 +43,11 @@ class Settings:
     secret_key: str = os.getenv("SECRET_KEY", "").strip()
     session_days: int = int(os.getenv("SESSION_DAYS", "14"))
 
+    # --- sample data -------------------------------------------------------
+    # Loads samples/job-260000 into an empty install, once, in the background.
+    # Off unless explicitly set; see scripts/load_samples.py.
+    load_samples: bool = _bool("LOAD_SAMPLES", False)
+
     # --- PDF rendering -----------------------------------------------------
     # Path to a Chromium/Chrome binary used to render the marked-up PDF.
     chrome_binary: str = os.getenv("CHROME_BINARY", "")

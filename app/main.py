@@ -1,6 +1,7 @@
 """FastAPI application: dashboard, upload, and the marked-up invoice."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import tempfile
 from dataclasses import dataclass
@@ -123,6 +124,21 @@ async def _startup() -> None:
     # Polls the mailbox from inside this process, so it shares the database and
     # document store rather than needing a second service with its own disk.
     scheduler.start()
+
+    if settings.load_samples:
+        # Off the startup path: reading four documents takes about ninety
+        # seconds, and blocking here would fail the host's health check.
+        asyncio.get_running_loop().run_in_executor(None, _load_samples_once)
+
+
+def _load_samples_once() -> None:
+    from scripts.load_samples import load
+
+    log = logging.getLogger("finance")
+    try:
+        log.warning("SAMPLES: %s", load())
+    except Exception as exc:                          # noqa: BLE001
+        log.warning("SAMPLES: failed - %s", exc)
 
 
 @app.on_event("shutdown")
