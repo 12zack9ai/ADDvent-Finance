@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}{{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>Finance</h1>
+    <p class="sub">Two programmes. Both run on the same documents.</p>
+  </div>
+</div>
+
+<div class="progs">
+
+  <a class="prog" href="/jobs">
+    <div class="prog-head">
+      <h2>Invoice checking</h2>
+      <span class="prog-tag">Live</span>
+    </div>
+    <p class="prog-what">
+      Every vendor invoice compared against the master quote for its job, with a
+      marked-up copy showing exactly where the pricing differs. Nothing is paid
+      without a quoted price and confirmation it was received.
+    </p>
+    <div class="prog-stats">
+      <div><strong>{{ jobs_count }}</strong><span>job{{ "" if jobs_count == 1 else "s" }}</span></div>
+      <div><strong>{{ invoices_count }}</strong><span>invoices checked</span></div>
+      <div class="{{ 'is-bad' if overbilled > 0 else '' }}">
+        <strong>{{ overbilled | money }}</strong><span>billed over quote</span></div>
+    </div>
+    {% if waiting or inbox_count %}
+    <div class="prog-note">
+      {% if waiting %}<strong>{{ waiting }}</strong> waiting on an approver{% endif %}
+      {% if waiting and inbox_count %} · {% endif %}
+      {% if inbox_count %}<strong>{{ inbox_count }}</strong> in the Inbox with no job number{% endif %}
+    </div>
+    {% endif %}
+    <div class="prog-go">Open invoice checking &rarr;</div>
+  </a>
+
+  <a class="prog" href="/cashflow">
+    <div class="prog-head">
+      <h2>Cash flow</h2>
+      <span class="prog-tag">Live</span>
+    </div>
+    <p class="prog-what">
+      What has to go out, what is expected in, and what the bank balance does
+      across the forecast window — day by day, with the low point called out.
+      Built from A/P and A/R aging until QuickBooks is connected.
+    </p>
+    {% if latest_forecast %}
+    <div class="prog-stats">
+      <div><strong>{{ latest_forecast.closing_balance | money }}</strong><span>projected close</span></div>
+      <div class="{{ 'is-bad' if latest_forecast.goes_negative else '' }}">
+        <strong>{{ latest_forecast.low_point.closing | money }}</strong><span>low point</span></div>
+      <div><strong>{{ latest_forecast.total_out | money }}</strong><span>going out</span></div>
+    </div>
+    <div class="prog-note">
+      Last generated {{ latest_report.created_at.strftime("%d %b %Y") }}
+      {% if latest_report.created_by %} by {{ latest_report.created_by }}{% endif %}
+    </div>
+    {% else %}
+    <div class="prog-empty">No report generated yet.</div>
+    {% endif %}
+    <div class="prog-go">Open cash flow &rarr;</div>
+  </a>
+
+</div>
+
+<div class="panel quick">
+  <h2>Quick actions</h2>
+  <div class="quick-row">
+    <a class="btn" href="/upload">Upload a quote or invoice</a>
+    <a class="btn ghost" href="/cashflow">Generate a cash flow report</a>
+    <a class="btn ghost" href="/approvals">Approvals{% if waiting %} ({{ waiting }}){% endif %}</a>
+    <a class="btn ghost" href="/inbox">Inbox{% if inbox_count %} ({{ inbox_count }}){% endif %}</a>
+  </div>
+</div>
+{% endblock %}

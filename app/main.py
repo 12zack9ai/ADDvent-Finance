@@ -15,7 +15,7 @@ from urllib.parse import quote_plus, urlencode
 from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app import accounting, auth, cashflow, cashflow_pdf, fmt, invoice_pdf, scheduler
@@ -229,7 +229,44 @@ def healthz() -> dict:
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard(request: Request, session: Session = Depends(get_session)):
+def home(request: Request, session: Session = Depends(get_session)):
+    """The front door: which of the two programmes do you want.
+
+    Each card carries the one number that says whether it needs attention
+    today, so the choice is informed rather than blind.
+    """
+    jobs = session.scalar(select(func.count(Job.id))) or 0
+    invoices = session.scalar(select(func.count(Invoice.id))) or 0
+
+    overbilled = session.scalar(
+        select(func.sum(Invoice.overbilled_amount)).where(Invoice.overbilled_amount > 0)
+    )
+    waiting = session.scalar(
+        select(func.count(Invoice.id))
+        .where(Invoice.approval_status.in_([APPROVAL_PENDING, APPROVAL_HELD]))
+    ) or 0
+    inbox = session.scalar(
+        select(func.count(Document.id))
+        .where(Document.status.in_([ST_NEEDS_JOB, ST_ERROR]))
+    ) or 0
+
+    latest = session.scalar(select(CashReport).order_by(CashReport.created_at.desc()))
+    latest_forecast = _report_forecast(latest) if latest is not None else None
+
+    return templates.TemplateResponse(request, "home.html", _ctx(
+        request, session,
+        jobs_count=jobs,
+        invoices_count=invoices,
+        overbilled=Decimal(overbilled) if overbilled else ZERO,
+        waiting=waiting,
+        inbox_count=inbox,
+        latest_report=latest,
+        latest_forecast=latest_forecast,
+    ))
+
+
+@app.get("/jobs", response_class=HTMLResponse)
+def jobs_list(request: Request, session: Session = Depends(get_session)):
     q = (request.query_params.get("q") or "").strip()
     flagged = request.query_params.get("flagged") == "1"
 
@@ -274,7 +311,7 @@ def job_detail(job_number: str, request: Request, session: Session = Depends(get
         select(Job).where(Job.job_number == normalize_job_number(job_number))
     )
     if job is None:
-        return _redirect("/", err=f"No job {job_number}.")
+        return _redirect("/jobs", err=f"No job {job_number}.")
 
     invoices = sorted(job.invoices, key=lambda i: (i.invoice_date or i.created_at.date(), i.id))
     superseded = [q for q in job.quotes if not q.is_master]
@@ -387,7 +424,7 @@ def assign_document(
 def document_file(doc_id: int, session: Session = Depends(get_session)):
     doc = session.get(Document, doc_id)
     if doc is None or not Path(doc.stored_path).exists():
-        return _redirect("/", err="That file is missing.")
+        return _redirect("/jobs", err="That file is missing.")
     return FileResponse(
         doc.stored_path,
         media_type="application/pdf" if doc.stored_path.endswith(".pdf") else None,
@@ -417,7 +454,7 @@ def _render_markup(request: Request, invoice: Invoice, print_mode: bool) -> str:
 def invoice_markup(invoice_id: int, request: Request, session: Session = Depends(get_session)):
     invoice = session.get(Invoice, invoice_id)
     if invoice is None:
-        return _redirect("/", err="No such invoice.")
+        return _redirect("/jobs", err="No such invoice.")
     return HTMLResponse(_render_markup(request, invoice, print_mode=False))
 
 
@@ -425,7 +462,7 @@ def invoice_markup(invoice_id: int, request: Request, session: Session = Depends
 def download_invoice_pdf(invoice_id: int, request: Request, session: Session = Depends(get_session)):
     invoice = session.get(Invoice, invoice_id)
     if invoice is None:
-        return _redirect("/", err="No such invoice.")
+        return _redirect("/jobs", err="No such invoice.")
 
     name = (invoice.invoice_number or str(invoice.id)).replace("/", "-")
     out = settings.renders_dir / f"job{invoice.job.job_number}-invoice-{name}-checked.pdf"
@@ -469,7 +506,7 @@ def confirm_receipt(
         select(Job).where(Job.job_number == normalize_job_number(job_number))
     )
     if job is None:
-        return _redirect("/", err=f"No job {job_number}.")
+        return _redirect("/jobs", err=f"No job {job_number}.")
 
     session.add(Receipt(
         job_id=job.id,
@@ -506,7 +543,7 @@ def add_change_order(
         select(Job).where(Job.job_number == normalize_job_number(job_number))
     )
     if job is None:
-        return _redirect("/", err=f"No job {job_number}.")
+        return _redirect("/jobs", err=f"No job {job_number}.")
 
     value = to_decimal(amount)
     if value is None or value <= 0:
@@ -549,7 +586,7 @@ def decide_invoice(
     """Approve, hold, reject, or mark paid. Every decision is recorded."""
     invoice = session.get(Invoice, invoice_id)
     if invoice is None:
-        return _redirect("/", err="No such invoice.")
+        return _redirect("/jobs", err="No such invoice.")
 
     routing = route(invoice)
     who = _actor(actor)

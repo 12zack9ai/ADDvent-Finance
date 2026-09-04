@@ -260,3 +260,23 @@ def test_a_new_master_quote_recompares_existing_invoices(client, tmp_path):
 
     # The existing invoice is no longer over quote, without being re-uploaded.
     assert SessionLocal().query(Invoice).one().overbilled_amount == D("0")
+
+
+# --- the front door ------------------------------------------------------
+
+def test_the_home_page_offers_both_programmes(client):
+    """One place to choose between invoice checking and cash flow."""
+    body = client.get("/").text
+    assert "Invoice checking" in body
+    assert "Cash flow" in body
+    assert 'href="/jobs"' in body
+    assert 'href="/cashflow"' in body
+
+
+def test_the_jobs_list_still_works_at_its_new_address(client):
+    assert client.get("/jobs").status_code == 200
+
+
+def test_the_home_page_works_before_anything_has_been_loaded(client):
+    """A fresh install has no jobs and no reports. It must still render."""
+    assert client.get("/").status_code == 200

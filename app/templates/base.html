@@ -125,6 +125,28 @@
   form.stack .hint{display:block;font-weight:400;color:var(--mute);font-size:.8rem;margin-top:3px}
   form.stack label.check{font-weight:400}
   form.stack label.check input{margin-right:6px}
+
+  /* ---- front door ---- */
+  .progs{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px}
+  @media (max-width:820px){ .progs{grid-template-columns:1fr} }
+  .prog{display:block;background:#fff;border:1px solid var(--rule);border-radius:9px;
+        padding:18px 20px 16px;text-decoration:none;color:inherit;transition:.12s}
+  .prog:hover{border-color:#b9c6d8;box-shadow:0 2px 10px rgba(20,40,70,.07);transform:translateY(-1px)}
+  .prog-head{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  .prog-head h2{margin:0;font-size:1.2rem}
+  .prog-tag{font-size:.66rem;letter-spacing:.7px;text-transform:uppercase;font-weight:700;
+            background:#e3f5ea;color:#166534;padding:2px 8px;border-radius:10px}
+  .prog-tag.soon{background:#eef0f3;color:#5a6270}
+  .prog-what{color:var(--soft);font-size:.92rem;line-height:1.5;margin:0 0 14px}
+  .prog-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;
+              padding:12px 0;border-top:1px solid var(--rule-lt);border-bottom:1px solid var(--rule-lt)}
+  .prog-stats strong{display:block;font-size:1.12rem;font-variant-numeric:tabular-nums}
+  .prog-stats span{display:block;font-size:.72rem;color:var(--mute);margin-top:2px}
+  .prog-stats .is-bad strong{color:#9b1c1c}
+  .prog-note{font-size:.82rem;color:var(--soft);margin-top:10px}
+  .prog-empty{font-size:.85rem;color:var(--mute);padding:12px 0;border-top:1px solid var(--rule-lt)}
+  .prog-go{margin-top:12px;font-weight:700;color:#2563a8;font-size:.9rem}
+  .quick-row{display:flex;gap:9px;flex-wrap:wrap;margin-top:6px}
 </style>
 </head>
 <body>
@@ -137,7 +159,7 @@
              placeholder="Search job number, vendor, or invoice number…" autocomplete="off">
     </form>
     <nav>
-      <a href="/">Jobs</a>
+      <a href="/jobs">Jobs</a>
       <a href="/approvals">Approvals</a>
       <a href="/cashflow">Cash flow</a>
       <a href="/vendors">Vendors</a>
