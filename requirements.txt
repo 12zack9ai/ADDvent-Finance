@@ -12,3 +12,5 @@ rapidfuzz>=3.10
 python-dotenv>=1.0
 itsdangerous>=2.2
 pytest>=8.0
+fpdf2>=2.8
+pypdfium2>=4

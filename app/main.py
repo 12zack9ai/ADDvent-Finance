@@ -17,7 +17,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app import auth, scheduler
+from app import auth, fmt, invoice_pdf, scheduler
 from app.config import settings
 from app.db import get_session, init_db, to_decimal
 from app.extract import normalize_job_number
@@ -68,51 +68,9 @@ ZERO = Decimal("0")
 
 # --- template filters -----------------------------------------------------
 
-def _fmt(value: Optional[Decimal], places: int) -> str:
-    if value is None:
-        return "—"
-    q = Decimal(1).scaleb(-places)
-    return f"${value.quantize(q):,}"
-
-
-def f_money(value):
-    return _fmt(value, 2)
-
-
-def f_money4(value):
-    """Money with up to 4 decimals, but only as many as the price actually uses.
-
-    Unit prices are frequently quoted at 3 or 4 decimals; showing $4.10 when the
-    quote says $4.1025 would hide the very difference this system exists to find.
-    """
-    if value is None:
-        return "—"
-    d = Decimal(value).quantize(Decimal("0.0001")).normalize()
-    exponent = d.as_tuple().exponent
-    places = max(2, -exponent if isinstance(exponent, int) and exponent < 0 else 2)
-    return _fmt(value, min(places, 4))
-
-
-def f_abs_money(value):
-    return "—" if value is None else _fmt(abs(value), 2)
-
-
-def f_abs_money4(value):
-    return "—" if value is None else f_money4(abs(value))
-
-
-def f_qty(value):
-    if value is None:
-        return "—"
-    d = Decimal(value).normalize()
-    if d == d.to_integral_value():
-        return f"{d.to_integral_value():,}"
-    return format(d, "f")
-
-
 templates.env.filters.update(
-    money=f_money, money4=f_money4, qty=f_qty,
-    abs_money=f_abs_money, abs_money4=f_abs_money4,
+    money=fmt.money, money4=fmt.money4, qty=fmt.qty,
+    abs_money=fmt.abs_money, abs_money4=fmt.abs_money4,
 )
 
 
@@ -466,7 +424,7 @@ def invoice_markup(invoice_id: int, request: Request, session: Session = Depends
 
 
 @app.get("/invoice/{invoice_id}/pdf")
-def invoice_pdf(invoice_id: int, request: Request, session: Session = Depends(get_session)):
+def download_invoice_pdf(invoice_id: int, request: Request, session: Session = Depends(get_session)):
     invoice = session.get(Invoice, invoice_id)
     if invoice is None:
         return _redirect("/", err="No such invoice.")
@@ -474,16 +432,11 @@ def invoice_pdf(invoice_id: int, request: Request, session: Session = Depends(ge
     name = (invoice.invoice_number or str(invoice.id)).replace("/", "-")
     out = settings.renders_dir / f"job{invoice.job.job_number}-invoice-{name}-checked.pdf"
 
-    try:
-        render_html_to_pdf(_render_markup(request, invoice, print_mode=True), out)
-    except PdfUnavailable:
-        # No Chromium here. The page prints to PDF from the browser using the
-        # same stylesheet, so nothing is actually lost.
-        return _redirect(
-            f"/invoice/{invoice_id}",
-            err="Server-side PDF is unavailable on this host — use your browser's "
-                "Print / Save as PDF instead. The result is identical.",
-        )
+    # Drawn directly rather than printed from HTML. This file gets sent to the
+    # vendor, so it cannot depend on Chromium being installed on the host, nor
+    # on the reader's browser agreeing to print background colours - without
+    # those colours the document looks checked and says nothing.
+    invoice_pdf.build(invoice, invoice.job, invoice.quote, invoice.lines, out)
 
     invoice.render_path = str(out)
     session.commit()
