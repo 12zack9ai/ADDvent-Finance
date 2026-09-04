@@ -361,3 +361,43 @@ def test_relative_times_read_as_a_person_would_say_them():
     assert f_ago(None) == "—"
     # Beyond a week the exact date is more use than "31 days ago".
     assert f_ago(now - timedelta(days=31)) == (now - timedelta(days=31)).strftime("%d %b")
+
+
+# --- every page actually renders -----------------------------------------
+
+def test_every_page_renders(client):
+    """A template that parses can still fail at render, and one that does not
+    parse fails only when somebody opens it.
+
+    The job page shipped broken this way: removing a panel left an orphaned
+    {% endfor %}, every test still passed because nothing here had ever opened
+    the page, and the first time anyone found out was a 500 in the browser.
+    """
+    for path in ("/", "/jobs", "/incoming", "/incoming?show=unreviewed",
+                 "/incoming?show=over", "/approvals", "/cashflow", "/vendors",
+                 "/inbox", "/upload", "/login"):
+        response = client.get(path, follow_redirects=True)
+        assert response.status_code == 200, f"{path} returned {response.status_code}"
+        assert "Internal Server Error" not in response.text, path
+
+
+def test_a_job_page_with_real_content_renders(client, tmp_path):
+    """Not just the empty case: the job page only breaks once it has quotes,
+    invoices, receipts and change orders to loop over."""
+    quote_pdf = _pdf(tmp_path, "q.pdf", "quote")
+    invoice_pdf = _pdf(tmp_path, "i.pdf", "invoice")
+    upload(client, quote_pdf, QUOTE_PAYLOAD, job_number="260000")
+    upload(client, invoice_pdf, INVOICE_PAYLOAD, job_number="260000")
+
+    response = client.get("/job/260000", follow_redirects=True)
+    assert response.status_code == 200
+    assert "Internal Server Error" not in response.text
+    assert "260000" in response.text
+
+    # And the marked-up copy, which is a separate standalone template.
+    session = SessionLocal()
+    invoice_id = session.query(Invoice).first().id
+    session.close()
+    markup = client.get(f"/invoice/{invoice_id}", follow_redirects=True)
+    assert markup.status_code == 200
+    assert "Internal Server Error" not in markup.text

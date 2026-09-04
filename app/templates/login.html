@@ -5,28 +5,54 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sign in · {{ site_name }}</title>
 <style>
-  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-       background:#1e3a5f;color:#1a1f2b;
-       font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;font-size:14px}
-  .card{background:#fff;border-radius:9px;padding:32px 34px;width:100%;max-width:390px;
-        box-shadow:0 10px 34px rgba(0,0,0,.28);margin:20px}
-  h1{font-size:19px;margin:0 0 5px;color:#1e3a5f;letter-spacing:-.2px}
-  p.sub{margin:0 0 22px;color:#767e8c;font-size:13px}
-  label{display:block;font-size:12px;font-weight:700;color:#4a5262;margin-bottom:5px}
-  input{width:100%;padding:10px 12px;border:1px solid #dfe3e9;border-radius:5px;
-        font-size:14px;box-sizing:border-box}
-  input:focus{outline:none;border-color:#2563a8}
-  button{width:100%;margin-top:16px;background:#2563a8;color:#fff;border:none;padding:11px;
-         border-radius:5px;font-weight:700;font-size:14px;cursor:pointer}
-  button:hover{background:#1d5192}
-  .err{background:#fbe4e2;color:#9b1c1c;border-left:4px solid #d94a3d;
-       padding:9px 12px;border-radius:4px;margin-bottom:16px;font-size:13px}
+  /* The first screen anyone sees, so it sets the tone - and it is used by
+     people who are not confident with software. Large field, large button,
+     one thing to do. */
+  *{box-sizing:border-box}
+  body{
+    margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+    padding:24px;
+    background:
+      radial-gradient(900px 500px at 15% -10%, rgba(47,110,240,.45), transparent 60%),
+      radial-gradient(700px 500px at 110% 110%, rgba(23,178,106,.30), transparent 55%),
+      linear-gradient(150deg,#0b1b30 0%,#12305a 60%,#173f76 100%);
+    color:#0d1b2a;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    font-size:16.5px;line-height:1.6;-webkit-font-smoothing:antialiased;
+  }
+  .card{
+    background:#fff;border-radius:20px;padding:38px 34px 34px;width:100%;max-width:430px;
+    box-shadow:0 30px 70px -25px rgba(0,0,0,.6),0 2px 6px rgba(0,0,0,.18);
+  }
+  h1{margin:0 0 6px;font-size:1.5rem;font-weight:800;letter-spacing:-.02em}
+  .sub{color:#7b8a9e;margin:0 0 26px;font-size:.98rem}
+  label{display:block;font-weight:700;font-size:.95rem;margin-bottom:8px}
+  input{
+    width:100%;padding:14px 16px;min-height:52px;border:1.5px solid #e2e8f0;
+    border-radius:12px;font:inherit;font-size:1.05rem;background:#fff;color:#0d1b2a;
+  }
+  input:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 4px rgba(37,99,235,.14)}
+  button{
+    width:100%;margin-top:20px;min-height:54px;
+    background:linear-gradient(180deg,#2f6ef0,#1d4ed8);color:#fff;border:none;
+    padding:15px;border-radius:999px;font-weight:800;font-size:1.05rem;cursor:pointer;
+    font-family:inherit;
+    box-shadow:0 1px 2px rgba(13,27,42,.18),0 10px 24px -10px rgba(37,99,235,.85);
+    transition:filter .15s ease,transform .08s ease;
+  }
+  button:hover{filter:brightness(1.07)}
+  button:active{transform:translateY(1px)}
+  .err{
+    background:#fee4e2;color:#b42318;border-left:5px solid #f04438;
+    padding:13px 15px;border-radius:10px;margin-bottom:20px;font-weight:650;font-size:.95rem;
+  }
+  .foot{margin-top:22px;text-align:center;color:#98a6ba;font-size:.85rem}
 </style>
 </head>
 <body>
   <form class="card" method="post" action="/login">
     <h1>{{ site_name }}</h1>
-    <p class="sub">Invoice checking and job pricing.</p>
+    <p class="sub">Invoice checking and cash flow.</p>
     {% if error %}<div class="err">{{ error }}</div>{% endif %}
     <input type="hidden" name="next" value="{{ next_url }}">
     <label for="password">Password</label>
