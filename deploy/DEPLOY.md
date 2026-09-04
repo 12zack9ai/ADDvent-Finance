@@ -102,7 +102,7 @@ there is no app registration or admin consent involved. Set these in `.env`:
 
 ```
 MAIL_ENABLED=true
-IMAP_HOST=addventuresinc.com          # cPanel: usually the bare domain
+IMAP_HOST=mail.protectedharborinc.com   # Protected Harbor's own mail server
 IMAP_PORT=993
 IMAP_USER=aifinance@addventuresinc.com     # the FULL address
 IMAP_PASSWORD=...

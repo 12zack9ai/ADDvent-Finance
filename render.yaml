@@ -50,7 +50,7 @@ services:
       - key: MAIL_ENABLED
         value: "false"
       - key: IMAP_HOST
-        value: addventuresinc.com
+        value: mail.protectedharborinc.com   # Protected Harbor's own mail server
       - key: IMAP_PORT
         value: "993"
       - key: IMAP_USER
@@ -59,6 +59,22 @@ services:
         sync: false
       - key: MAIL_POLL_SECONDS
         value: "300"
+      - key: SMTP_HOST
+        value: mail.protectedharborinc.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        value: aifinance@addventuresinc.com
+      - key: SMTP_FROM
+        value: aifinance@addventuresinc.com
+      - key: SMTP_PASSWORD
+        sync: false
+      # The app may email our own people and nobody else. No vendor ever
+      # receives anything from this system.
+      - key: REPLY_DOMAINS
+        value: addventuresinc.com
+      - key: ASK_FOR_JOB_NUMBER
+        value: "false"
 
       # Render's Python image has no Chromium, so the marked-up PDF is produced
       # by the browser's own Print / Save as PDF. Same stylesheet, same output.

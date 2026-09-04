@@ -1,20 +1,26 @@
-# Email to IT — mailbox request
+# Mailbox — settled
 
-> **Status: the mailbox exists.** Protected Harbor created
-> `aifinance@addventuresinc.com` on 4 Sep 2026 (ticket #2025897). What is still
-> needed from them is **which mail platform it is on**, because that decides
-> which connector the app uses — see the fork below. Keep the rest of this
-> document for the next mailbox, or for the app registration if the answer is
-> Microsoft 365.
+Protected Harbor set this up on 4 Sep 2026, ticket #2025897.
 
-The application is already hosted and running on Render, so there is no server
-to ask for. The only outstanding dependency is a mailbox it can read.
+| | |
+|---|---|
+| Address | `aifinance@addventuresinc.com` |
+| Platform | **Their own mail server** — not Microsoft 365, so a password works |
+| IMAP | `mail.protectedharborinc.com` port **993**, SSL/TLS |
+| SMTP | `mail.protectedharborinc.com` port **587** (STARTTLS) or 465 (SSL/TLS) |
+| Password | In their vault; it is the real mailbox password, not a temporary one |
+| QuickBooks | **Desktop** — confirmed, so there is no cloud API and the cash flow runs from aging exports |
 
-**Nothing is blocked by this.** Documents can be uploaded through the site
-today; the mailbox only adds the option of forwarding a quote or invoice
-straight to it.
+Everything above is set on the service. The only value not in the repository is
+`IMAP_PASSWORD`, which is entered in Render directly.
 
-DNS is handled separately, so it is not asked for here.
+**Their own mail server was the good answer.** On Microsoft 365 a password
+cannot connect to IMAP at all — Microsoft retired basic authentication — and it
+fails in a way indistinguishable from a wrong password. The Graph backend in
+`app/mailbox.py` exists for that case and is not needed.
+
+The original request below is kept for the next mailbox, and for the Graph
+route if the business ever moves to Microsoft 365.
 
 ---
 
