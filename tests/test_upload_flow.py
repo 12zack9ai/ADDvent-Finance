@@ -280,3 +280,15 @@ def test_the_jobs_list_still_works_at_its_new_address(client):
 def test_the_home_page_works_before_anything_has_been_loaded(client):
     """A fresh install has no jobs and no reports. It must still render."""
     assert client.get("/").status_code == 200
+
+
+def test_the_apps_own_log_lines_are_visible():
+    """The mailbox poller reports each cycle at INFO. Uvicorn leaves the root
+    logger alone, so without explicit configuration the one line saying whether
+    mail is being read never reaches the server log."""
+    import logging
+    from app.main import _configure_logging
+
+    _configure_logging()
+    assert logging.getLogger("app.scheduler").isEnabledFor(logging.INFO)
+    assert logging.getLogger().handlers

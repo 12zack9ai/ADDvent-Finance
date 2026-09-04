@@ -75,8 +75,28 @@ templates.env.filters.update(
 )
 
 
+def _configure_logging() -> None:
+    """Make this application's own log lines visible in production.
+
+    Uvicorn configures its own loggers and leaves the root logger alone, so
+    anything this app logs below WARNING goes nowhere on the server. That is
+    fine for chatter and not fine for the mailbox: the poller reports the
+    outcome of every cycle at INFO, and without this the single line saying
+    whether mail is being read is invisible - which is the exact failure the
+    poller was written to make impossible.
+    """
+    root = logging.getLogger()
+    if not root.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(levelname)s: %(name)s: %(message)s"))
+        root.addHandler(handler)
+    root.setLevel(logging.INFO)
+    logging.getLogger("app").setLevel(logging.INFO)
+
+
 @app.on_event("startup")
 async def _startup() -> None:
+    _configure_logging()
     init_db()
     for problem in auth.warnings():
         logging.getLogger("finance").warning("CONFIG: %s", problem)
