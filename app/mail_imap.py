@@ -43,7 +43,7 @@ from app.mail_types import ALLOWED_SUFFIXES, MAX_ATTACHMENT_BYTES, MailboxError,
 from app.models import Document, utcnow
 from app.services import (
     ST_NEEDS_JOB, DuplicateDocument, IngestError, file_stored_document,
-    ingest_file, parse_job_answer,
+    ingest_file, ingest_scan, parse_job_answer,
 )
 
 log = logging.getLogger(__name__)
@@ -347,19 +347,25 @@ def poll_once(session: Session, limit: int = 25) -> PollResult:
                     tmp.write(content)
                     tmp_path = Path(tmp.name)
                 try:
-                    doc = ingest_file(
+                    # A scanned attachment may hold several invoices.
+                    docs = ingest_scan(
                         session, tmp_path, filename,
                         source="email", sender=sender, subject=subject, body=body,
                         message_id=message_id,
                     )
                     session.commit()
-                    where = f"job {doc.job.job_number}" if doc.job else "the Inbox"
-                    result.filed.append(f"{filename} -> {where} ({doc.status})")
+                    if len(docs) > 1:
+                        result.filed.append(
+                            f"{filename} -> {len(docs)} documents found and split")
+                    for doc in docs:
+                        where = f"job {doc.job.job_number}" if doc.job else "the Inbox"
+                        result.filed.append(f"{doc.filename} -> {where} ({doc.status})")
 
-                    # Nothing said which job this is. Ask, once.
-                    asked = _ask_about(session, doc)
-                    if asked:
-                        result.skipped.append(f"{filename} - asked {asked} for the job number")
+                        # Nothing said which job this is. Ask, once.
+                        asked = _ask_about(session, doc)
+                        if asked:
+                            result.skipped.append(
+                                f"{doc.filename} - asked {asked} for the job number")
                 except DuplicateDocument:
                     session.rollback()
                     result.skipped.append(f"{filename} (already received)")

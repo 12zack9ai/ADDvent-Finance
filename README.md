@@ -179,6 +179,43 @@ A message is only marked read and moved to `Processed` once **every** attachment
 on it has been filed. A transient failure leaves the mail unread to retry, rather
 than an invoice disappearing quietly.
 
+## Scans, and several invoices in one file
+
+**Scanned documents are read directly.** There is no separate OCR step —
+a photograph of a quote or a scan with no text layer at all goes through the
+same path as a digital PDF. Verified end to end: the three sample invoices,
+merged, rasterised to destroy the text layer, skewed and blurred to look like a
+real scan, produced **the same verdicts to the cent** as the digital originals.
+
+**One file can hold several invoices, and they are split apart.** Putting six
+invoices through a scanner in one pass produces one PDF. Read as a single
+document that becomes one invoice carrying every line from all six — a total
+that matches nothing, priced against whichever quote the first page happened to
+name. It is wrong in the worst way available here: quietly, with a confident
+number at the bottom.
+
+So a multi-page PDF is first asked where each document starts and ends, then
+split, and each piece goes through the ordinary path as if it had been sent on
+its own. The job number from the covering email applies to all of them.
+
+Three conservatisms, because a wrong split is worse than no split:
+
+- **A single-document file costs one extra question and nothing else.** Most
+  files are one document; the original is then used unchanged, with nothing
+  copied, re-read or paid for twice.
+- **An answer that does not add up is refused.** Page ranges that overlap, run
+  backwards, or leave a page belonging to nothing mean the boundaries were not
+  understood — so the file is treated as one document. Six confidently
+  mis-split invoices are worse than one merged document a person can see is
+  wrong.
+- **One bad piece does not lose the others.** An unreadable invoice in a stack
+  of six is recorded as its own failure in the Inbox; the other five file
+  normally.
+
+Each piece is named after what is inside it — `scan - New Castle Building
+Products 07RM0003119045.pdf` — because in a list of six, "part 2" is not
+findable.
+
 ## How documents get filed against a job
 
 **Job numbers are six digits, and the first two are the year the job was

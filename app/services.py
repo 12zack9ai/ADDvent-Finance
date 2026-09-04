@@ -10,7 +10,10 @@
 """
 from __future__ import annotations
 
+import logging
 import hashlib
+import tempfile
+import uuid
 import json
 import shutil
 from datetime import date, datetime
@@ -21,8 +24,10 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import jobnum
+from app import jobnum, segment
 from app.config import settings
+
+log = logging.getLogger(__name__)
 from app.db import to_decimal
 from app.extract import (
     ExtractionError,
@@ -442,5 +447,74 @@ def file_stored_document(
         invoice = create_invoice(session, job, document, result)
         document.status = ST_READY if invoice.quote_id else ST_NEEDS_QUOTE
 
+    session.flush()
+    return document
+
+
+# --- one file, several documents -----------------------------------------
+
+def ingest_scan(
+    session: Session,
+    src_path: Path,
+    filename: str,
+    **kwargs,
+) -> list[Document]:
+    """Ingest a file that may hold several documents, and return all of them.
+
+    Everything arriving from a scanner comes through here. A single-document
+    file - which is most of them - costs one extra question and is then handled
+    exactly as before, on the original file, with nothing split or re-read.
+
+    Each piece is ingested independently, so one unreadable invoice in a stack
+    of six does not take the other five down with it. Its error is recorded on
+    its own document, visible in the Inbox.
+    """
+    if Path(filename).suffix.lower() != ".pdf":
+        return [ingest_file(session, src_path, filename, **kwargs)]
+
+    pages = segment.page_count(src_path)
+    if pages <= 1:
+        return [ingest_file(session, src_path, filename, **kwargs)]
+
+    segments = segment.find_documents(src_path, pages)
+    if len(segments) <= 1:
+        return [ingest_file(session, src_path, filename, **kwargs)]
+
+    log.info("%s holds %d documents across %d pages", filename, len(segments), pages)
+    stem = Path(filename).stem
+    documents: list[Document] = []
+
+    with tempfile.TemporaryDirectory() as workdir:
+        for seg, piece in segment.split(src_path, segments, Path(workdir)):
+            piece_name = seg.label(stem)
+            try:
+                documents.append(
+                    ingest_file(session, piece, piece_name, **kwargs)
+                )
+                session.commit()
+            except DuplicateDocument:
+                session.rollback()
+                raise
+            except Exception as exc:                  # noqa: BLE001
+                # One bad page range must not lose the other five invoices.
+                session.rollback()
+                log.warning("%s (pages %d-%d) failed: %s",
+                            piece_name, seg.first_page, seg.last_page, exc)
+                documents.append(_failed_document(session, piece_name, str(exc)))
+                session.commit()
+    return documents
+
+
+def _failed_document(session: Session, filename: str, error: str) -> Document:
+    """A placeholder so a failure is visible in the Inbox rather than silent."""
+    document = Document(
+        filename=filename,
+        sha256=f"failed-{uuid.uuid4().hex}",
+        stored_path="",
+        source="upload",
+        status=ST_ERROR,
+        error=error,
+    )
+    session.add(document)
     session.flush()
     return document

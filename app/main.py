@@ -51,6 +51,7 @@ from app.models import (
 )
 from app.pdf import PdfUnavailable, pdf_available, render_html_to_pdf
 from app.services import (
+    ingest_scan,
     ST_ERROR,
     ST_NEEDS_JOB,
     ST_OTHER,
@@ -412,7 +413,8 @@ async def upload_submit(
             tmp.write(await upload.read())
             tmp_path = Path(tmp.name)
         try:
-            doc = ingest_file(
+            # A scan may hold several invoices. Each becomes its own document.
+            docs = ingest_scan(
                 session, tmp_path, upload.filename,
                 source="upload", note=note,
                 job_number_override=job_number,
@@ -420,17 +422,25 @@ async def upload_submit(
             )
             session.commit()
 
-            if doc.status == ST_ERROR:
-                errs.append(f"{upload.filename}: {doc.error}")
-            elif doc.status == ST_NEEDS_JOB:
-                errs.append(f"{upload.filename}: no job number found — waiting in the Inbox.")
-            elif doc.status == ST_OTHER:
-                errs.append(f"{upload.filename}: not a quote or invoice — filed in the Inbox.")
-            else:
-                job = doc.job
-                last_job = job.job_number if job else last_job
-                label = "Master quote" if doc.kind == "quote" else "Invoice"
-                oks.append(f"{label} read from {upload.filename} → job {job.job_number}.")
+            if len(docs) > 1:
+                oks.append(
+                    f"{upload.filename} held {len(docs)} documents — split and read "
+                    "separately."
+                )
+
+            for doc in docs:
+                where = doc.filename if len(docs) > 1 else upload.filename
+                if doc.status == ST_ERROR:
+                    errs.append(f"{where}: {doc.error}")
+                elif doc.status == ST_NEEDS_JOB:
+                    errs.append(f"{where}: no job number found — waiting in the Inbox.")
+                elif doc.status == ST_OTHER:
+                    errs.append(f"{where}: not a quote or invoice — filed in the Inbox.")
+                else:
+                    job = doc.job
+                    last_job = job.job_number if job else last_job
+                    label = "Master quote" if doc.kind == "quote" else "Invoice"
+                    oks.append(f"{label} read from {where} → job {job.job_number}.")
         except DuplicateDocument as exc:
             existing = exc.document
             where = f"job {existing.job.job_number}" if existing.job else "the Inbox"
