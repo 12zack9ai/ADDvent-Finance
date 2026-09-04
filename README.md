@@ -391,3 +391,14 @@ Worth being straight about:
 - **Extraction accuracy is not yet measured** against a corpus of real documents.
   That is the highest-value next step: collect 30–50 real quote/invoice pairs so
   accuracy can be measured rather than assumed.
+
+## Not built yet
+
+- **Subcontractor check requests** — the same pipeline for subs: their contract
+  filed under the job, progress bills reviewed as check requests rather than
+  invoices, and a running check that cumulative requests do not exceed the
+  contract plus approved extras. Specified in
+  [`docs/subcontractor-check-requests.md`](docs/subcontractor-check-requests.md),
+  deliberately parked until the vendor side has been proven against real
+  documents. It is a different comparison, not a setting — a sub's progress bill
+  has no line items to price, so the check is cumulative rather than per line.
