@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.pdf import render_html_to_pdf
 
-OUT = Path(__file__).resolve().parent.parent / "samples" / "job-4482"
+OUT = Path(__file__).resolve().parent.parent / "samples" / "job-260000"
 OUT.mkdir(parents=True, exist_ok=True)
 
 CSS = """

@@ -1,11 +1,11 @@
-# Sample documents — job 4482
+# Sample documents — job 260000
 
 A realistic roofing job, laid out to match a real New Castle Building Products
 quote: same header block, same QUANTITY / UOM / ITEM-DESCRIPTION / PRICE-UOM /
 AMOUNT columns, same packaging notes in the descriptions.
 
 Upload them in this order. Tick **"Make this the master quote for the job"** on
-the first one, and put `4482` in the job number box each time.
+the first one, and put `260000` in the job number box each time.
 
 | File | What it shows |
 |---|---|

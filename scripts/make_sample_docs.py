@@ -47,7 +47,7 @@ quote_lines = [
 sub = sum_lines(quote_lines)
 inner = (head("QUOTE", "07RM0002891004", ACCT, PO,
               [("Exp Delv Date:", "09/08/26"), ("Activation Date:", "09/08/26"), ("Close Date:", "09/23/26")],
-              '<tr><td class="k">Job:</td><td>4482</td><td class="k">Ship Via:</td><td>Truck</td>'
+              '<tr><td class="k">Job:</td><td>260000</td><td class="k">Ship Via:</td><td>Truck</td>'
               '<td class="k">Quoted By:</td><td>pcricelli</td></tr>')
          + items_table(quote_lines)
          + totals([("Subtotal", money(sub), False), ("Freight", "0.00", False),
@@ -68,7 +68,7 @@ def invoice(fname, number, date, lines, freight=D(0), note=""):
     rows += [("Tax", "0.00", False), ("TOTAL", money(tot), True)]
     inner = (head("INVOICE", number, ACCT, PO,
                   [("Invoice Date:", date), ("Terms:", "Net 30"), ("Due Date:", "10/08/26")],
-                  '<tr><td class="k">Job:</td><td>4482</td><td class="k">Ship Via:</td><td>Truck</td>'
+                  '<tr><td class="k">Job:</td><td>260000</td><td class="k">Ship Via:</td><td>Truck</td>'
                   '<td class="k">Quote Ref:</td><td>07RM0002891004</td></tr>')
              + items_table(lines) + totals(rows)
              + (f'<div class="terms">{note}</div>' if note else "")
