@@ -42,8 +42,8 @@ from app import mail_send
 from app.mail_types import ALLOWED_SUFFIXES, MAX_ATTACHMENT_BYTES, MailboxError, PollResult
 from app.models import Document, utcnow
 from app.services import (
-    DuplicateDocument, IngestError, file_stored_document, ingest_file,
-    parse_job_answer,
+    ST_NEEDS_JOB, DuplicateDocument, IngestError, file_stored_document,
+    ingest_file, parse_job_answer,
 )
 
 log = logging.getLogger(__name__)
@@ -94,6 +94,16 @@ def _attachments(message: Message) -> Iterator[tuple[str, bytes]]:
         if not filename:
             continue
         if Path(filename).suffix.lower() not in ALLOWED_SUFFIXES:
+            continue
+        # A logo in someone's signature is a real image part with a real
+        # filename, so the suffix test alone lets every one of them through -
+        # and each would be sent to Claude, paid for, and filed as "not a quote
+        # or invoice". Embedded images carry a Content-ID so the HTML body can
+        # reference them, or are marked inline. Neither is an attachment.
+        if part.get("Content-ID"):
+            continue
+        disposition = (part.get_content_disposition() or "").lower()
+        if disposition == "inline":
             continue
         try:
             content = part.get_payload(decode=True) or b""
@@ -196,9 +206,42 @@ class ImapMailbox:
 _MSGID = re.compile(r"<[^<>@\s]+@[^<>\s]+>")
 
 
+
+# Mail that is not from a person, and must not be treated as any part of a
+# conversation: bounces, vacation responders, mailing lists, marketing blasts.
+# Without this, an out-of-office reply carrying the original attachment gets
+# processed as a fresh document, and a bounce could be read as an answer.
+def is_automatic(message: Message) -> bool:
+    auto_submitted = (message.get("Auto-Submitted") or "").strip().lower()
+    if auto_submitted and auto_submitted != "no":
+        return True
+    precedence = (message.get("Precedence") or "").strip().lower()
+    if precedence in {"bulk", "junk", "list", "auto_reply"}:
+        return True
+    for header in ("List-Id", "List-Unsubscribe", "X-Autoreply",
+                   "X-Autorespond", "X-Auto-Response-Suppress"):
+        if message.get(header):
+            return True
+    # An empty return path is the null sender: a bounce, by definition.
+    if (message.get("Return-Path") or "").strip() in {"<>", ""} and message.get("Return-Path"):
+        return True
+    return False
+
+
 def _ask_about(session: Session, document: Document) -> str:
-    """Email the sender asking which job this is. Returns who was asked, or ""."""
+    """Email the sender asking which job this is. Returns who was asked, or "".
+
+    Only for a quote or an invoice that is genuinely waiting on a job number.
+    Anything else read out of the mailbox - a statement, a packing slip, a
+    signed contract, somebody's screenshot - has no job number to ask for, and
+    emailing a stranger to ask which job their PDF belongs to is worse than
+    doing nothing at all.
+    """
     if document.job_id is not None:
+        return ""
+    if document.kind not in ("quote", "invoice"):
+        return ""
+    if document.status != ST_NEEDS_JOB:
         return ""
     try:
         asked = mail_send.ask_for_job_number(document)
@@ -280,6 +323,11 @@ def poll_once(session: Session, limit: int = 25) -> PollResult:
             references = " ".join(filter(None, [
                 message.get("In-Reply-To") or "", message.get("References") or "",
             ]))
+
+            if is_automatic(message):
+                result.skipped.append(f"{subject or '(no subject)'} (automatic mail)")
+                mailbox.file_away(msg_id, settings.mail_processed_folder)
+                continue
 
             handled_all = True
             found_any = False

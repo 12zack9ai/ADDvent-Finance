@@ -157,3 +157,37 @@ def test_the_sentinel_is_the_first_line_of_the_question(sending_enabled):
 
     mail_send.ask_for_job_number(doc())
     assert sending_enabled[0].get_content().startswith(REPLY_SENTINEL)
+
+
+# --- never asking about something that is not a quote or an invoice ------
+
+def test_no_question_about_a_document_that_is_not_a_quote_or_invoice(sending_enabled):
+    """A statement, a packing slip, a signed contract, somebody's screenshot.
+    None of them have a job number to ask for, and emailing a stranger to ask
+    which job their PDF belongs to is worse than doing nothing."""
+    from app import mail_imap
+    from types import SimpleNamespace as NS
+
+    for kind in ("other", "statement", "unknown", ""):
+        doc = NS(kind=kind, status="other", job_id=None, source="email",
+                 job_query_sent_at=None, job_query_to="",
+                 sender="stranger@example.com", subject="hi",
+                 filename="whatever.pdf", email_message_id="<x@y>")
+        assert mail_imap._ask_about(None, doc) == "", kind
+    assert sending_enabled == []
+
+
+def test_a_quote_waiting_on_a_job_number_is_still_asked_about(sending_enabled):
+    """The guard must not silence the case the feature exists for."""
+    from app import mail_imap
+    from types import SimpleNamespace as NS
+
+    committed = []
+    doc = NS(kind="quote", status="needs_job", job_id=None, source="email",
+             job_query_sent_at=None, job_query_to="",
+             sender="Paul <pcricelli@ncbp.com>", subject="Quote",
+             filename="q.pdf", email_message_id="<x@y>")
+    session = NS(commit=lambda: committed.append(1))
+    assert mail_imap._ask_about(session, doc) == "pcricelli@ncbp.com"
+    assert len(sending_enabled) == 1
+    assert doc.job_query_to == "pcricelli@ncbp.com"

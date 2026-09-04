@@ -259,3 +259,75 @@ def test_job_number_written_without_a_space_still_works():
     why the shape can afford to insist on nothing touching the six digits."""
     assert parse_job_directive("", "JOB260000").job_number == "260000"
     assert parse_job_directive("", "Job260000").job_number == "260000"
+
+
+# --- what gets ignored ---------------------------------------------------
+# The mailbox is a published address. Most of what lands in it will not be a
+# quote or an invoice, and the failure modes are asymmetric: reading something
+# harmless costs a Claude call, but replying to a stranger about their PDF is
+# embarrassing and cannot be taken back.
+
+from app.mail_imap import is_automatic  # noqa: E402
+
+
+def test_an_email_with_no_attachment_yields_nothing_to_read():
+    """A plain "thanks" or a random note. Nothing is extracted and nothing is
+    paid for - the message is marked read and moved on."""
+    assert list(_attachments(build(subject="hello", body="just checking in"))) == []
+
+
+def test_an_attachment_of_the_wrong_type_is_ignored():
+    for name, kind in [("notes.docx", ("application", "octet-stream")),
+                       ("sheet.xlsx", ("application", "octet-stream")),
+                       ("calendar.ics", ("text", "plain")),
+                       ("archive.zip", ("application", "zip"))]:
+        msg = build(attachments=[(name, b"x" * 100, kind)])
+        assert list(_attachments(msg)) == [], name
+
+
+def test_a_signature_logo_is_not_treated_as_a_document():
+    """Every vendor email carries one. Left in, each would be sent to Claude,
+    paid for, and filed as "not a quote or invoice"."""
+    msg = build(body="See attached")
+    msg.add_related(b"\x89PNG" + b"0" * 500, maintype="image", subtype="png",
+                    filename="image001.png", cid="<logo@company>")
+    assert list(_attachments(msg)) == []
+
+
+def test_a_real_attachment_alongside_a_logo_is_still_read():
+    """The filter must not throw away the invoice with the letterhead."""
+    msg = build(body="Invoice attached")
+    msg.add_related(b"\x89PNG" + b"0" * 500, maintype="image", subtype="png",
+                    filename="image001.png", cid="<logo@company>")
+    msg.add_attachment(PDF, maintype="application", subtype="pdf", filename="invoice.pdf")
+    assert [name for name, _ in _attachments(msg)] == ["invoice.pdf"]
+
+
+@pytest.mark.parametrize("header,value", [
+    ("Auto-Submitted", "auto-replied"),
+    ("Auto-Submitted", "auto-generated"),
+    ("Precedence", "bulk"),
+    ("Precedence", "list"),
+    ("List-Id", "<newsletter.example.com>"),
+    ("List-Unsubscribe", "<https://example.com/u>"),
+    ("X-Autoreply", "yes"),
+])
+def test_automatic_mail_is_not_treated_as_correspondence(header, value):
+    """An out-of-office carrying the original attachment would otherwise be
+    processed as a fresh document, and a bounce could be read as an answer."""
+    msg = build(subject="Out of office")
+    msg[header] = value
+    assert is_automatic(msg)
+
+
+def test_a_bounce_with_the_null_sender_is_recognised():
+    msg = build(subject="Undeliverable")
+    msg["Return-Path"] = "<>"
+    assert is_automatic(msg)
+
+
+def test_an_ordinary_email_from_a_person_is_not_automatic():
+    msg = build(subject="Quote for job 260000", body="Attached")
+    msg["Auto-Submitted"] = "no"
+    assert not is_automatic(msg)
+    assert not is_automatic(build(subject="Quote", body="Attached"))

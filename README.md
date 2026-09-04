@@ -196,6 +196,25 @@ line, or tick the box on the upload form. The previous master is kept in the
 job's history, and every invoice already on that job is automatically re-checked
 against the new pricing.
 
+## What the mailbox ignores
+
+It is a published address, so most of what lands in it will not be a quote or
+an invoice. The failure modes are asymmetric — reading something harmless costs
+a fraction of a cent, but replying to a stranger about their PDF cannot be
+taken back — so the filtering is deliberately cautious in that direction.
+
+| What arrives | What happens |
+|---|---|
+| An email with no attachment | Nothing is read, nothing is paid for. Marked read, moved to `Processed`. |
+| A `.docx`, `.xlsx`, `.zip`, calendar invite | Ignored. Only PDF, PNG and JPG are read. |
+| A signature logo | Ignored — embedded images carry a `Content-ID` or are marked inline, and neither is an attachment. Without this every vendor email would send its letterhead to Claude. |
+| An out-of-office, bounce, newsletter or marketing blast | Ignored entirely, before anything is read. An auto-reply quoting the original would otherwise be processed as a fresh document. |
+| A PDF that is not a quote or invoice | Read once, filed as "not a quote or invoice", and **no reply is sent** — there is no job number to ask for. |
+| A quote or invoice with no job number | Filed to the Inbox, and the sender is asked (below). |
+
+Nothing is deleted and nothing is guessed. Anything the system could not place
+is visible in the **Inbox** rather than silently discarded.
+
 ## When a vendor forgets the job number
 
 Most of them do. Both real vendor quotes on file have the job field blank — on
