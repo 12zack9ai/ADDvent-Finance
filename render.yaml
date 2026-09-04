@@ -54,7 +54,7 @@ services:
       - key: IMAP_PORT
         value: "993"
       - key: IMAP_USER
-        value: aiap@addventuresinc.com
+        value: aifinance@addventuresinc.com
       - key: IMAP_PASSWORD
         sync: false
       - key: MAIL_POLL_SECONDS

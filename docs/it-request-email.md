@@ -1,5 +1,12 @@
 # Email to IT — mailbox request
 
+> **Status: the mailbox exists.** Protected Harbor created
+> `aifinance@addventuresinc.com` on 4 Sep 2026 (ticket #2025897). What is still
+> needed from them is **which mail platform it is on**, because that decides
+> which connector the app uses — see the fork below. Keep the rest of this
+> document for the next mailbox, or for the app registration if the answer is
+> Microsoft 365.
+
 The application is already hosted and running on Render, so there is no server
 to ask for. The only outstanding dependency is a mailbox it can read.
 
@@ -46,7 +53,7 @@ documents straight to it rather than uploading them by hand.
 
 | | |
 |---|---|
-| Address | `ap@addventuresinc.com` (or whatever you prefer — it just needs to be ours) |
+| Address | `aifinance@addventuresinc.com` |
 | Used by | The application only. No person will sign into it. |
 | Contents | Vendor quotes and invoices sent to us as PDF attachments |
 | Volume | Low — roughly 100–500 messages a month |

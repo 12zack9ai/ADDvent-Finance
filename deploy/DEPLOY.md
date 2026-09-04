@@ -104,7 +104,7 @@ there is no app registration or admin consent involved. Set these in `.env`:
 MAIL_ENABLED=true
 IMAP_HOST=addventuresinc.com          # cPanel: usually the bare domain
 IMAP_PORT=993
-IMAP_USER=aiap@addventuresinc.com     # the FULL address
+IMAP_USER=aifinance@addventuresinc.com     # the FULL address
 IMAP_PASSWORD=...
 ```
 
