@@ -159,7 +159,14 @@
   </div>
   <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
     <a href="/document/{{ invoice.document_id }}/file" target="_blank">Original invoice</a>
-    <a class="btn" href="/invoice/{{ invoice.id }}/pdf">Download PDF</a>
+    {% if server_pdf %}
+      <a class="btn" href="/invoice/{{ invoice.id }}/pdf">Download PDF</a>
+    {% else %}
+      {# No Chromium on this host. The browser's own print-to-PDF uses the very
+         same stylesheet, so the output is identical - it just needs one click
+         from the reader instead of being generated server-side. #}
+      <a class="btn" href="#" onclick="window.print();return false;">Save as PDF</a>
+    {% endif %}
   </div>
 </div>
 {% endif %}

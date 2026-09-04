@@ -414,6 +414,7 @@ def _render_markup(request: Request, invoice: Invoice, print_mode: bool) -> str:
         quote=invoice.quote,
         lines=invoice.lines,
         print_mode=print_mode,
+        server_pdf=pdf_available(),
         routing=routing,
         status_label=APPROVAL_LABELS.get(invoice.approval_status, invoice.approval_status),
         tier_label=TIER_LABELS.get(routing.tier, "") if routing else "",
@@ -440,8 +441,14 @@ def invoice_pdf(invoice_id: int, request: Request, session: Session = Depends(ge
 
     try:
         render_html_to_pdf(_render_markup(request, invoice, print_mode=True), out)
-    except PdfUnavailable as exc:
-        return _redirect(f"/invoice/{invoice_id}", err=f"Could not build the PDF: {exc}")
+    except PdfUnavailable:
+        # No Chromium here. The page prints to PDF from the browser using the
+        # same stylesheet, so nothing is actually lost.
+        return _redirect(
+            f"/invoice/{invoice_id}",
+            err="Server-side PDF is unavailable on this host — use your browser's "
+                "Print / Save as PDF instead. The result is identical.",
+        )
 
     invoice.render_path = str(out)
     session.commit()

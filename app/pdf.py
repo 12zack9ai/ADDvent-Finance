@@ -15,16 +15,27 @@ from typing import Optional
 
 from app.config import settings
 
-# Ordered by preference. The Playwright path is what this development box has;
-# the rest are what a normal Debian/Ubuntu server has after
-# `apt-get install chromium`.
+# Ordered by preference, covering the three places this actually runs: a Linux
+# server, a developer's Mac, and Windows. Missing the macOS paths meant "Download
+# PDF" failed on the one machine most likely to be used for a first trial.
 _CANDIDATES = [
+    # Linux
     "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
     "/usr/bin/chromium",
     "/usr/bin/chromium-browser",
     "/usr/bin/google-chrome",
     "/usr/bin/google-chrome-stable",
     "/snap/bin/chromium",
+    # macOS
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    # Windows
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
 ]
 
 _cached: Optional[str] = None
@@ -48,7 +59,8 @@ def find_chrome() -> Optional[str]:
             _cached = candidate
             return _cached
 
-    for name in ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable"):
+    for name in ("chromium", "chromium-browser", "google-chrome",
+                 "google-chrome-stable", "chrome", "msedge"):
         found = shutil.which(name)
         if found:
             _cached = found
