@@ -156,9 +156,10 @@ wait on.
 
 ```
 MAIL_ENABLED=true
-IMAP_HOST=mail.addventuresinc.com
-IMAP_USER=ap@addventuresinc.com
+IMAP_HOST=mail.protectedharborinc.com
+IMAP_USER=aifinance          # the mailbox name; some hosts want the full address
 IMAP_PASSWORD=...
+SMTP_FROM=aifinance@addventuresinc.com   # this one is always the full address
 ```
 
 **Microsoft Graph** — only when the mailbox lives in Exchange / Microsoft 365.

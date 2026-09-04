@@ -104,9 +104,22 @@ there is no app registration or admin consent involved. Set these in `.env`:
 MAIL_ENABLED=true
 IMAP_HOST=mail.protectedharborinc.com   # Protected Harbor's own mail server
 IMAP_PORT=993
-IMAP_USER=aifinance@addventuresinc.com     # the FULL address
+IMAP_USER=aifinance                     # the MAILBOX NAME, not the address
 IMAP_PASSWORD=...
+
+SMTP_HOST=mail.protectedharborinc.com
+SMTP_PORT=587                           # STARTTLS
+SMTP_USER=aifinance                     # again, the mailbox name
+SMTP_PASSWORD=...
+SMTP_FROM=aifinance@addventuresinc.com  # here it IS the full address
 ```
+
+**The login name and the From address are different strings, and that is the
+whole trick.** This server authenticates on the mailbox name `aifinance`;
+sending the full address is what produced `LOGIN failed.` for a day. But
+`SMTP_FROM` has to be a real address or replies go out with an unroutable
+sender, and it defaults to `SMTP_USER` — so on this server it must be set
+explicitly. Confirmed by Protected Harbor (ticket #2025897, 4 Sep 2026).
 
 Check it before switching the timer on — this files nothing and marks nothing read:
 
@@ -180,5 +193,5 @@ sudo systemctl restart finance-app
 | Documents fail with an API error | `ANTHROPIC_API_KEY` missing, invalid, or outbound HTTPS blocked. |
 | Everyone signed out after a restart | `SECRET_KEY` not set, so a random one is generated each boot. |
 | Site loads without asking for a password | `APP_PASSWORD` is blank. Set it and restart — this is urgent if the site is public. |
-| Mail poll reports an auth error | Usually `IMAP_USER` is missing the `@domain` part — it must be the full address. Run `scripts/test_mail.py`, which says exactly what failed. |
+| Mail poll reports an auth error | On this mail server `IMAP_USER` is the mailbox name (`aifinance`), **not** the full address — sending the address returns a bare `LOGIN failed.` with no hint. Other hosts want the opposite, so try both. Run `scripts/test_mail.py`, which says exactly what failed. |
 | 502 from nginx | The app service is not running: `systemctl status finance-app`. |
