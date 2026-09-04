@@ -153,6 +153,19 @@ def ask_for_job_number(document, *, vendor: str = "", document_number: str = "")
         log.warning("ASK: no reply address on %s", document.filename)
         return None
 
+    # Nothing leaves for an outside address. A vendor who sent a document in is
+    # not someone this system writes to - not yet, and not by accident. When a
+    # vendor's document arrives forwarded by staff, the forwarder is who gets
+    # asked, which is the right person anyway: they know the job, the vendor
+    # does not.
+    if not settings.may_email(to_address):
+        log.warning(
+            "ASK: %s is outside %s - not emailing, %s stays in the Inbox",
+            to_address, ", ".join(sorted(settings.reply_domains())) or "(no domain set)",
+            document.filename,
+        )
+        return None
+
     msg = compose_job_query(
         to_address=to_address,
         subject=document.subject,

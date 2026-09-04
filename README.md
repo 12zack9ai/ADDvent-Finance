@@ -234,7 +234,13 @@ vendor replies "260000"        →  filed against job 260000, priced, done
 Replying is the only thing this system does that leaves the building, so it is
 fenced:
 
-- **Off by default.** No deploy starts emailing suppliers by surprise.
+- **It can only email our own domain.** `REPLY_DOMAINS` defaults to the domain
+  of the finance mailbox itself, so an unconfigured install can write to us and
+  nobody else. **No vendor ever receives anything from this system.** When a
+  vendor's quote arrives forwarded by staff, the forwarder is asked — which is
+  the right person regardless, because they know the job and the vendor does
+  not. With no domain resolvable at all it sends nothing, rather than everything.
+- **Off by default.** No deploy starts emailing anyone by surprise.
 - **Never for uploads** — whoever uploaded it is at the screen.
 - **Once per document**, recorded on the record. The poller runs every five
   minutes; without that, one missing job number becomes a dozen emails.

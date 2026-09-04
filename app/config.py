@@ -56,6 +56,13 @@ class Settings:
     # leaves the building, and it should never start happening by surprise.
     ask_for_job_number: bool = _bool("ASK_FOR_JOB_NUMBER", False)
 
+    # Who the app is allowed to email. Comma-separated domains; when unset it
+    # falls back to the domain of our own mailbox, so the safe answer is the
+    # default rather than something an administrator has to remember to set.
+    # Vendors are deliberately NOT reachable yet - staff forward a vendor's
+    # document in, and staff are who get asked which job it belongs to.
+    reply_domains_raw: str = os.getenv("REPLY_DOMAINS", "").strip()
+
     # --- sample data -------------------------------------------------------
     # Loads samples/job-260000 into an empty install, once, in the background.
     # Off unless explicitly set; see scripts/load_samples.py.
@@ -146,6 +153,25 @@ class Settings:
         password = self.smtp_password or self.imap_password
         sender = self.smtp_from or user
         return host, self.smtp_port, user, password, sender
+
+    def reply_domains(self) -> set[str]:
+        """Domains this app may send to. Empty means send to nobody."""
+        listed = {
+            d.strip().lower().lstrip("@")
+            for d in self.reply_domains_raw.split(",")
+            if d.strip()
+        }
+        if listed:
+            return listed
+        # Our own mailbox's domain. Replying to ourselves is the conservative
+        # default; anything wider has to be asked for explicitly.
+        _, _, _, _, sender = self.smtp_settings()
+        domain = sender.rsplit("@", 1)[-1].strip().lower() if "@" in sender else ""
+        return {domain} if domain else set()
+
+    def may_email(self, address: str) -> bool:
+        domain = (address or "").rsplit("@", 1)[-1].strip().lower()
+        return bool(domain) and domain in self.reply_domains()
 
     def can_send_mail(self) -> bool:
         host, _, user, password, sender = self.smtp_settings()

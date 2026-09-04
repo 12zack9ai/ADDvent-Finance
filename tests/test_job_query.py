@@ -22,9 +22,13 @@ from app.config import settings                              # noqa: E402
 
 
 def doc(**kw):
-    base = dict(source="email", job_id=None, job_query_sent_at=None, job_query_to="",
-                sender="Paul Cricelli <pcricelli@ncbp.com>", subject="Quote for you",
-                filename="Quote07RM0002847012.pdf", email_message_id="<abc@ncbp.com>")
+    # A member of staff forwarding a vendor's document in. That is the real
+    # flow, and the only person the app is allowed to write to.
+    base = dict(kind="quote", status="needs_job", source="email", job_id=None,
+                job_query_sent_at=None, job_query_to="",
+                sender="Zack Mabry <zmabry@addventuresinc.com>",
+                subject="Quote for you", filename="Quote07RM0002847012.pdf",
+                email_message_id="<abc@ncbp.com>")
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -82,7 +86,7 @@ def test_does_not_ask_when_smtp_is_not_configured(monkeypatch):
 # --- when to ask, and what it says ---------------------------------------
 
 def test_asks_the_sender_and_reports_who(sending_enabled):
-    assert mail_send.ask_for_job_number(doc()) == "pcricelli@ncbp.com"
+    assert mail_send.ask_for_job_number(doc()) == "zmabry@addventuresinc.com"
     assert len(sending_enabled) == 1
 
 
@@ -185,9 +189,65 @@ def test_a_quote_waiting_on_a_job_number_is_still_asked_about(sending_enabled):
     committed = []
     doc = NS(kind="quote", status="needs_job", job_id=None, source="email",
              job_query_sent_at=None, job_query_to="",
-             sender="Paul <pcricelli@ncbp.com>", subject="Quote",
+             sender="Zack <zmabry@addventuresinc.com>", subject="Quote",
              filename="q.pdf", email_message_id="<x@y>")
     session = NS(commit=lambda: committed.append(1))
-    assert mail_imap._ask_about(session, doc) == "pcricelli@ncbp.com"
+    assert mail_imap._ask_about(session, doc) == "zmabry@addventuresinc.com"
     assert len(sending_enabled) == 1
-    assert doc.job_query_to == "pcricelli@ncbp.com"
+    assert doc.job_query_to == "zmabry@addventuresinc.com"
+
+
+# --- nothing leaves for an outside address -------------------------------
+# The system may write to our own people and nobody else. A vendor who sent a
+# document in is not someone this app emails - not yet, and never by accident.
+# When a vendor's quote arrives forwarded by staff, the forwarder is asked,
+# which is the right person anyway: they know the job, the vendor does not.
+
+@pytest.mark.parametrize("address", [
+    "pcricelli@ncbp.com",              # a real vendor contact
+    "sales@abcsupply.com",
+    "someone@gmail.com",
+    "zack@addventuresinc.com.evil.com",  # lookalike domain
+    "zack@notaddventuresinc.com",
+])
+def test_no_email_is_sent_outside_our_own_domain(sending_enabled, monkeypatch, address):
+    monkeypatch.setattr(settings, "reply_domains_raw", "")
+    assert mail_send.ask_for_job_number(doc(sender=address)) is None
+    assert sending_enabled == []
+
+
+@pytest.mark.parametrize("address", [
+    "zack@addventuresinc.com",
+    "AP@AddVenturesInc.com",           # case is not a security boundary
+    "Zack Mabry <zmabry@addventuresinc.com>",
+])
+def test_our_own_people_are_asked(sending_enabled, monkeypatch, address):
+    monkeypatch.setattr(settings, "reply_domains_raw", "")
+    assert mail_send.ask_for_job_number(doc(sender=address)) is not None
+    assert len(sending_enabled) == 1
+
+
+def test_the_allowed_domain_defaults_to_our_own_mailbox(monkeypatch):
+    """The safe answer is the default, not something someone has to remember."""
+    monkeypatch.setattr(settings, "reply_domains_raw", "")
+    monkeypatch.setattr(settings, "smtp_from", "ap@addventuresinc.com")
+    assert settings.reply_domains() == {"addventuresinc.com"}
+
+
+def test_extra_domains_can_be_allowed_explicitly(monkeypatch):
+    monkeypatch.setattr(settings, "reply_domains_raw",
+                        "addventuresinc.com, prestigepainting.com")
+    assert settings.may_email("bob@prestigepainting.com")
+    assert settings.may_email("zack@addventuresinc.com")
+    assert not settings.may_email("bob@ncbp.com")
+
+
+def test_with_no_domain_anywhere_nothing_is_sent(sending_enabled, monkeypatch):
+    """Fail closed. An unconfigured install emails nobody rather than everybody."""
+    monkeypatch.setattr(settings, "reply_domains_raw", "")
+    monkeypatch.setattr(settings, "smtp_from", "")
+    monkeypatch.setattr(settings, "smtp_user", "")
+    monkeypatch.setattr(settings, "imap_user", "")
+    assert settings.reply_domains() == set()
+    assert mail_send.ask_for_job_number(doc(sender="zack@addventuresinc.com")) is None
+    assert sending_enabled == []
