@@ -118,7 +118,7 @@ class Overlap:
         b = self.later.invoice_number or f"#{self.later.id}"
         if self.identical_total:
             return (
-                f"{a} and {b} are both for {_money(self.earlier.total)} from "
+                f"{a} and {b} are both for {_fmt(self.earlier.total)} from "
                 f"{self.later.vendor}, {self.when}. Either one is a duplicate, "
                 f"or one was meant to replace the other and the original was "
                 f"never voided."
@@ -126,7 +126,7 @@ class Overlap:
         return (
             f"{self.shared_lines} line"
             f"{'' if self.shared_lines == 1 else 's'} worth "
-            f"{_money(self.shared_value)} appear on both {a} and {b}, {self.when}. "
+            f"{_fmt(self.shared_value)} appear on both {a} and {b}, {self.when}. "
             f"If {b} is a corrected version of {a}, {a} has to be rejected - "
             f"otherwise this job is billed for the same material twice."
         )
@@ -185,9 +185,40 @@ class Summary:
         return int((self.invoiced / self.authorised * 100).quantize(Decimal("1")))
 
     @property
+    def unexplained(self) -> Decimal:
+        """The part of the spend that is not a quoted item at its quoted price.
+
+        Off-quote material plus anything billed above its quoted price. These
+        are the two ways a job can genuinely cost more than it should.
+        """
+        return _cents(self.off_quote + self.found)
+
+    @property
+    def over_but_accounted_for(self) -> bool:
+        """Billed past the quote, and every dollar of it explained.
+
+        The ordinary case on a roof, and the reason this exists: the crew uses
+        more material than was quoted. The unit prices are the quoted unit
+        prices, the vendor has done nothing wrong, and the job simply took more
+        squares than somebody estimated in an office. Calling that a problem
+        would put a red panel on most jobs, and a warning that fires on normal
+        work is a warning people learn to click past.
+        """
+        return self.over_quote > ZERO and self.unexplained <= _tolerance(self.authorised)
+
+    @property
     def needs_explaining(self) -> bool:
-        """The self-check. Billed past what anyone authorised."""
-        return self.over_quote > ZERO
+        """Something here is actually wrong, not merely large.
+
+        Deliberately NOT "billed more than quoted". A quote prices material; it
+        does not cap how much of it a roof turns out to need. What matters is
+        whether the money that went out is accounted for - so this fires on
+        money billed above a quoted price, on material nobody quoted, and on
+        the same material billed twice. Not on quantity.
+        """
+        if self.overlaps:
+            return True
+        return self.over_quote > ZERO and self.unexplained > _tolerance(self.authorised)
 
 
 def _tolerance(total: Decimal) -> Decimal:
@@ -197,10 +228,15 @@ def _tolerance(total: Decimal) -> Decimal:
     return max(flat, pct)
 
 
-def _money(value: Optional[Decimal]) -> str:
+def _fmt(value: Optional[Decimal]) -> str:
+    """Format for a sentence. Returns TEXT - never use it in arithmetic."""
     if value is None:
         return "$0.00"
     return f"${value.quantize(Decimal('0.01')):,}"
+
+
+def _cents(value: Decimal) -> Decimal:
+    return Decimal(value).quantize(Decimal("0.01"))
 
 
 def _same_supplier(a: str, b: str) -> bool:

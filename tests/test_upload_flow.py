@@ -1011,3 +1011,55 @@ def test_jobnimbus_failing_never_stops_an_invoice_filing(client, tmp_path, monke
     session = SessionLocal()
     assert session.query(Invoice).filter_by(invoice_number="INV-551900").one() is not None
     session.close()
+
+
+def test_ordering_more_material_at_the_quoted_price_raises_nothing(client, tmp_path):
+    """Zack: 'ordering more material... our price is gonna stay with the same
+    quoted price.' A quote prices material; it does not cap how much of it the
+    roof needs. This job bills nearly double the quote and nothing is wrong."""
+    upload(client, _pdf(tmp_path, "q.pdf", "more-q"), QUOTE_PAYLOAD, job_number="260000")
+
+    # Same items, same unit prices, far more of them.
+    heavy = {**INVOICE_PAYLOAD, "document_number": "INV-570000",
+             "subtotal": "30125.00", "total": "30125.00"}
+    heavy["lines"] = [{
+        "line_no": 1, "sku": "GAFT3PG",
+        "description": "GAF TIMBERLINE HDZ PEWTER GRAY 3 BN/SQ",
+        "qty": "250", "uom": "SQ", "unit_price": "120.50", "price_uom": "SQ",
+        "extended": "30125.00",
+    }]
+    upload(client, _pdf(tmp_path, "i.pdf", "more-i"), heavy, job_number="260000")
+
+    session = SessionLocal()
+    invoice = session.query(Invoice).filter_by(invoice_number="INV-570000").one()
+    assert invoice.overbilled_amount == D("0")
+    assert invoice.lines_match == 1
+    session.close()
+
+    page = client.get("/job/260000")
+    assert "$30,125.00" in page.text
+    assert "more material than quoted, all at quoted prices" in page.text
+    # And no alarm, even though billed is nearly double quoted.
+    assert "Money on this job with no quoted price behind it" not in page.text
+
+
+def test_but_unquoted_material_on_the_same_job_is_raised(client, tmp_path):
+    upload(client, _pdf(tmp_path, "q.pdf", "unq-q"), QUOTE_PAYLOAD, job_number="260000")
+
+    mixed = {**INVOICE_PAYLOAD, "document_number": "INV-570001",
+             "subtotal": "18125.00", "total": "18125.00"}
+    mixed["lines"] = [
+        {"line_no": 1, "sku": "GAFT3PG",
+         "description": "GAF TIMBERLINE HDZ PEWTER GRAY 3 BN/SQ",
+         "qty": "100", "uom": "SQ", "unit_price": "120.50", "price_uom": "SQ",
+         "extended": "12050.00"},
+        {"line_no": 2, "sku": "VELUX-FS-M08", "description": "VELUX FS M08 SKYLIGHT",
+         "qty": "5", "uom": "EA", "unit_price": "1215.00", "price_uom": "EA",
+         "extended": "6075.00"},
+    ]
+    upload(client, _pdf(tmp_path, "i.pdf", "unq-i"), mixed, job_number="260000")
+
+    page = client.get("/job/260000")
+    assert "Money on this job with no quoted price behind it" in page.text
+    assert "$6,075.00" in page.text
+    assert "material that appears on no quote" in page.text

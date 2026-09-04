@@ -93,6 +93,27 @@ Most of the pipeline, which is the argument for having built it properly:
 
 ---
 
+## Also pinned here: customer-side change orders
+
+Zack, correcting the vendor change-order work: *"My change order was more like
+us to the community. Increasing our price."*
+
+That is a different object from the `ChangeOrder` this app models, which is a
+supplier's authorisation to charge us above their quoted price. A customer
+change order raises **the contract value we bill out** — it belongs with
+progress billings on the cash flow report, not anywhere near invoice matching.
+
+Concretely, when it gets built:
+
+- It increases the job's contract value, which is what draws are billed against.
+- It flows into the 13-week forecast as additional receivable value, phased the
+  same way a draw is (billed in week N, collected N + lag, less retainage).
+- On the sub side it is the mirror image: a sub's extras raise what they may
+  bill, which is question 6 below.
+
+Nothing in the vendor programme needs to know about it, which is precisely why
+keeping the two apart matters.
+
 ## Questions to settle before building
 
 These are real forks, not details. Each one changes the data model.

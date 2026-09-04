@@ -433,11 +433,25 @@ class Receipt(Base):
 
 
 class ChangeOrder(Base):
-    """Written authorisation for scope beyond the original quote.
+    """A supplier's written authorisation to charge above their quoted PRICE.
 
-    In renovation work, hidden damage and association-requested additions are
-    normal. What is NOT normal is paying more than was quoted with nothing in
-    writing - so an overage is only approvable when a change order covers it.
+    Narrower than it first appears, and worth being precise about because the
+    phrase means something different on the other side of the business.
+
+    This is NOT needed for using more material than was quoted. A quote prices
+    material; it does not cap how much of it a roof turns out to need. More
+    squares at the quoted price per square is an ordinary job, and the line
+    comparison correctly reports no variance on it. Nor is it how different
+    material gets handled - that arrives as its own quote on the same job.
+
+    It covers one thing: the vendor's own price moving after they quoted it.
+    That is uncommon here, which is why this is a quiet corner of the app
+    rather than a main workflow.
+
+    A change order to the CUSTOMER - our price to the association going up -
+    is a different object entirely. It raises the contract value being billed
+    out, feeds the progress billings on the cash flow report, and has nothing
+    to do with what a supplier may charge us. It is not modelled here.
     """
 
     __tablename__ = "change_order"

@@ -46,9 +46,10 @@
 
   <div class="score">
     <span class="score-k">Left to bill</span>
-    <span class="score-v {{ 'neg' if s.remaining < 0 }}">{{ s.remaining | money }}</span>
+    <span class="score-v">{{ s.remaining | money }}</span>
     <span class="score-n">
       {% if not s.has_quote %}nothing to measure against
+      {% elif s.over_but_accounted_for %}more material than quoted, all at quoted prices
       {% elif s.remaining < 0 %}billed past the quote
       {% else %}against quote plus change orders{% endif %}
     </span>
@@ -86,24 +87,30 @@
 {% if s.needs_explaining or s.overlaps %}
 <div class="panel selfcheck">
   <h2>
-    {% if s.needs_explaining %}This job does not add up
-    {% else %}Two invoices look like the same material{% endif %}
+    {# A duplicate leads, always. It is the specific, actionable finding, and
+       the unexplained money is usually a consequence of it rather than a
+       second problem. #}
+    {% if s.overlaps %}Two invoices look like the same material
+    {% else %}Money on this job with no quoted price behind it{% endif %}
   </h2>
-  {% if s.needs_explaining %}
+  {% if s.needs_explaining and s.unexplained > 0 %}
     <p class="lead">
-      {% for v in s.vendors if v.over_quote > 0 %}
-        <strong>{{ v.vendor }}</strong> has billed {{ v.invoiced | money }} against
-        {{ v.quoted | money }} quoted{% if v.change_orders %} plus
-        {{ v.change_orders | money }} in change orders{% endif %} —
-        <strong class="neg">{{ v.over_quote | money }} more than anyone authorised</strong>,
-        across {{ v.invoice_count }} invoice{{ "" if v.invoice_count == 1 else "s" }}.
-      {% endfor %}
+      This job has billed <strong class="neg">{{ s.unexplained | money }}</strong>
+      that is not a quoted item at its quoted price.
     </p>
+    <ul class="lead" style="margin-top:0">
+      {% if s.off_quote %}
+        <li><strong>{{ s.off_quote | money }}</strong> on material that appears on no quote
+          ({{ s.off_quote_lines }} line{{ "" if s.off_quote_lines == 1 else "s" }}).</li>
+      {% endif %}
+      {% if s.found %}
+        <li><strong>{{ s.found | money }}</strong> billed above a quoted price.</li>
+      {% endif %}
+    </ul>
     <p class="muted">
-      Every one of those invoices may have passed its own price check. That is
-      exactly how a duplicate, or a corrected invoice that never replaced the
-      original, gets through — the comparison is one invoice at a time, and this
-      only shows up when the job is added up.
+      Billing more than the quote is not itself the issue — a quote prices
+      material, it does not cap how much of it the roof needs. What is worth a
+      look is the money above that has no quoted price behind it.
     </p>
   {% endif %}
 
@@ -139,8 +146,8 @@
   {% elif s.needs_explaining %}
     <p class="muted">
       No two invoices here bill the same material, so this is not a duplicate.
-      Either scope was added without a change order, or a price moved after the
-      quote. Worth a call either way.
+      Either the extra material was never quoted, or a price moved after the
+      quote was given. Worth a call either way.
     </p>
   {% endif %}
 </div>
@@ -323,10 +330,16 @@
   </div>
 
   <div class="panel" id="change-orders" style="flex:1;min-width:320px">
-    <h2 style="margin-bottom:3px">Change orders</h2>
+    <h2 style="margin-bottom:3px">Vendor change orders</h2>
     <div class="muted" style="margin-bottom:12px">
-      Written authorisation for scope beyond the quote. An invoice billed over
-      quote is held until a change order covers it.
+      A supplier's written authorisation to charge above their quoted
+      <em>price</em>. Rare — using more material than quoted needs nothing here,
+      because the unit price is unchanged, and different material usually comes
+      as its own quote. This is only for when a vendor's price itself moves.
+      <br>
+      Change orders to the customer — our price to the association going up —
+      are not these. They belong on the cash flow side, where they raise the
+      contract value being billed out.
     </div>
 
     {% set proposed = job.change_orders | selectattr("status", "equalto", "proposed") | list %}

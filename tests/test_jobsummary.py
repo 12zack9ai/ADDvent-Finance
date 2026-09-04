@@ -164,16 +164,57 @@ def test_a_rejected_invoice_leaves_every_total():
 
 # --- the self-check -------------------------------------------------------
 
-def test_billing_past_the_quote_is_flagged_even_when_no_invoice_is_wrong():
-    """The whole reason this module exists. Two invoices, each priced exactly
-    as quoted, adding to more than the job was ever quoted for."""
+def test_using_more_material_than_quoted_is_not_a_problem():
+    """Zack's correction, and it matters more than anything else in this file.
+
+    A quote prices material. It does not cap how much of it a roof turns out to
+    need. Two invoices at exactly the quoted prices, adding to nearly twice the
+    quote, is an ordinary job where the crew used more squares than somebody
+    estimated in an office - not an overbilling. Flagging it would put a red
+    panel on most jobs, and a warning that fires on normal work is a warning
+    people learn to click past."""
     s = jobsummary.build(job(
         quotes=[quote("18000.00")],
         invoices=[invoice("17182.90", over="0"), invoice("16900.00", over="0")],
     ))
+    assert s.over_quote > D("0")       # the fact is still reported
+    assert s.over_but_accounted_for    # and it is accounted for
+    assert not s.needs_explaining      # so nothing is raised
+
+
+def test_but_material_nobody_quoted_is():
+    """The same overage, with spend on items that appear on no quote."""
+    s = jobsummary.build(job(
+        quotes=[quote("18000.00")],
+        invoices=[
+            invoice("17182.90", over="0"),
+            invoice("16900.00", over="0", lines=[
+                line("SKYLIGHT", "9000.00", VERDICT_NOT_ON_QUOTE),
+            ]),
+        ],
+    ))
     assert s.needs_explaining
-    assert s.over_quote > D("0")
-    assert s.found == D("0")          # nothing was individually wrong
+    assert s.unexplained == D("9000.00")
+
+
+def test_and_so_is_a_price_that_moved():
+    s = jobsummary.build(job(
+        quotes=[quote("18000.00")],
+        invoices=[invoice("17182.90"), invoice("16900.00", over="1400.00")],
+    ))
+    assert s.needs_explaining
+    assert s.unexplained == D("1400.00")
+
+
+def test_a_small_amount_of_unexplained_spend_rides_inside_tolerance():
+    s = jobsummary.build(job(
+        quotes=[quote("100000.00")],
+        invoices=[invoice("120000.00", over="0", lines=[
+            line("MISC", "40.00", VERDICT_NOT_ON_QUOTE),
+        ])],
+    ))
+    assert not s.needs_explaining
+    assert s.over_but_accounted_for
 
 
 def test_a_small_overrun_inside_tolerance_is_not_flagged():
@@ -191,7 +232,6 @@ def test_one_vendor_over_is_not_cancelled_out_by_another_under():
         quotes=[quote("50000.00"), quote("50000.00", vendor="Bergen Dumpster")],
         invoices=[invoice("70000.00"), invoice("10000.00", vendor="Bergen Dumpster")],
     ))
-    assert s.needs_explaining
     assert s.over_quote > D("17000.00")
     assert s.remaining == D("20000.00")   # job-wide, this still looks fine
 
@@ -336,8 +376,8 @@ def test_a_proposed_change_order_raises_nothing():
     ))
     assert s.change_orders == D("0")
     assert s.authorised == D("100000.00")
-    assert s.needs_explaining                 # still over, and still says so
-    assert s.proposed_total == D("15000.00")  # but the paperwork is visible
+    assert s.over_quote > D("0")              # still over, and still says so
+    assert s.proposed_total == D("15000.00")  # and the paperwork is visible
     assert len(s.proposed_change_orders) == 1
 
 
@@ -348,7 +388,7 @@ def test_approving_it_is_what_closes_the_gap():
         invoices=[invoice("112000.00")],
     ))
     assert approved.change_orders == D("15000.00")
-    assert not approved.needs_explaining
+    assert approved.over_quote == D("0")      # the ceiling moved to cover it
     assert approved.proposed_change_orders == []
 
 
@@ -359,5 +399,5 @@ def test_a_rejected_change_order_authorises_nothing_and_is_not_pending():
         invoices=[invoice("112000.00")],
     ))
     assert s.change_orders == D("0")
-    assert s.needs_explaining
+    assert s.over_quote > D("0")
     assert s.proposed_change_orders == []     # decided, not waiting
