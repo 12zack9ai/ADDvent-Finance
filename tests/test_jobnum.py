@@ -82,6 +82,24 @@ def test_a_job_number_inside_a_longer_run_of_digits_is_not_extracted():
     assert jobnum.find_job_numbers("2014030903", TODAY) == []
 
 
+@pytest.mark.parametrize("text", [
+    "GAF260000WW",   # a part number that happens to contain six digits
+    "X260000Y",
+    "JOB260000",     # no space - the labelled patterns handle this form
+    "2600001",       # seven digits
+    "12600000",      # eight
+])
+def test_exactly_six_digits_and_nothing_touching_them(text):
+    """A job number is six digits and nothing else. Anything adjacent - a digit
+    or a letter - means this is a different kind of number."""
+    assert jobnum.find_job_numbers(text, TODAY) == []
+
+
+@pytest.mark.parametrize("text", ["260000.", "(260000)", "260000-1", "260000/A", "-260000-"])
+def test_ordinary_punctuation_around_it_is_fine(text):
+    assert jobnum.find_job_numbers(text, TODAY) == ["260000"]
+
+
 def test_the_year_a_job_was_opened_can_be_read_back():
     assert jobnum.year_of("250148") == 2025
     assert jobnum.year_of("260000") == 2026

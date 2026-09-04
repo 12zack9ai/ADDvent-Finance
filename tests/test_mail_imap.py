@@ -252,3 +252,10 @@ def test_vendor_reference_numbers_are_not_read_as_job_numbers(body):
 
 def test_two_job_numbers_in_one_email_are_not_guessed_between():
     assert parse_job_directive("", "260000 and 250148").job_number is None
+
+
+def test_job_number_written_without_a_space_still_works():
+    """"JOB260000" is caught by the labelled patterns, not the shape - which is
+    why the shape can afford to insist on nothing touching the six digits."""
+    assert parse_job_directive("", "JOB260000").job_number == "260000"
+    assert parse_job_directive("", "Job260000").job_number == "260000"

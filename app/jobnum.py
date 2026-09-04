@@ -37,9 +37,18 @@ def max_year_prefix(today: Optional[date] = None) -> int:
     return (year % 100) + 1
 
 
-# Six digits, not part of a longer run of digits. The year is checked in code
-# rather than in the pattern, so the bound moves with the calendar.
-_SIX_DIGITS = re.compile(r"(?<!\d)(\d{6})(?!\d)")
+# Six digits, and exactly six - not part of a longer number, and not embedded in
+# a part number. A job number is six digits and nothing else, so anything
+# touching it on either side means this is something else entirely:
+# 2014030903 contains "201403", and a SKU like GAF260000WW is not a job.
+#
+# Requiring a non-alphanumeric boundary loses nothing, because "JOB260000"
+# written without a space is still caught by the labelled patterns in
+# extract.py, which is where that form belongs.
+#
+# The year is checked in code rather than in the pattern, so the bound moves
+# with the calendar instead of going stale on 1 January.
+_SIX_DIGITS = re.compile(r"(?<![0-9A-Za-z])(\d{6})(?![0-9A-Za-z])")
 
 
 def is_job_number(value: str, today: Optional[date] = None) -> bool:
