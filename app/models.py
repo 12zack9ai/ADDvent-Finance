@@ -94,6 +94,30 @@ class Job(Base):
         masters = self.masters
         return masters[0] if len(masters) == 1 else (masters[0] if masters else None)
 
+    def masters_for_vendor(self, vendor: str) -> list["Quote"]:
+        """Every live quote from this vendor on this job, newest first.
+
+        A job routinely has more than one quote from the same supplier, because
+        it has more than one scope. A large roof gets a material quote for the
+        roofing and a separate quote for the skylights, often from the same
+        supply house on the same day. Both are live, neither replaces the
+        other, and an invoice can carry lines from either - so an invoice is
+        priced against all of them together rather than against whichever
+        arrived first.
+
+        Newest first, because when the same part appears on two live quotes at
+        two prices, the price agreed most recently is the one to hold the
+        vendor to.
+        """
+        from app.matching import vendor_matches
+
+        matching = [q for q in self.masters if vendor_matches(q.vendor, vendor)]
+        return sorted(
+            matching,
+            key=lambda q: (q.quote_date or date.min, q.id),
+            reverse=True,
+        )
+
     def master_for_vendor(self, vendor: str) -> tuple[Optional["Quote"], str]:
         """Find the master quote to price an invoice from `vendor` against.
 

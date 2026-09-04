@@ -252,15 +252,29 @@ def test_a_new_master_quote_recompares_existing_invoices(client, tmp_path):
     assert SessionLocal().query(Invoice).one().overbilled_amount == D("91.00")
 
     # A revised quote where the underlayment price was renegotiated upward.
+    # The extended amount moves with the unit price, because on a real revised
+    # quote it does - and a line whose own arithmetic does not hold is read as
+    # a packaging difference rather than a price, which is a different test.
     revised = {**QUOTE_PAYLOAD, "document_number": "07RM0002885433"}
     revised["lines"] = [dict(line) for line in QUOTE_PAYLOAD["lines"]]
     revised["lines"][1]["unit_price"] = "200.00"
+    revised["lines"][1]["extended"] = "1400.00"
 
     upload(client, _pdf(tmp_path, "q2.pdf", "q2"), revised,
            job_number="4417", force_master="1")
 
-    # The existing invoice is no longer over quote, without being re-uploaded.
-    assert SessionLocal().query(Invoice).one().overbilled_amount == D("0")
+    session = SessionLocal()
+    invoice = session.query(Invoice).one()
+    # Re-priced against the new quote, without being re-uploaded.
+    assert invoice.overbilled_amount == D("0")
+    # And genuinely re-compared, not quietly emptied. This assertion is the
+    # point: the version of this test that only checked the variance passed
+    # for months while the job was silently losing its quote and zeroing every
+    # comparison on it.
+    assert invoice.quote_id is not None
+    assert invoice.lines_unmatched == 0
+    assert invoice.lines_match == 3
+    session.close()
 
 
 # --- the front door ------------------------------------------------------
@@ -806,4 +820,124 @@ def test_a_change_order_typed_in_by_hand_is_approved_by_the_typing(client, tmp_p
     assert co.status == "approved"
     assert co.approved_by == "Zack"
     assert co.decided_on is not None
+    session.close()
+
+
+# --- two scopes, one job, one supplier ------------------------------------
+
+SKYLIGHT_QUOTE = {
+    **QUOTE_PAYLOAD,
+    "document_number": "07RM0002885999",
+    "subtotal": "8400.00", "total": "8400.00",
+    "lines": [
+        {"line_no": 1, "sku": "VELUX-FS-M08", "description": "VELUX FS M08 FIXED SKYLIGHT",
+         "qty": "6", "uom": "EA", "unit_price": "1200.00", "price_uom": "EA",
+         "extended": "7200.00"},
+        {"line_no": 2, "sku": "VELUX-EDL-M08", "description": "VELUX EDL M08 FLASHING KIT",
+         "qty": "6", "uom": "EA", "unit_price": "200.00", "price_uom": "EA",
+         "extended": "1200.00"},
+    ],
+}
+
+# One delivery drawing from both quotes, which is the whole point.
+MIXED_INVOICE = {
+    **INVOICE_PAYLOAD,
+    "document_number": "INV-560000",
+    "subtotal": "7220.00", "total": "7220.00",
+    "lines": [
+        {"line_no": 1, "sku": "GAFT3PG", "description": "GAF TIMBERLINE HDZ PEWTER GRAY 3 BN/SQ",
+         "qty": "10", "uom": "SQ", "unit_price": "120.50", "price_uom": "SQ",
+         "extended": "1205.00"},
+        {"line_no": 2, "sku": "VELUX-FS-M08", "description": "VELUX FS M08 FIXED SKYLIGHT",
+         "qty": "5", "uom": "EA", "unit_price": "1200.00", "price_uom": "EA",
+         "extended": "6000.00"},
+    ],
+}
+
+
+def test_a_second_quote_for_a_different_scope_stands_alongside_the_first(client, tmp_path):
+    """The roof job with skylights. Same supply house, two quotes, both live —
+    and an invoice can carry lines from either."""
+    upload(client, _pdf(tmp_path, "q1.pdf", "roof"), QUOTE_PAYLOAD, job_number="260000")
+    upload(client, _pdf(tmp_path, "q2.pdf", "sky"), SKYLIGHT_QUOTE, job_number="260000")
+
+    session = SessionLocal()
+    job = session.query(Job).filter_by(job_number="260000").one()
+    masters = job.masters
+    assert len(masters) == 2, "the skylight quote must not stand down the roofing quote"
+    assert {q.quote_number for q in masters} == {"07RM0002885432", "07RM0002885999"}
+    session.close()
+
+    # The scorecard adds both.
+    page = client.get("/job/260000")
+    assert "$25,582.90" in page.text          # 17,182.90 + 8,400.00
+
+
+def test_one_invoice_is_priced_against_both_quotes(client, tmp_path):
+    upload(client, _pdf(tmp_path, "q1.pdf", "roof2"), QUOTE_PAYLOAD, job_number="260000")
+    upload(client, _pdf(tmp_path, "q2.pdf", "sky2"), SKYLIGHT_QUOTE, job_number="260000")
+    upload(client, _pdf(tmp_path, "i.pdf", "mixed"), MIXED_INVOICE, job_number="260000")
+
+    session = SessionLocal()
+    invoice = session.query(Invoice).filter_by(invoice_number="INV-560000").one()
+
+    # Both lines found their price. Before this, whichever quote arrived second
+    # was invisible and half the invoice read as unquoted material.
+    assert invoice.lines_match == 2
+    assert invoice.lines_unmatched == 0
+    assert invoice.overbilled_amount == D("0")
+    session.close()
+
+
+def test_a_revision_of_one_scope_leaves_the_other_alone(client, tmp_path):
+    upload(client, _pdf(tmp_path, "q1.pdf", "roof3"), QUOTE_PAYLOAD, job_number="260000")
+    upload(client, _pdf(tmp_path, "q2.pdf", "sky3"), SKYLIGHT_QUOTE, job_number="260000")
+
+    revised_roof = {**QUOTE_PAYLOAD, "document_number": "07RM0002885440"}
+    revised_roof["lines"] = [dict(line) for line in QUOTE_PAYLOAD["lines"]]
+    revised_roof["lines"][0]["unit_price"] = "125.00"
+    revised_roof["lines"][0]["extended"] = "10000.00"
+    upload(client, _pdf(tmp_path, "q3.pdf", "roof3b"), revised_roof, job_number="260000")
+
+    session = SessionLocal()
+    job = session.query(Job).filter_by(job_number="260000").one()
+    live = {q.quote_number for q in job.masters}
+    # The revision replaced the roofing quote and left the skylights standing.
+    assert live == {"07RM0002885440", "07RM0002885999"}
+    session.close()
+
+
+def test_the_scopes_are_told_apart_by_what_is_on_them_not_by_who_sent_them(client, tmp_path):
+    """No human said which of these replaces what. The overlap decides."""
+    upload(client, _pdf(tmp_path, "q1.pdf", "ov1"), QUOTE_PAYLOAD, job_number="260000")
+
+    # Same items, new prices, and nobody wrote the word "revised" anywhere.
+    same_items = {**QUOTE_PAYLOAD, "document_number": "07RM0002885441"}
+    same_items["lines"] = [dict(line) for line in QUOTE_PAYLOAD["lines"]]
+    same_items["lines"][0]["unit_price"] = "131.00"
+    same_items["lines"][0]["extended"] = "10480.00"
+    upload(client, _pdf(tmp_path, "q2.pdf", "ov2"), same_items, job_number="260000")
+
+    session = SessionLocal()
+    job = session.query(Job).filter_by(job_number="260000").one()
+    assert len(job.masters) == 1, "same items at new prices is a revision, not a scope"
+    assert job.masters[0].quote_number == "07RM0002885441"
+    session.close()
+
+
+def test_a_dumpster_quote_never_stands_down_the_roofing_quote(client, tmp_path):
+    """Already true, and it has to stay true."""
+    upload(client, _pdf(tmp_path, "q1.pdf", "d1"), QUOTE_PAYLOAD, job_number="260000")
+    dumpster = {
+        **QUOTE_PAYLOAD, "vendor": "Bergen Dumpster Service",
+        "document_number": "BD-1", "total": "1800.00",
+        "lines": [{"line_no": 1, "sku": "30YD", "description": "30 YARD DUMPSTER",
+                   "qty": "3", "uom": "EA", "unit_price": "600.00", "price_uom": "EA",
+                   "extended": "1800.00"}],
+    }
+    upload(client, _pdf(tmp_path, "q2.pdf", "d2"), dumpster, job_number="260000")
+
+    session = SessionLocal()
+    job = session.query(Job).filter_by(job_number="260000").one()
+    assert len(job.masters) == 2
     session.close()

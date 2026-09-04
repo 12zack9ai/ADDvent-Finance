@@ -38,7 +38,7 @@ from app.extract import (
     parse_job_directive,
 )
 from app.approval import apply_routing
-from app.matching import compare_invoice, vendor_matches
+from app.matching import compare_invoice, norm_sku, norm_text, vendor_matches
 from app.models import (
     CO_PROPOSED,
     ChangeOrder,
@@ -57,6 +57,8 @@ ST_NEEDS_JOB = "needs_job"        # extracted, but nobody said which job
 ST_NEEDS_QUOTE = "needs_quote"    # invoice filed, but the job has no master quote yet
 ST_READY = "ready"
 ST_ERROR = "error"
+ZERO = Decimal("0")
+
 ST_OTHER = "other"                # not a quote or invoice (statement, packing slip)
 ST_NEEDS_APPROVAL = "needs_approval"  # change order read, waiting on a person
 
@@ -141,6 +143,7 @@ def create_quote(
     result: ExtractionResult,
     make_master: bool,
     reason: str = "",
+    replaces: bool = False,
 ) -> Quote:
     payload = result.payload
     quote = Quote(
@@ -165,19 +168,68 @@ def create_quote(
     session.flush()
 
     if make_master:
-        set_master_quote(session, job, quote, reason=reason)
+        set_master_quote(session, job, quote, reason=reason, replaces=replaces)
     return quote
 
 
-def set_master_quote(session: Session, job: Job, quote: Quote, reason: str = "") -> None:
-    """Promote a quote to master for its VENDOR on this job.
+# How much of a new quote has to already be on a live quote from the same
+# vendor before it reads as a revision of it rather than a separate scope.
+REVISION_OVERLAP = Decimal("0.25")
 
-    A job usually has one supplier, but it can have several - a roofing
-    supplier plus a dumpster company, say. Each vendor gets its own master, so a
-    new roofing quote must not stand down the dumpster quote.
 
-    Superseded masters are kept, not deleted; the history of what was agreed at
-    each point is the whole value of this system.
+def _overlap_fraction(new: Quote, existing: Quote) -> Decimal:
+    """How much of `new`, by value, is already quoted on `existing`.
+
+    Matched on part number, falling back to the description, because a revised
+    quote re-prices the same items - the prices differ, which is the point of
+    the revision, so the amounts cannot be what identifies them.
+    """
+    known = {
+        norm_sku(line.sku) or norm_text(line.description)
+        for line in existing.lines
+    } - {""}
+    if not known:
+        return ZERO
+
+    total = shared = ZERO
+    for line in new.lines:
+        value = abs(line.extended or ZERO)
+        total += value
+        key = norm_sku(line.sku) or norm_text(line.description)
+        if key and key in known:
+            shared += value
+    if total <= ZERO:
+        return ZERO
+    return shared / total
+
+
+def set_master_quote(
+    session: Session, job: Job, quote: Quote, reason: str = "", replaces: bool = False
+) -> None:
+    """Make a quote live on this job, standing down anything it replaces.
+
+    Three cases, and telling them apart is the whole job here:
+
+    * **A different supplier.** The roofer's quote never stands down the
+      dumpster company's. Always kept side by side.
+    * **The same supplier, a different scope.** Roofing material and skylights,
+      often quoted the same day by the same supply house. Both stay live and an
+      invoice is priced against both together.
+    * **The same supplier, a revision.** The same items at new prices. The old
+      one has to stand down, or its stale prices go on authorising invoices.
+
+    Told apart by what is on them. A revision re-quotes items already quoted; a
+    new scope quotes items nobody has quoted yet. When somebody has said
+    outright that this replaces the old one, that is believed and no guessing
+    happens.
+
+    Ties break towards superseding. Standing a quote down wrongly makes its
+    items read as unquoted, which is loud and gets fixed. Leaving a superseded
+    quote live lets an old price silently pass an invoice as correct, which is
+    the failure nobody sees.
+
+    Superseded quotes are kept, never deleted; what was agreed at each point is
+    the whole value of this system.
     """
     existing = session.scalars(
         select(Quote).where(Quote.job_id == job.id, Quote.is_master == True)  # noqa: E712
@@ -187,6 +239,12 @@ def set_master_quote(session: Session, job: Job, quote: Quote, reason: str = "")
             continue
         if not vendor_matches(old.vendor, quote.vendor):
             continue  # different supplier on the same job - leave it standing
+
+        if not replaces and _overlap_fraction(quote, old) < REVISION_OVERLAP:
+            # Nothing on this quote was already quoted by that one. Two scopes
+            # on one job, not a revision - keep both.
+            continue
+
         old.is_master = False
         old.superseded_at = utcnow()
         old.supersede_reason = reason or f"Replaced by quote {quote.quote_number or quote.id}"
@@ -284,8 +342,17 @@ def create_invoice(
 
 
 def recompare_invoice(session: Session, job: Job, invoice: Invoice) -> None:
-    """Re-run the comparison for one invoice against the job's current master."""
-    master, how = job.master_for_vendor(invoice.vendor)
+    """Re-run the comparison for one invoice against this job's live quotes.
+
+    Against ALL of this vendor's live quotes on the job, as one combined price
+    list. A big roof carries a material quote and a separate skylight quote,
+    and a single delivery ticket can draw from both - so pricing against
+    whichever quote happened to arrive first would report half the invoice as
+    unquoted material.
+    """
+    masters = job.masters_for_vendor(invoice.vendor)
+    master = masters[0] if masters else None
+    how = "vendor" if masters else "none"
     invoice.quote_id = master.id if master else None
     invoice.quote_match = how
 
@@ -305,7 +372,10 @@ def recompare_invoice(session: Session, job: Job, invoice: Invoice) -> None:
         session.flush()
         return
 
-    summary = compare_invoice(list(invoice.lines), list(master.lines))
+    # Newest quote first, so when the same part is on two live quotes at two
+    # prices the most recently agreed one is what the vendor is held to.
+    quoted_lines = [line for quote in masters for line in quote.lines]
+    summary = compare_invoice(list(invoice.lines), quoted_lines)
     invoice.overbilled_amount = summary.overbilled
     invoice.underbilled_amount = summary.underbilled
     invoice.lines_over = summary.lines_over
@@ -318,7 +388,17 @@ def recompare_invoice(session: Session, job: Job, invoice: Invoice) -> None:
 
 
 def recompare_job(session: Session, job: Job) -> int:
-    """Re-compare every invoice on a job. Called when the master quote changes."""
+    """Re-compare every invoice on a job. Called when the quotes change.
+
+    The expire is not defensive tidying, it is the fix for a bug that was
+    live: a loaded `job.quotes` collection is not refreshed by a flush, so a
+    quote created moments earlier could be missing from it. When that happened
+    the job appeared to have no live quote at all, and every invoice on it was
+    quietly rewritten to "not on quote" with a zero variance - the comparison
+    erased rather than redone, silently, at exactly the moment somebody
+    uploaded a corrected price.
+    """
+    session.expire(job, ["quotes"])
     invoices = session.scalars(select(Invoice).where(Invoice.job_id == job.id)).all()
     for invoice in invoices:
         recompare_invoice(session, job, invoice)
@@ -438,16 +518,16 @@ def ingest_file(
         document.status = ST_NEEDS_APPROVAL
         recompare_job(session, job)
     elif result.doc_type == "quote":
-        vendor_name = (result.payload.get("vendor") or "").strip()
-        existing_master, _ = job.master_for_vendor(vendor_name)
-        had_master = existing_master is not None
-        make_master = force_master or directive.is_master_update or not had_master
+        # Every quote from a vendor goes live. Whether it stands the previous
+        # one down is decided by what is on it - see set_master_quote.
+        make_master = True
         reason = directive.matched_phrase if directive.is_master_update else ""
-        create_quote(session, job, document, result, make_master=make_master, reason=reason)
-        if make_master and had_master:
-            recompare_job(session, job)
-        elif make_master:
-            recompare_job(session, job)
+        create_quote(
+            session, job, document, result,
+            make_master=make_master, reason=reason,
+            replaces=force_master or directive.is_master_update,
+        )
+        recompare_job(session, job)
         document.status = ST_READY
     else:
         invoice = create_invoice(session, job, document, result)
