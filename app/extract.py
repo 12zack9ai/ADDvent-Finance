@@ -283,11 +283,21 @@ def normalize_job_number(value: str) -> str:
 # --- extraction -----------------------------------------------------------
 
 def _client() -> anthropic.Anthropic:
+    # An organisation-level key must say which workspace to bill; a
+    # workspace-scoped key carries that already. Sending the header when we have
+    # it makes both kinds of key work.
+    headers = (
+        {"anthropic-workspace-id": settings.anthropic_workspace_id}
+        if settings.anthropic_workspace_id
+        else None
+    )
     if not settings.anthropic_api_key:
         # The SDK also resolves ANTHROPIC_AUTH_TOKEN and `ant auth login`
         # profiles, so an unset key is not necessarily an error.
-        return anthropic.Anthropic()
-    return anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        return anthropic.Anthropic(default_headers=headers)
+    return anthropic.Anthropic(
+        api_key=settings.anthropic_api_key, default_headers=headers
+    )
 
 
 def _content_block(path: Path) -> dict[str, Any]:
@@ -336,7 +346,15 @@ def extract_document(path: Path, hint: str = "") -> ExtractionResult:
         ) as stream:
             message = stream.get_final_message()
     except anthropic.APIStatusError as exc:
-        raise ExtractionError(f"Claude API error ({exc.status_code}): {exc.message}") from exc
+        message = str(exc.message)
+        if "anthropic-workspace-id" in message:
+            raise ExtractionError(
+                "This API key belongs to the organisation rather than a "
+                "workspace. Either create a workspace-scoped key at "
+                "console.anthropic.com (pick a workspace when creating it), or "
+                "set ANTHROPIC_WORKSPACE_ID in .env."
+            ) from exc
+        raise ExtractionError(f"Claude API error ({exc.status_code}): {message}") from exc
     except anthropic.APIConnectionError as exc:
         raise ExtractionError("Could not reach the Claude API. Check network access.") from exc
 

@@ -26,6 +26,10 @@ class Settings:
     # --- Claude ------------------------------------------------------------
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "").strip()
     extraction_model: str = os.getenv("EXTRACTION_MODEL", "claude-opus-5")
+    # Only needed when the API key is an ORGANISATION key rather than one scoped
+    # to a workspace. A workspace-scoped key carries this implicitly; an org key
+    # is rejected with "must include the anthropic-workspace-id header".
+    anthropic_workspace_id: str = os.getenv("ANTHROPIC_WORKSPACE_ID", "").strip()
 
     # --- site --------------------------------------------------------------
     site_name: str = os.getenv("SITE_NAME", "Addventures Inc · Finance")
