@@ -27,6 +27,24 @@ marked-up copy                    →  on screen and as a PDF
 in several deliveries, so one quoted item is legitimately billed across many
 invoices. Each one is priced against the same master.
 
+## Incoming — what has just arrived
+
+The front door leads here, and it is the page to open first each day.
+Invoices in **the order they arrived, newest at the top**, with what came in
+most recently, how it arrived, what the comparison found, and how much it is
+over.
+
+Deliberately not the same as the **Approvals** queue, which sorts by urgency —
+held first, then blocked, then the largest variance. That is the right order
+when working through a backlog and the wrong one for "what came in today",
+because a three-week-old dispute outranks the invoice that landed an hour ago
+and the new one never gets seen.
+
+Three views: everything, only what still needs reviewing, and only what was
+billed over quote. Anything that arrived but could not be filed — no job
+number, or unreadable — is counted at the top with a link to the Inbox, so an
+arrival can never be invisible just because it failed.
+
 ## Three-way match
 
 No invoice is paid unless it ties back to **(1)** an approved quoted price and

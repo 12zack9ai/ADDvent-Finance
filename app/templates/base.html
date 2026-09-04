@@ -185,6 +185,47 @@
   .assump-table td{padding:4px 6px;border-top:1px solid var(--rule-lt)}
   .assump-table input{width:90px;padding:5px 7px;border:1px solid var(--rule);
                       border-radius:5px;font:inherit}
+
+  /* ---- incoming feed ---- */
+  .tabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+  .tab{padding:6px 13px;border-radius:16px;border:1px solid var(--rule);background:#fff;
+       text-decoration:none;color:var(--soft);font-size:.85rem;font-weight:600}
+  .tab.on{background:var(--navy,#1e3a5f);color:#fff;border-color:var(--navy,#1e3a5f)}
+  .pill{background:rgba(255,255,255,.25);border-radius:9px;padding:0 6px;font-size:.78em}
+  .tab:not(.on) .pill{background:#eef2f7;color:#2563a8}
+  .feed{display:flex;flex-direction:column;gap:1px;background:var(--rule);
+        border:1px solid var(--rule);border-radius:8px;overflow:hidden}
+  .item{display:grid;grid-template-columns:120px 1fr 150px 92px;gap:14px;align-items:center;
+        background:#fff;padding:12px 15px;text-decoration:none;color:inherit}
+  .item:hover{background:#f7f9fc}
+  .item.attn{box-shadow:inset 3px 0 0 #d94a3d}
+  .item-when strong{display:block;font-size:.85rem}
+  .item-when span{display:block;font-size:.72rem;color:var(--mute)}
+  .item-top{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+  .item-sub{margin-top:4px;display:flex;gap:5px;flex-wrap:wrap}
+  .jobtag{background:#eef2f7;color:#2563a8;border-radius:9px;padding:1px 8px;
+          font-size:.72rem;font-weight:700}
+  .chip{font-size:.7rem;padding:1px 7px;border-radius:9px;font-weight:700}
+  .chip.over{background:#fbe4e2;color:#9b1c1c}
+  .chip.under{background:#e3f5ea;color:#166534}
+  .chip.ok{background:#fbefc4;color:#7a5c00}
+  .chip.none{background:#eef0f3;color:#5a6270}
+  .item-money{text-align:right;font-variant-numeric:tabular-nums}
+  .item-money strong{display:block;font-size:.95rem}
+  .item-money span{display:block;font-size:.75rem}
+  .item-status{text-align:right}
+  .status{font-size:.7rem;font-weight:800;letter-spacing:.4px;text-transform:uppercase;
+          padding:3px 9px;border-radius:11px}
+  .s-pending_review{background:#eaf1fa;color:#2563a8}
+  .s-held{background:#fbe4e2;color:#9b1c1c}
+  .s-approved{background:#e3f5ea;color:#166534}
+  .s-paid,.s-rejected{background:#e8eaed;color:#4a5262}
+  @media (max-width:760px){
+    .item{grid-template-columns:1fr auto;gap:8px}
+    .item-when{order:1} .item-status{order:2;text-align:right}
+    .item-main{order:3;grid-column:1/-1} .item-money{order:4;grid-column:1/-1;text-align:left}
+    .item-money strong{display:inline} .item-money span{display:inline;margin-left:8px}
+  }
 </style>
 </head>
 <body>
@@ -197,6 +238,7 @@
              placeholder="Search job number, vendor, or invoice number…" autocomplete="off">
     </form>
     <nav>
+      <a href="/incoming">Incoming</a>
       <a href="/jobs">Jobs</a>
       <a href="/approvals">Approvals</a>
       <a href="/cashflow">Cash flow</a>

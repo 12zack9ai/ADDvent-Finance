@@ -11,7 +11,7 @@
 
 <div class="progs">
 
-  <a class="prog" href="/jobs">
+  <a class="prog" href="/incoming">
     <div class="prog-head">
       <h2>Invoice checking</h2>
       <span class="prog-tag">Live</span>
@@ -27,6 +27,12 @@
       <div class="{{ 'is-bad' if overbilled > 0 else '' }}">
         <strong>{{ overbilled | money }}</strong><span>billed over quote</span></div>
     </div>
+    {% if newest %}
+    <div class="prog-note">
+      Most recent: <strong>{{ newest.vendor or "Unknown vendor" }}</strong>
+      {{ newest.invoice_number or "" }} — {{ newest.created_at | ago }}
+    </div>
+    {% endif %}
     {% if waiting or inbox_count %}
     <div class="prog-note">
       {% if waiting %}<strong>{{ waiting }}</strong> waiting on an approver{% endif %}
@@ -34,7 +40,7 @@
       {% if inbox_count %}<strong>{{ inbox_count }}</strong> in the Inbox with no job number{% endif %}
     </div>
     {% endif %}
-    <div class="prog-go">Open invoice checking &rarr;</div>
+    <div class="prog-go">See what has come in &rarr;</div>
   </a>
 
   <a class="prog" href="/cashflow">
@@ -69,9 +75,10 @@
 <div class="panel quick">
   <h2>Quick actions</h2>
   <div class="quick-row">
-    <a class="btn" href="/upload">Upload a quote or invoice</a>
+    <a class="btn" href="/incoming">Review invoices that just came in{% if waiting %} ({{ waiting }}){% endif %}</a>
+    <a class="btn ghost" href="/upload">Upload a quote or invoice</a>
     <a class="btn ghost" href="/cashflow">Generate a cash flow report</a>
-    <a class="btn ghost" href="/approvals">Approvals{% if waiting %} ({{ waiting }}){% endif %}</a>
+    <a class="btn ghost" href="/jobs">All jobs</a>
     <a class="btn ghost" href="/inbox">Inbox{% if inbox_count %} ({{ inbox_count }}){% endif %}</a>
   </div>
 </div>

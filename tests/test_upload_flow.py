@@ -292,3 +292,72 @@ def test_the_apps_own_log_lines_are_visible():
     _configure_logging()
     assert logging.getLogger("app.scheduler").isEnabledFor(logging.INFO)
     assert logging.getLogger().handlers
+
+
+# --- incoming: arrival order, not urgency order --------------------------
+
+def test_incoming_lists_invoices_newest_first(client, tmp_path):
+    """The point of the page: an invoice that landed an hour ago must not sit
+    below a three-week-old dispute."""
+    from datetime import datetime, timedelta
+    from app.models import Invoice
+
+    session = SessionLocal()
+    job = session.query(Job).first() or Job(job_number="260000")
+    if job.id is None:
+        session.add(job)
+        session.flush()
+    now = datetime.utcnow()
+
+    def arrived(tag, when):
+        doc = Document(filename=f"{tag}.pdf", sha256=f"sha-{tag}",
+                       stored_path=f"/tmp/{tag}.pdf", kind="invoice",
+                       source="email", status="matched", received_at=when)
+        session.add(doc)
+        session.flush()
+        return doc
+
+    session.add_all([
+        Invoice(job_id=job.id, document_id=arrived("old", now - timedelta(days=21)).id,
+                vendor="Old Vendor", invoice_number="OLD-1", total=D("100.00"),
+                approval_status="held", created_at=now - timedelta(days=21)),
+        Invoice(job_id=job.id, document_id=arrived("new", now - timedelta(hours=1)).id,
+                vendor="New Vendor", invoice_number="NEW-1", total=D("200.00"),
+                approval_status="pending_review", created_at=now - timedelta(hours=1)),
+    ])
+    session.commit()
+
+    body = client.get("/incoming").text
+    assert body.index("NEW-1") < body.index("OLD-1")
+    session.close()
+
+
+def test_incoming_can_be_narrowed_to_what_still_needs_review(client):
+    assert client.get("/incoming?show=unreviewed").status_code == 200
+    assert client.get("/incoming?show=over").status_code == 200
+
+
+def test_incoming_renders_with_nothing_in_it(client):
+    """A fresh install opens this page before anything has arrived."""
+    assert client.get("/incoming").status_code == 200
+
+
+def test_the_dashboard_offers_the_incoming_queue(client):
+    body = client.get("/").text
+    assert 'href="/incoming"' in body
+    assert "just came in" in body
+
+
+def test_relative_times_read_as_a_person_would_say_them():
+    from datetime import datetime, timedelta
+    from app.main import f_ago
+
+    now = datetime.utcnow()
+    assert f_ago(now) == "just now"
+    assert f_ago(now - timedelta(minutes=12)) == "12 min ago"
+    assert f_ago(now - timedelta(hours=1)) == "1 hour ago"
+    assert f_ago(now - timedelta(hours=5)) == "5 hours ago"
+    assert f_ago(now - timedelta(days=2)) == "2 days ago"
+    assert f_ago(None) == "—"
+    # Beyond a week the exact date is more use than "31 days ago".
+    assert f_ago(now - timedelta(days=31)) == (now - timedelta(days=31)).strftime("%d %b")

@@ -69,9 +69,32 @@ ZERO = Decimal("0")
 
 # --- template filters -----------------------------------------------------
 
+def f_ago(value) -> str:
+    """How long ago, in the coarsest unit that is still useful.
+
+    On a queue sorted by arrival the question is always "is this new?", and a
+    timestamp makes the reader do the subtraction themselves.
+    """
+    if value is None:
+        return "—"
+    seconds = (datetime.utcnow() - value).total_seconds()
+    if seconds < 90:
+        return "just now"
+    minutes = seconds / 60
+    if minutes < 60:
+        return f"{int(minutes)} min ago"
+    hours = minutes / 60
+    if hours < 24:
+        return f"{int(hours)} hour{'' if int(hours) == 1 else 's'} ago"
+    days = hours / 24
+    if days < 7:
+        return f"{int(days)} day{'' if int(days) == 1 else 's'} ago"
+    return value.strftime("%d %b")
+
+
 templates.env.filters.update(
     money=fmt.money, money4=fmt.money4, qty=fmt.qty,
-    abs_money=fmt.abs_money, abs_money4=fmt.abs_money4,
+    abs_money=fmt.abs_money, abs_money4=fmt.abs_money4, ago=f_ago,
 )
 
 
@@ -270,6 +293,7 @@ def home(request: Request, session: Session = Depends(get_session)):
         .where(Document.status.in_([ST_NEEDS_JOB, ST_ERROR]))
     ) or 0
 
+    newest = session.scalar(select(Invoice).order_by(Invoice.created_at.desc()))
     latest = session.scalar(select(CashReport).order_by(CashReport.created_at.desc()))
     latest_forecast = _report_forecast(latest) if latest is not None else None
 
@@ -280,6 +304,7 @@ def home(request: Request, session: Session = Depends(get_session)):
         overbilled=Decimal(overbilled) if overbilled else ZERO,
         waiting=waiting,
         inbox_count=inbox,
+        newest=newest,
         latest_report=latest,
         latest_forecast=latest_forecast,
     ))
@@ -914,3 +939,52 @@ def cashflow_report_pdf(report_id: int, session: Session = Depends(get_session))
     out = settings.renders_dir / f"cashflow-{report.as_of}-{report.id}.pdf"
     cashflow_pdf.build(_report_forecast(report), report, out)
     return FileResponse(out, media_type="application/pdf", filename=out.name)
+
+
+# --- incoming: what has just arrived, newest first ------------------------
+
+INCOMING_LIMIT = 60
+
+
+@app.get("/incoming", response_class=HTMLResponse)
+def incoming(request: Request, session: Session = Depends(get_session)):
+    """Invoices in the order they arrived, newest at the top.
+
+    Deliberately not the Approvals queue, which is sorted by urgency - held
+    first, then blocked, then biggest variance. That ordering is right when
+    working through a backlog and wrong when the question is "what came in
+    today?", because a three-week-old dispute outranks the invoice that landed
+    an hour ago and the new one is never seen.
+
+    Here, arrival order is the only order. Nothing old can float to the top.
+    """
+    which = (request.query_params.get("show") or "").strip()
+
+    stmt = select(Invoice).order_by(Invoice.created_at.desc())
+    if which == "unreviewed":
+        stmt = stmt.where(Invoice.approval_status.in_([APPROVAL_PENDING, APPROVAL_HELD]))
+    elif which == "over":
+        stmt = stmt.where(Invoice.overbilled_amount > 0)
+
+    invoices = session.scalars(stmt.limit(INCOMING_LIMIT)).all()
+
+    # Documents that arrived but could not be filed are arrivals too, and they
+    # are invisible on this page unless they are counted somewhere.
+    stuck = session.scalar(
+        select(func.count(Document.id))
+        .where(Document.status.in_([ST_NEEDS_JOB, ST_ERROR]))
+    ) or 0
+
+    unreviewed = session.scalar(
+        select(func.count(Invoice.id))
+        .where(Invoice.approval_status.in_([APPROVAL_PENDING, APPROVAL_HELD]))
+    ) or 0
+
+    return templates.TemplateResponse(request, "incoming.html", _ctx(
+        request, session,
+        invoices=invoices,
+        show=which,
+        stuck=stuck,
+        unreviewed=unreviewed,
+        limit=INCOMING_LIMIT,
+    ))
