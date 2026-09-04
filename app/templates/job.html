@@ -100,11 +100,7 @@
 </div>
 {% endif %}
 
-{% if job.aliases %}
-<div class="panel tight">
-  <div class="muted">
-    Also files under:
-    {% for a in job.aliases %}<strong>{{ a.alias }}</strong>{% if not loop.last %}, {% endif %}{% endfor %}
+{% endfor %}
     — references vendors use for this job.
   </div>
 </div>

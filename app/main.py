@@ -42,7 +42,6 @@ from app.models import (
     Document,
     Invoice,
     Job,
-    JobAlias,
     Quote,
     Receipt,
     TIER_LABELS,
@@ -253,9 +252,6 @@ def dashboard(request: Request, session: Session = Depends(get_session)):
                 Quote.po_reference.ilike(like))
         )).all():
             matching_job_ids.add(quote.job_id)
-        # Vendors reference our jobs by site address; those aliases are searchable.
-        for alias in session.scalars(select(JobAlias).where(JobAlias.alias.ilike(like))).all():
-            matching_job_ids.add(alias.job_id)
         stmt = stmt.where(Job.id.in_(matching_job_ids or {-1}))
 
     rows = _job_rows(session, list(session.scalars(stmt).unique().all()))

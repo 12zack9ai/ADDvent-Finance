@@ -145,7 +145,7 @@ perfectly while quietly receiving nothing. That is how a background poller fails
 | Everyone signed out after each deploy | `SECRET_KEY` isn't set. Let Render generate it. |
 | Uploads fail with an API error | The key, or a missing `ANTHROPIC_WORKSPACE_ID` for an org-level key. The error message says which. |
 | Data disappeared after a deploy | The disk is missing. **Check this before loading anything real.** |
-| Documents land in Inbox, not a job | No job number found. Assign one there; the vendor's own reference is remembered for next time. |
+| Documents land in Inbox, not a job | No six-digit job number on the document or in the covering email. Assign one there, or switch on `ASK_FOR_JOB_NUMBER` so the sender is asked. |
 | `"stale": true` in healthz | Mail isn't being read. Run `scripts/test_mail.py` locally with the same settings — it says exactly what failed. |
 
 ## Costs

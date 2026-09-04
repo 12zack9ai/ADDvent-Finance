@@ -21,6 +21,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app import jobnum
 from app.config import settings
 from app.db import to_decimal
 from app.extract import (
@@ -35,7 +36,6 @@ from app.approval import apply_routing
 from app.matching import compare_invoice, vendor_matches
 from app.models import (
     Document,
-    JobAlias,
     Extraction,
     Invoice,
     InvoiceLine,
@@ -80,32 +80,6 @@ def _parse_date(value: Optional[str]) -> Optional[date]:
         except ValueError:
             continue
     return None
-
-
-def resolve_job_by_alias(session: Session, reference: str) -> Optional[Job]:
-    """Find a job by an address or PO reference we have seen before."""
-    key = normalize_job_number(reference)
-    if not key:
-        return None
-    alias = session.scalar(select(JobAlias).where(JobAlias.alias == key))
-    return alias.job if alias else None
-
-
-def remember_alias(session: Session, job: Job, reference: str, source: str = "manual") -> None:
-    """Teach the system that `reference` means this job.
-
-    Vendors put their own reference on our paperwork - usually the site address.
-    Recording it the first time a human files the document by hand means the
-    next one from that vendor files itself.
-    """
-    key = normalize_job_number(reference)
-    if not key or key == normalize_job_number(job.job_number):
-        return
-    existing = session.scalar(select(JobAlias).where(JobAlias.alias == key))
-    if existing is not None:
-        return
-    session.add(JobAlias(job_id=job.id, alias=key, source=source))
-    session.flush()
 
 
 def get_or_create_job(session: Session, job_number: str, name: str = "") -> Job:
@@ -368,38 +342,31 @@ def ingest_file(
         session.flush()
         return document
 
-    # Job number: an explicit override wins, then what the person wrote, then
-    # whatever was printed on the document itself.
+    # Job number, and nothing else. An explicit override wins, then what the
+    # person wrote, then a job number printed on the document.
+    #
+    # A site address is deliberately NOT accepted, however tempting. Quotes
+    # frequently carry our own office address rather than the site, so filing
+    # by address would collect unrelated jobs from unrelated vendors under
+    # whichever job used that address first - and price every one of them
+    # against the wrong quote, silently. An address is not evidence of a job.
+    printed = (result.payload.get("job_number_hint") or "").strip()
     job_number = (
         normalize_job_number(job_number_override)
         or directive.job_number
-        or normalize_job_number(result.payload.get("job_number_hint") or "")
+        or (printed if jobnum.is_job_number(printed) else "")
     )
-    # Before giving up, try the references the document DOES carry against
-    # aliases learned from previously filed paperwork.
-    job = None
-    if not job_number:
-        for candidate, src in (
-            (result.payload.get("job_number_hint") or "", "po"),
-            (result.payload.get("ship_to") or "", "ship_to"),
-        ):
-            job = resolve_job_by_alias(session, candidate)
-            if job is not None:
-                break
 
-    if job is None and not job_number:
+    if not job_number:
         document.status = ST_NEEDS_JOB
         document.error = (
-            "No job number found. Assign one and this reference will be "
-            "remembered for next time."
+            "No job number found on the document or in the covering message. "
+            "Assign one to file it."
         )
         session.flush()
         return document
 
-    if job is None:
-        job = get_or_create_job(session, job_number)
-        # Learn whatever reference the vendor used, so the next one self-files.
-        remember_alias(session, job, result.payload.get("job_number_hint") or "", "po")
+    job = get_or_create_job(session, job_number)
     document.job_id = job.id
 
     if result.doc_type == "quote":
@@ -464,7 +431,6 @@ def file_stored_document(
 
     # The reason this document needed filing by hand was that its own reference
     # meant nothing to us. Now it does.
-    remember_alias(session, job, payload.get("job_number_hint") or "", "po")
 
     if result.doc_type == "quote":
         make_master = force_master or job.master_quote is None

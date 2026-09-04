@@ -79,22 +79,26 @@ You are a transcriber, not an accountant. Follow these rules exactly:
    invoices and bills. "other" for statements, packing slips, credit memos, and
    anything else.
 
-7. JOB_NUMBER_HINT: the job this document belongs to. Look at the "Job", "PO",
-   "P.O. Number", "Project" and "Reference" fields, in that order of
-   preference. IT IS OFTEN A SITE ADDRESS RATHER THAN A NUMBER - "63 winding
-   ridge" is a perfectly normal value here. Report it verbatim. If no such
-   field carries a value, return an empty string; never invent one.
+7. JOB_NUMBER_HINT: our job number, and ONLY our job number.
 
-   A job number here is SIX DIGITS, and the first two are the year the job was
-   opened: 260000 is a job from 2026, 250148 from 2025. If a six-digit number
-   of that shape appears anywhere on the document - in a field, in a note, in
-   the reference line - report that number, because it identifies the job
-   exactly. Do not confuse it with the vendor's own quote, invoice, order or
-   account numbers, which are longer, shorter, or contain letters.
+   It is SIX DIGITS, and the first two are the year the job was opened: 260000
+   is a job from 2026, 250148 from 2025. Look in the "Job", "PO", "P.O.
+   Number", "Project" and "Reference" fields, and anywhere else on the page - a
+   note, a header, the reference line. Report the six digits alone.
+
+   Do not confuse it with the vendor's own quote, invoice, order or account
+   numbers, which are longer, shorter, or contain letters.
+
+   RETURN AN EMPTY STRING IF THERE IS NO SUCH NUMBER. In particular, if those
+   fields hold a site address, a person's name, or anything that is not a
+   six-digit number, return an empty string - the address goes in SHIP_TO, not
+   here. An address cannot identify a job: quotes often carry our own office
+   address rather than the site, so treating one as a job reference would file
+   unrelated work together. Never invent a number.
 
 7a. SHIP_TO: the delivery address block, as printed, newlines replaced by
-   commas. On these documents the ship-to address is frequently the same site
-   as the job, so it is a useful fallback when the PO field is empty.
+   commas. It is recorded and shown to the reader for context. It is NOT used
+   to decide which job a document belongs to - see 7.
 
 7b. PAGE_INFO: if the document says something like "Page 1 of 2", report it
    verbatim (e.g. "1 of 2"). Empty string if absent. This is how we detect

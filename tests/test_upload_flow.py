@@ -25,7 +25,7 @@ from app import services  # noqa: E402
 from app.db import Base, SessionLocal, engine, init_db  # noqa: E402
 from app.extract import ExtractionError, ExtractionResult  # noqa: E402
 from app.main import app  # noqa: E402
-from app.models import Document, Invoice, Job, JobAlias  # noqa: E402
+from app.models import Document, Invoice, Job  # noqa: E402
 from app.pdf import pdf_available  # noqa: E402
 
 D = Decimal
@@ -139,7 +139,7 @@ def test_quote_then_invoice_all_the_way_through(client, tmp_path):
     quote_pdf = _pdf(tmp_path, "quote.pdf", "quote")
     invoice_pdf = _pdf(tmp_path, "invoice.pdf", "invoice")
 
-    # 1. The quote files itself using the PO field, which is a site address.
+    # 1. The quote is filed against the job number given on the form.
     resp = upload(client, quote_pdf, QUOTE_PAYLOAD, job_number="4417")
     assert resp.status_code == 303
     assert "/job/4417" in resp.headers["location"]
@@ -152,9 +152,9 @@ def test_quote_then_invoice_all_the_way_through(client, tmp_path):
     assert len(master.lines) == 3
     assert master.page_info == "1 of 2"          # missing-page detection
 
-    # The vendor's own reference was learned as an alias.
-    aliases = {a.alias for a in session.query(JobAlias).all()}
-    assert "63 WINDING RIDGE" in aliases
+    # The site address is recorded for the reader, and is NOT a job reference:
+    # quotes often carry our own office address rather than the site.
+    assert master.po_reference == "63 winding ridge"
 
     # 2. The invoice, from the same vendor under an abbreviated name.
     resp = upload(client, invoice_pdf, INVOICE_PAYLOAD, job_number="4417")

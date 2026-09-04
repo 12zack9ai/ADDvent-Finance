@@ -71,9 +71,6 @@ class Job(Base):
     quotes: Mapped[list["Quote"]] = relationship(back_populates="job", cascade="all, delete-orphan")
     invoices: Mapped[list["Invoice"]] = relationship(back_populates="job", cascade="all, delete-orphan")
     documents: Mapped[list["Document"]] = relationship(back_populates="job")
-    aliases: Mapped[list["JobAlias"]] = relationship(
-        back_populates="job", cascade="all, delete-orphan"
-    )
     receipts: Mapped[list["Receipt"]] = relationship(
         back_populates="job", cascade="all, delete-orphan"
     )
@@ -121,26 +118,6 @@ class Job(Base):
             if vendor_matches(quote.vendor, vendor):
                 return quote, "vendor"
         return None, "none"
-
-
-class JobAlias(Base):
-    """Another name the same job answers to.
-
-    Vendors rarely carry our job number. New Castle's PO field held
-    "63 winding ridge" - the site address - and their Job field was blank. So
-    when a document is filed by hand, whatever reference it DID carry is
-    recorded here, and the next document quoting that address files itself.
-    """
-
-    __tablename__ = "job_alias"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    job_id: Mapped[int] = mapped_column(ForeignKey("job.id"), index=True)
-    alias: Mapped[str] = mapped_column(String(255), unique=True, index=True)
-    source: Mapped[str] = mapped_column(String(32), default="manual")  # manual|po|ship_to
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
-
-    job: Mapped["Job"] = relationship(back_populates="aliases")
 
 
 class Document(Base):

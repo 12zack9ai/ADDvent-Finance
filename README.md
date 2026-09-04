@@ -174,8 +174,13 @@ In order of precedence:
 1. The job number typed into the upload form
 2. A job number in the email subject line, body, or the upload note —
    `Job 260000`, `job #260000`, or just `260000` in a sentence
-3. A job number printed on the document itself
-4. A site address the job is already known by (see below)
+3. A six-digit job number printed on the document itself
+
+**A site address is never treated as a job reference.** Quotes frequently
+carry our own office address rather than the site, so filing by address would
+collect unrelated jobs from unrelated vendors under whichever job used that
+address first — and price every one of them against the wrong quote. The
+ship-to address is recorded and shown for context; it decides nothing.
 
 Vendor reference numbers are not mistaken for jobs: ABC Supply's quote number
 `2014030903`, their account `2174772`, and New Castle's `07RM0002847012` are

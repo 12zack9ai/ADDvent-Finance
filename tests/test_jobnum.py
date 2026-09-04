@@ -110,3 +110,27 @@ def test_the_year_bound_moves_with_the_calendar():
     """Hard-coding "26" would silently stop recognising jobs on 1 January."""
     assert jobnum.is_job_number("280001", date(2027, 6, 1))
     assert not jobnum.is_job_number("280001", date(2026, 6, 1))
+
+
+# --- addresses are never job references ----------------------------------
+# Quotes frequently carry our own office address (12 Suffern Rd, Hillburn NY)
+# rather than the site. Filing by address would collect unrelated jobs from
+# unrelated vendors under whichever job used that address first, and price
+# every one of them against the wrong quote - silently, because each document
+# would look correctly filed.
+
+@pytest.mark.parametrize("text", [
+    "12 Suffern Rd, Hillburn, NY 10931-0977",     # our office
+    "8 Knollwoods, Mahwah, NJ 07430",             # a site, from a real quote
+    "5 Skyline Dr, Upper Saddle River, NY 10931",
+    "63 winding ridge",
+    "118 Ridgeview Terrace",
+])
+def test_an_address_never_yields_a_job_number(text):
+    assert jobnum.find_job_numbers(text, TODAY) == []
+    assert jobnum.sole_job_number(text, TODAY) is None
+
+
+def test_a_job_number_written_beside_an_address_is_still_read():
+    """Rejecting addresses must not reject a job number that sits next to one."""
+    assert jobnum.sole_job_number("260000 - 8 Knollwoods, Mahwah NJ", TODAY) == "260000"
