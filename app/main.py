@@ -18,9 +18,35 @@ from sqlalchemy.orm import Session, selectinload
 
 from app import auth
 from app.config import settings
-from app.db import get_session, init_db
+from app.db import get_session, init_db, to_decimal
 from app.extract import normalize_job_number
-from app.models import Document, Invoice, Job, JobAlias, Quote
+from app.approval import (
+    ACTION_HOLD,
+    apply_routing,
+    find_receipt,
+    route,
+)
+from app.matching import norm_vendor
+from app.models import (
+    APPROVAL_APPROVED,
+    APPROVAL_HELD,
+    APPROVAL_PAID,
+    APPROVAL_PENDING,
+    APPROVAL_LABELS,
+    APPROVAL_REJECTED,
+    RECEIPT_DELIVERY,
+    RECEIPT_WORK,
+    Approval,
+    ChangeOrder,
+    Document,
+    Invoice,
+    Job,
+    JobAlias,
+    Quote,
+    Receipt,
+    TIER_LABELS,
+    utcnow,
+)
 from app.pdf import PdfUnavailable, pdf_available, render_html_to_pdf
 from app.services import (
     ST_ERROR,
@@ -380,6 +406,7 @@ def document_file(doc_id: int, session: Session = Depends(get_session)):
 
 
 def _render_markup(request: Request, invoice: Invoice, print_mode: bool) -> str:
+    routing = None if print_mode else route(invoice)
     return templates.get_template("markup.html").render(
         request=request,
         invoice=invoice,
@@ -387,6 +414,9 @@ def _render_markup(request: Request, invoice: Invoice, print_mode: bool) -> str:
         quote=invoice.quote,
         lines=invoice.lines,
         print_mode=print_mode,
+        routing=routing,
+        status_label=APPROVAL_LABELS.get(invoice.approval_status, invoice.approval_status),
+        tier_label=TIER_LABELS.get(routing.tier, "") if routing else "",
         generated_at=datetime.now().strftime("%d %b %Y at %H:%M"),
     )
 
@@ -417,3 +447,236 @@ def invoice_pdf(invoice_id: int, request: Request, session: Session = Depends(ge
     session.commit()
 
     return FileResponse(out, media_type="application/pdf", filename=out.name)
+
+
+# --- three-way match: receipts, change orders, approval -------------------
+
+def _actor(name: str) -> str:
+    """Who took this action.
+
+    A single shared password means the app cannot know who is signed in, so the
+    approver types their name. That is weaker than real accounts and it is
+    recorded as-typed - see README for the upgrade path to per-user logins.
+    """
+    return (name or "").strip()[:128] or "unnamed"
+
+
+@app.post("/job/{job_number}/receipt")
+def confirm_receipt(
+    job_number: str,
+    vendor: str = Form(""),
+    kind: str = Form(RECEIPT_DELIVERY),
+    reference: str = Form(""),
+    confirmed_by: str = Form(""),
+    note: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    """Record that material arrived, or that a phase of work was completed."""
+    job = session.scalar(
+        select(Job).where(Job.job_number == normalize_job_number(job_number))
+    )
+    if job is None:
+        return _redirect("/", err=f"No job {job_number}.")
+
+    session.add(Receipt(
+        job_id=job.id,
+        vendor=vendor.strip(),
+        kind=kind if kind in (RECEIPT_DELIVERY, RECEIPT_WORK) else RECEIPT_DELIVERY,
+        reference=reference.strip(),
+        note=note.strip(),
+        confirmed_by=_actor(confirmed_by),
+    ))
+    session.flush()
+
+    # A confirmation can unblock invoices already sitting in the queue.
+    session.refresh(job)
+    for invoice in job.invoices:
+        apply_routing(invoice)
+    session.commit()
+
+    label = "Delivery" if kind == RECEIPT_DELIVERY else "Work completion"
+    return _redirect(f"/job/{job.job_number}", ok=f"{label} confirmed for {vendor or 'vendor'}.")
+
+
+@app.post("/job/{job_number}/change-order")
+def add_change_order(
+    job_number: str,
+    vendor: str = Form(""),
+    number: str = Form(""),
+    amount: str = Form(""),
+    description: str = Form(""),
+    approved_by: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    """Record written authorisation for scope beyond the original quote."""
+    job = session.scalar(
+        select(Job).where(Job.job_number == normalize_job_number(job_number))
+    )
+    if job is None:
+        return _redirect("/", err=f"No job {job_number}.")
+
+    value = to_decimal(amount)
+    if value is None or value <= 0:
+        return _redirect(f"/job/{job.job_number}", err="Enter the change order amount.")
+
+    session.add(ChangeOrder(
+        job_id=job.id,
+        vendor=vendor.strip(),
+        number=number.strip(),
+        amount=value,
+        description=description.strip(),
+        approved_by=_actor(approved_by),
+    ))
+    session.flush()
+
+    # A change order can release invoices being held for exactly this reason.
+    session.refresh(job)
+    released = 0
+    for invoice in job.invoices:
+        was_held = invoice.approval_status == APPROVAL_HELD
+        apply_routing(invoice)
+        if was_held and invoice.approval_status != APPROVAL_HELD:
+            released += 1
+    session.commit()
+
+    msg = f"Change order recorded for {vendor or 'vendor'}."
+    if released:
+        msg += f" {released} held invoice{'' if released == 1 else 's'} released for approval."
+    return _redirect(f"/job/{job.job_number}", ok=msg)
+
+
+@app.post("/invoice/{invoice_id}/decide")
+def decide_invoice(
+    invoice_id: int,
+    decision: str = Form(...),
+    actor: str = Form(""),
+    note: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    """Approve, hold, reject, or mark paid. Every decision is recorded."""
+    invoice = session.get(Invoice, invoice_id)
+    if invoice is None:
+        return _redirect("/", err="No such invoice.")
+
+    routing = route(invoice)
+    who = _actor(actor)
+
+    if decision == "approve":
+        if not routing.can_approve:
+            return _redirect(
+                f"/invoice/{invoice.id}",
+                err="Cannot approve: " + " ".join(routing.blockers),
+            )
+        invoice.approval_status = APPROVAL_APPROVED
+        invoice.approved_by = who
+        invoice.approved_at = utcnow()
+        invoice.hold_reason = ""
+        if routing.covering_change_order is not None:
+            invoice.change_order_id = routing.covering_change_order.id
+        receipt = find_receipt(invoice)
+        if receipt is not None:
+            invoice.receipt_id = receipt.id
+        message = f"Invoice {invoice.invoice_number or invoice.id} approved."
+    elif decision == "hold":
+        invoice.approval_status = APPROVAL_HELD
+        invoice.hold_reason = note.strip() or "Held for review."
+        message = f"Invoice {invoice.invoice_number or invoice.id} held."
+    elif decision == "reject":
+        invoice.approval_status = APPROVAL_REJECTED
+        invoice.hold_reason = note.strip() or "Rejected."
+        message = f"Invoice {invoice.invoice_number or invoice.id} rejected."
+    elif decision == "paid":
+        if invoice.approval_status != APPROVAL_APPROVED:
+            return _redirect(
+                f"/invoice/{invoice.id}",
+                err="Only an approved invoice can be marked paid.",
+            )
+        invoice.approval_status = APPROVAL_PAID
+        message = f"Invoice {invoice.invoice_number or invoice.id} marked paid."
+    elif decision == "reopen":
+        invoice.approval_status = APPROVAL_PENDING
+        invoice.hold_reason = ""
+        invoice.approved_by = ""
+        invoice.approved_at = None
+        message = f"Invoice {invoice.invoice_number or invoice.id} reopened."
+    else:
+        return _redirect(f"/invoice/{invoice.id}", err="Unknown decision.")
+
+    session.add(Approval(
+        invoice_id=invoice.id,
+        decision=decision,
+        tier=routing.tier,
+        actor=who,
+        note=note.strip(),
+        required_tier=routing.tier,
+        variance_at_decision=invoice.overbilled_amount,
+    ))
+    session.commit()
+    return _redirect(f"/invoice/{invoice.id}", ok=message)
+
+
+@app.get("/approvals", response_class=HTMLResponse)
+def approvals_queue(request: Request, session: Session = Depends(get_session)):
+    """Everything waiting on a person, across every job."""
+    invoices = session.scalars(
+        select(Invoice)
+        .where(Invoice.approval_status.in_([APPROVAL_PENDING, APPROVAL_HELD]))
+        .order_by(Invoice.created_at.desc())
+    ).all()
+
+    rows = []
+    for invoice in invoices:
+        rows.append({"invoice": invoice, "routing": route(invoice)})
+
+    rows.sort(key=lambda r: (
+        r["routing"].action != ACTION_HOLD,          # held first
+        not r["routing"].blockers,                   # then blocked
+        -(r["invoice"].overbilled_amount or ZERO),   # then biggest overage
+    ))
+
+    return templates.TemplateResponse(request, "approvals.html", _ctx(
+        request, session,
+        rows=rows,
+        held=sum(1 for r in rows if r["routing"].action == ACTION_HOLD),
+        blocked=sum(1 for r in rows if r["routing"].blockers),
+        owner_needed=sum(1 for r in rows if r["routing"].needs_owner),
+    ))
+
+
+@app.get("/vendors", response_class=HTMLResponse)
+def vendor_scorecard(request: Request, session: Session = Depends(get_session)):
+    """Which suppliers consistently bill above their own quotes.
+
+    A vendor who over-bills once made a mistake. A vendor who over-bills on a
+    third of their invoices is a pricing decision for the next bid, not a
+    paperwork problem - and that pattern is invisible one invoice at a time.
+    """
+    invoices = session.scalars(select(Invoice)).all()
+    by_vendor: dict[str, dict] = {}
+
+    for invoice in invoices:
+        key = norm_vendor(invoice.vendor) or "(unknown)"
+        row = by_vendor.setdefault(key, {
+            "vendor": invoice.vendor or "(unknown)",
+            "invoices": 0, "over_count": 0,
+            "billed": ZERO, "overbilled": ZERO, "underbilled": ZERO,
+            "unmatched_lines": 0,
+        })
+        row["invoices"] += 1
+        row["billed"] += invoice.total or ZERO
+        row["overbilled"] += invoice.overbilled_amount or ZERO
+        row["underbilled"] += invoice.underbilled_amount or ZERO
+        row["unmatched_lines"] += invoice.lines_unmatched or 0
+        if (invoice.overbilled_amount or ZERO) > 0:
+            row["over_count"] += 1
+
+    rows = list(by_vendor.values())
+    for row in rows:
+        row["over_rate"] = (row["over_count"] / row["invoices"] * 100) if row["invoices"] else 0
+    rows.sort(key=lambda r: (-r["overbilled"], -r["over_rate"]))
+
+    return templates.TemplateResponse(request, "vendors.html", _ctx(
+        request, session,
+        rows=rows,
+        total_overbilled=sum((r["overbilled"] for r in rows), ZERO),
+    ))

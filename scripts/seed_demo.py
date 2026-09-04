@@ -22,14 +22,19 @@ from sqlalchemy import delete  # noqa: E402
 
 from app.db import SessionLocal, init_db  # noqa: E402
 from app.models import (  # noqa: E402
+    Approval,
+    ChangeOrder,
     Document,
     Extraction,
     Invoice,
     InvoiceLine,
     Job,
+    JobAlias,
     Quote,
     QuoteLine,
+    Receipt,
 )
+from app.approval import apply_routing, route  # noqa: E402
 from app.services import recompare_invoice  # noqa: E402
 
 D = Decimal
@@ -75,6 +80,15 @@ INVOICES = [
 ]
 
 
+# A second supplier on the same job, never quoted and never confirmed received.
+# Demonstrates the two situations the policy routes straight to the owner.
+WASTE_VENDOR = "ABC Waste Removal"
+WASTE_INVOICE = ("AW-3391", date(2026, 8, 22), [
+    ("", "30 yard dumpster - haul & disposal", D("2"), "EA", D("485.00")),
+    ("", "Overweight tonnage surcharge", D("1.4"), "TON", D("92.50")),
+])
+
+
 def _doc(session, filename: str, kind: str) -> Document:
     doc = Document(
         filename=filename,
@@ -91,7 +105,8 @@ def _doc(session, filename: str, kind: str) -> Document:
 
 
 def reset(session) -> None:
-    for model in (InvoiceLine, Invoice, QuoteLine, Quote, Extraction, Document, Job):
+    for model in (Approval, InvoiceLine, Invoice, QuoteLine, Quote, ChangeOrder,
+                  Receipt, JobAlias, Extraction, Document, Job):
         session.execute(delete(model))
     session.commit()
 
@@ -159,6 +174,44 @@ def main() -> int:
         session.refresh(job)
         recompare_invoice(session, job, invoice)
 
+    # --- the receiving leg: New Castle material was confirmed delivered ----
+    session.add(Receipt(
+        job_id=job.id, vendor=VENDOR, kind="delivery",
+        reference="PS-44718", confirmed_by="M. Alvarez (site)",
+        note="Checked against PO; full pallet count received.",
+    ))
+
+    # Vendors reference this job by the site address, not our job number.
+    session.add(JobAlias(job_id=job.id, alias="63 WINDING RIDGE", source="po"))
+
+    # --- a second supplier: never quoted, never confirmed received ---------
+    number, when, lines = WASTE_INVOICE
+    waste_doc = _doc(session, f"abcwaste-{number.lower()}.pdf", "invoice")
+    waste_doc.job_id = job.id
+    waste = Invoice(
+        job_id=job.id, document_id=waste_doc.id, vendor=WASTE_VENDOR,
+        invoice_number=number, invoice_date=when,
+    )
+    session.add(waste)
+    session.flush()
+    sub = Decimal("0")
+    for i, (sku, desc, qty, uom, price) in enumerate(lines, start=1):
+        ext = (qty * price).quantize(D("0.01"))
+        sub += ext
+        session.add(InvoiceLine(
+            invoice_id=waste.id, line_no=i, sku=sku, description=desc,
+            qty=qty, uom=uom, unit_price=price, extended=ext,
+        ))
+    waste.subtotal = sub
+    waste.total = sub
+    session.flush()
+    session.refresh(job)
+    recompare_invoice(session, job, waste)
+
+    # Route everything now that receipts and vendors are in place.
+    for invoice in job.invoices:
+        apply_routing(invoice)
+
     session.commit()
 
     print(f"\nJob {JOB_NUMBER} — {JOB_NAME}")
@@ -175,7 +228,13 @@ def main() -> int:
             f"overbilled ${invoice.overbilled_amount or 0:,}"
         )
     print("-" * 74)
-    print(f"  Total billed above the master quote: ${total_over:,}\n")
+    print(f"  Total billed above the master quote: ${total_over:,}")
+    print("\n  Approval routing:")
+    for invoice in sorted(job.invoices, key=lambda i: i.invoice_number):
+        r = route(invoice)
+        blocked = "" if r.can_approve else "  BLOCKED: receipt not confirmed"
+        print(f"    {invoice.invoice_number:11} {r.action:12} -> {r.tier:5}{blocked}")
+    print()
     return 0
 
 

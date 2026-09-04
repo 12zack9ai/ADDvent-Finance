@@ -27,6 +27,26 @@ VERDICT_UNDER = "under"         # billed lower than quoted   -> GREEN
 VERDICT_MATCH = "match"         # exactly as quoted          -> GOLD
 VERDICT_NOT_ON_QUOTE = "not_on_quote"  # no matching quote line -> GREY
 
+# Invoice approval states
+APPROVAL_PENDING = "pending_review"
+APPROVAL_HELD = "held"
+APPROVAL_APPROVED = "approved"
+APPROVAL_PAID = "paid"
+APPROVAL_REJECTED = "rejected"
+
+APPROVAL_LABELS = {
+    APPROVAL_PENDING: "Pending review",
+    APPROVAL_HELD: "Held",
+    APPROVAL_APPROVED: "Approved",
+    APPROVAL_PAID: "Paid",
+    APPROVAL_REJECTED: "Rejected",
+}
+
+# Who must sign off
+TIER_PM = "pm"
+TIER_OWNER = "owner"
+TIER_LABELS = {TIER_PM: "Project / office manager", TIER_OWNER: "Owner"}
+
 VERDICT_LABELS = {
     VERDICT_OVER: "Over quote",
     VERDICT_UNDER: "Under quote",
@@ -54,6 +74,12 @@ class Job(Base):
     aliases: Mapped[list["JobAlias"]] = relationship(
         back_populates="job", cascade="all, delete-orphan"
     )
+    receipts: Mapped[list["Receipt"]] = relationship(
+        back_populates="job", cascade="all, delete-orphan"
+    )
+    change_orders: Mapped[list["ChangeOrder"]] = relationship(
+        back_populates="job", cascade="all, delete-orphan"
+    )
 
     @property
     def masters(self) -> list["Quote"]:
@@ -75,10 +101,16 @@ class Job(Base):
         """Find the master quote to price an invoice from `vendor` against.
 
         Returns (quote, how) where `how` is one of:
-            "vendor"    - matched this vendor by name
-            "sole"      - no name match, but the job has exactly one master, so
-                          it is used and the mismatch is surfaced to the reader
-            "none"      - nothing to compare against
+            "vendor" - matched this vendor by name
+            "none"   - no quote from this vendor on this job
+
+        There is deliberately NO "just use the only quote on the job" fallback.
+        A job with a roofing quote also receives dumpster and lumber invoices,
+        and pricing a dumpster invoice against a roofing quote is worse than not
+        pricing it at all: it reports a comparison that never meaningfully
+        happened. Vendor-name variants are absorbed by `vendor_matches`; anything
+        that cannot reconcile is a genuinely different supplier, and the approval
+        policy already routes "no quote on file" to the owner to investigate.
         """
         from app.matching import vendor_matches
 
@@ -88,11 +120,6 @@ class Job(Base):
         for quote in masters:
             if vendor_matches(quote.vendor, vendor):
                 return quote, "vendor"
-        if len(masters) == 1:
-            # Vendor names differ between the quote and the invoice - abbreviated
-            # trading names are normal. Compare anyway rather than silently
-            # checking nothing, and say so on the marked-up copy.
-            return masters[0], "sole"
         return None, "none"
 
 
@@ -247,6 +274,28 @@ class Invoice(Base):
     render_path: Mapped[str] = mapped_column(String(1024), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
+    # --- approval workflow (three-way match) ---
+    # pending_review -> approved -> paid, or held / rejected.
+    approval_status: Mapped[str] = mapped_column(
+        String(24), default="pending_review", index=True
+    )
+    hold_reason: Mapped[str] = mapped_column(Text, default="")
+    receipt_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("receipt.id"), nullable=True
+    )
+    change_order_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("change_order.id"), nullable=True
+    )
+    approved_by: Mapped[str] = mapped_column(String(128), default="")
+    approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    receipt: Mapped[Optional["Receipt"]] = relationship()
+    change_order: Mapped[Optional["ChangeOrder"]] = relationship()
+    approvals: Mapped[list["Approval"]] = relationship(
+        back_populates="invoice", cascade="all, delete-orphan",
+        order_by="Approval.at",
+    )
+
     job: Mapped[Job] = relationship(back_populates="invoices")
     document: Mapped[Document] = relationship()
     quote: Mapped[Optional[Quote]] = relationship()
@@ -288,3 +337,89 @@ class InvoiceLine(Base):
 
     invoice: Mapped[Invoice] = relationship(back_populates="lines")
     quote_line: Mapped[Optional[QuoteLine]] = relationship()
+
+
+# --- three-way match: the receiving leg ------------------------------------
+# Pricing alone is not enough. An invoice can be perfectly priced against the
+# quote and still be for material that never arrived, or for subcontractor work
+# that was not actually completed. Confirmation of receipt is the third leg.
+
+RECEIPT_DELIVERY = "delivery"          # packing slip checked against the order
+RECEIPT_WORK = "work_completion"       # PM/supervisor signed off a phase
+
+
+class Receipt(Base):
+    """Someone confirmed the material arrived, or the work was done."""
+
+    __tablename__ = "receipt"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("job.id"), index=True)
+    document_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("document.id"), nullable=True
+    )
+
+    kind: Mapped[str] = mapped_column(String(32), default=RECEIPT_DELIVERY)
+    vendor: Mapped[str] = mapped_column(String(255), default="")
+    reference: Mapped[str] = mapped_column(String(128), default="")  # packing slip no.
+    note: Mapped[str] = mapped_column(Text, default="")
+
+    confirmed_by: Mapped[str] = mapped_column(String(128), default="")
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    job: Mapped["Job"] = relationship(back_populates="receipts")
+    document: Mapped[Optional["Document"]] = relationship()
+
+
+class ChangeOrder(Base):
+    """Written authorisation for scope beyond the original quote.
+
+    In renovation work, hidden damage and association-requested additions are
+    normal. What is NOT normal is paying more than was quoted with nothing in
+    writing - so an overage is only approvable when a change order covers it.
+    """
+
+    __tablename__ = "change_order"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("job.id"), index=True)
+    document_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("document.id"), nullable=True
+    )
+
+    number: Mapped[str] = mapped_column(String(64), default="")
+    vendor: Mapped[str] = mapped_column(String(255), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    amount: Mapped[Optional[Decimal]] = mapped_column(Money, nullable=True)
+
+    approved_by: Mapped[str] = mapped_column(String(128), default="")
+    approved_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    job: Mapped["Job"] = relationship(back_populates="change_orders")
+    document: Mapped[Optional["Document"]] = relationship()
+
+
+class Approval(Base):
+    """An append-only record of every approval decision.
+
+    Never updated or deleted. When a board or an auditor asks who approved a
+    $40,000 bill and on what basis, this is the answer.
+    """
+
+    __tablename__ = "approval"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    invoice_id: Mapped[int] = mapped_column(ForeignKey("invoice.id"), index=True)
+
+    decision: Mapped[str] = mapped_column(String(16))   # approve|hold|reject|reopen
+    tier: Mapped[str] = mapped_column(String(16), default="pm")  # pm|owner
+    actor: Mapped[str] = mapped_column(String(128), default="")
+    note: Mapped[str] = mapped_column(Text, default="")
+    # What the system said was required at the moment of the decision, so an
+    # override is visible as an override rather than being lost.
+    required_tier: Mapped[str] = mapped_column(String(16), default="")
+    variance_at_decision: Mapped[Optional[Decimal]] = mapped_column(Money, nullable=True)
+    at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    invoice: Mapped["Invoice"] = relationship(back_populates="approvals")

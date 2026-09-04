@@ -110,6 +110,137 @@
 </div>
 {% endif %}
 
+
+{# ---------------- RECEIVING + CHANGE ORDERS ---------------- #}
+<div class="row" style="align-items:stretch">
+
+  <div class="panel" id="receipts" style="flex:1;min-width:320px">
+    <h2 style="margin-bottom:3px">Receiving confirmations</h2>
+    <div class="muted" style="margin-bottom:12px">
+      An invoice cannot be approved until someone confirms the material arrived
+      or the work was completed. This is the third leg of the match.
+    </div>
+
+    {% if job.receipts %}
+      <table class="grid" style="margin-bottom:14px">
+        <thead><tr><th>Vendor</th><th>What</th><th>Ref</th><th>Confirmed by</th></tr></thead>
+        <tbody>
+          {% for r in job.receipts %}
+          <tr>
+            <td>{{ r.vendor or "—" }}</td>
+            <td>{{ "Delivery" if r.kind == "delivery" else "Work completed" }}</td>
+            <td class="mono">{{ r.reference or "—" }}</td>
+            <td>
+              {{ r.confirmed_by }}
+              <div class="muted">{{ r.confirmed_at.strftime("%d %b %Y") }}</div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="flash warn" style="margin-bottom:14px">
+        Nothing confirmed received on this job yet, so no invoice here can be approved.
+      </div>
+    {% endif %}
+
+    <form method="post" action="/job/{{ job.job_number }}/receipt">
+      <div class="row" style="margin-bottom:9px">
+        <div>
+          <label class="fld" for="r-vendor">Vendor</label>
+          <input type="text" id="r-vendor" name="vendor" required list="job-vendors"
+                 placeholder="Who delivered it" autocomplete="off">
+        </div>
+        <div>
+          <label class="fld" for="r-kind">What happened</label>
+          <select id="r-kind" name="kind">
+            <option value="delivery">Material delivered</option>
+            <option value="work_completion">Work completed</option>
+          </select>
+        </div>
+      </div>
+      <div class="row" style="margin-bottom:11px">
+        <div>
+          <label class="fld" for="r-ref">Packing slip / reference</label>
+          <input type="text" id="r-ref" name="reference" placeholder="Optional" autocomplete="off">
+        </div>
+        <div>
+          <label class="fld" for="r-by">Confirmed by</label>
+          <input type="text" id="r-by" name="confirmed_by" required
+                 placeholder="Your name" autocomplete="off">
+        </div>
+      </div>
+      <button class="btn" type="submit">Confirm receipt</button>
+    </form>
+  </div>
+
+  <div class="panel" id="change-orders" style="flex:1;min-width:320px">
+    <h2 style="margin-bottom:3px">Change orders</h2>
+    <div class="muted" style="margin-bottom:12px">
+      Written authorisation for scope beyond the quote. An invoice billed over
+      quote is held until a change order covers it.
+    </div>
+
+    {% if job.change_orders %}
+      <table class="grid" style="margin-bottom:14px">
+        <thead><tr><th>No.</th><th>Vendor</th><th>For</th><th class="r">Amount</th></tr></thead>
+        <tbody>
+          {% for c in job.change_orders %}
+          <tr>
+            <td class="mono">{{ c.number or ("#" ~ c.id) }}</td>
+            <td>{{ c.vendor or "—" }}</td>
+            <td>
+              {{ c.description or "—" }}
+              <div class="muted">approved by {{ c.approved_by }}</div>
+            </td>
+            <td class="r" style="font-weight:700">{{ c.amount | money }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <div class="muted" style="margin-bottom:14px">None on this job.</div>
+    {% endif %}
+
+    <form method="post" action="/job/{{ job.job_number }}/change-order">
+      <div class="row" style="margin-bottom:9px">
+        <div>
+          <label class="fld" for="c-vendor">Vendor</label>
+          <input type="text" id="c-vendor" name="vendor" required list="job-vendors"
+                 autocomplete="off">
+        </div>
+        <div>
+          <label class="fld" for="c-amount">Amount authorised</label>
+          <input type="text" id="c-amount" name="amount" required placeholder="1200.00"
+                 autocomplete="off">
+        </div>
+      </div>
+      <div class="row" style="margin-bottom:9px">
+        <div>
+          <label class="fld" for="c-number">Change order no.</label>
+          <input type="text" id="c-number" name="number" placeholder="CO-1" autocomplete="off">
+        </div>
+        <div>
+          <label class="fld" for="c-by">Approved by</label>
+          <input type="text" id="c-by" name="approved_by" required placeholder="Your name"
+                 autocomplete="off">
+        </div>
+      </div>
+      <div style="margin-bottom:11px">
+        <label class="fld" for="c-desc">What changed</label>
+        <input type="text" id="c-desc" name="description"
+               placeholder="e.g. hidden rot at north elevation" autocomplete="off">
+      </div>
+      <button class="btn" type="submit">Record change order</button>
+    </form>
+  </div>
+</div>
+
+<datalist id="job-vendors">
+  {% for m in masters %}<option value="{{ m.vendor }}">{% endfor %}
+  {% for i in invoices %}<option value="{{ i.vendor }}">{% endfor %}
+</datalist>
+
 {# ---------------- INVOICES ---------------- #}
 <div class="panel" style="padding:0;overflow:hidden">
   <div style="padding:16px 20px 12px;display:flex;justify-content:space-between;
@@ -147,6 +278,7 @@
           <th class="r">Lines</th>
           <th class="r">Total</th>
           <th class="r">Vs. quote</th>
+          <th class="r">Status</th>
           <th class="r" style="padding-right:20px">Marked-up copy</th>
         </tr>
       </thead>
@@ -177,8 +309,15 @@
               <span class="chip c-ok">on quote</span>
             {% endif %}
           </td>
+          <td class="r">
+            {% if inv.approval_status == "approved" %}<span class="chip c-ok">Approved</span>
+            {% elif inv.approval_status == "paid" %}<span class="chip c-none">Paid</span>
+            {% elif inv.approval_status == "held" %}<span class="chip c-over">Held</span>
+            {% elif inv.approval_status == "rejected" %}<span class="chip c-none">Rejected</span>
+            {% else %}<span class="chip c-info">Pending</span>{% endif %}
+          </td>
           <td class="r" style="padding-right:20px">
-            <a class="btn ghost" href="/invoice/{{ inv.id }}">View</a>
+            <a class="btn ghost" href="/invoice/{{ inv.id }}">Review</a>
           </td>
         </tr>
         {% endfor %}

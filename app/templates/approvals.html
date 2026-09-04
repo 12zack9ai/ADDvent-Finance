@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Approvals · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>Approvals</h1>
+    <p class="sub">
+      Every invoice waiting on a person. Held items first, then anything blocked,
+      then the largest variances.
+    </p>
+  </div>
+</div>
+
+{% if rows %}
+<div class="row" style="margin-bottom:18px">
+  <div class="panel tight" style="text-align:center;margin:0">
+    <div style="font-size:24px;font-weight:800;color:var(--over-ink)">{{ held }}</div>
+    <div class="muted">Held — over quote, no change order</div>
+  </div>
+  <div class="panel tight" style="text-align:center;margin:0">
+    <div style="font-size:24px;font-weight:800;color:var(--warn-ink)">{{ blocked }}</div>
+    <div class="muted">Blocked — receipt not confirmed</div>
+  </div>
+  <div class="panel tight" style="text-align:center;margin:0">
+    <div style="font-size:24px;font-weight:800;color:var(--navy)">{{ owner_needed }}</div>
+    <div class="muted">Need the owner</div>
+  </div>
+  <div class="panel tight" style="text-align:center;margin:0">
+    <div style="font-size:24px;font-weight:800;color:var(--ink)">{{ rows|length }}</div>
+    <div class="muted">Total waiting</div>
+  </div>
+</div>
+{% endif %}
+
+{% if not rows %}
+  <div class="panel">
+    <div class="empty">
+      <div class="big">Nothing waiting for approval.</div>
+      Every invoice received has been approved, paid, or rejected.
+    </div>
+  </div>
+{% else %}
+  <div class="panel" style="padding:0;overflow:hidden">
+    <table class="grid">
+      <thead>
+        <tr>
+          <th style="padding-left:20px">Invoice</th>
+          <th>Job</th>
+          <th>Vendor</th>
+          <th class="r">Total</th>
+          <th class="r">Vs. quote</th>
+          <th>What's needed</th>
+          <th class="r" style="padding-right:20px">Approver</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        {% set inv = row.invoice %}{% set r = row.routing %}
+        <tr>
+          <td style="padding-left:20px">
+            <a href="/invoice/{{ inv.id }}" style="font-weight:700">
+              {{ inv.invoice_number or ("#" ~ inv.id) }}
+            </a>
+            <div class="muted">{{ inv.invoice_date or "no date" }}</div>
+          </td>
+          <td><a href="/job/{{ inv.job.job_number }}">{{ inv.job.job_number }}</a></td>
+          <td>{{ inv.vendor or "—" }}</td>
+          <td class="r" style="font-weight:700">{{ inv.total | money }}</td>
+          <td class="r">
+            {% if inv.overbilled_amount and inv.overbilled_amount > 0 %}
+              <span class="chip c-over">+{{ inv.overbilled_amount | money }}</span>
+            {% else %}
+              <span class="chip c-ok">on quote</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if r.blockers %}
+              <span class="chip c-warn">Confirm receipt</span>
+            {% elif r.action == "hold" %}
+              <span class="chip c-over">Change order needed</span>
+            {% elif r.action == "investigate" %}
+              <span class="chip c-none">No quote on file</span>
+            {% elif r.action == "spot_check" %}
+              <span class="chip c-info">Owner spot check</span>
+            {% else %}
+              <span class="chip c-ok">Ready</span>
+            {% endif %}
+          </td>
+          <td class="r" style="padding-right:20px">
+            {% if r.needs_owner %}<strong>Owner</strong>{% else %}PM{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+{% endblock %}

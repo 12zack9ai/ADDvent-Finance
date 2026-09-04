@@ -27,6 +27,44 @@ marked-up copy                    →  on screen and as a PDF
 in several deliveries, so one quoted item is legitimately billed across many
 invoices. Each one is priced against the same master.
 
+## Three-way match
+
+No invoice is paid unless it ties back to **(1)** an approved quoted price and
+**(2)** confirmation the material or work was actually received. Price alone is
+not enough — an invoice can be perfectly priced against the quote and still bill
+for a delivery that never arrived.
+
+```
+quote / master price list ──┐
+receiving confirmation    ──┼──▶  routed to an approver  ──▶  approved  ──▶  paid
+vendor invoice            ──┘
+```
+
+**Approval routing** (`app/approval.py`, thresholds in `.env`):
+
+| Situation | Approver | Action |
+|---|---|---|
+| Within tolerance (5% or $250, whichever is greater) | Project / office manager | Approve |
+| Within tolerance but over $5,000 | Owner | Spot check |
+| Over tolerance, no change order on file | Owner | **Held** |
+| No quote or PO from that vendor on that job | Owner | **Investigate** |
+
+A **missing receipt confirmation blocks approval outright**, whatever the price
+says. A **change order** covering the overage releases a held invoice
+automatically — record it on the job page and anything it authorises is freed.
+
+Two things that are easy to conflate, and are deliberately separate:
+
+- The **colours** on the marked-up invoice are literal. A one-cent difference is
+  shown as a difference, because the reader deserves the truth.
+- The **tolerance** decides *who has to look*. A $3 variance on a $40,000 order
+  is not worth the owner's attention.
+
+Every decision is written to an append-only `approval` record — who, when, what
+the system recommended, and what the variance was at that moment. When a condo
+board asks for backup on a large assessment, the quote, receipt, invoice,
+marked-up copy and approval trail are one page, not a scramble.
+
 ## The one rule worth knowing
 
 **Claude reads. Python does the arithmetic.**
@@ -69,12 +107,14 @@ They need no API key and no network — the engine is pure arithmetic by design.
 |---|---|
 | `app/extract.py` | Reads a PDF into structured line items. The only file that calls Claude. |
 | `app/matching.py` | Compares invoice lines to quote lines. **No AI, no network.** |
+| `app/approval.py` | Three-way match and approval routing. **No AI, no network.** |
 | `app/services.py` | The pipeline: store, de-duplicate, file against a job, compare. |
 | `app/mailbox.py` | Reads the Exchange mailbox over Microsoft Graph. Header explains what to ask IT for. |
 | `app/templates/markup.html` | The marked-up invoice — used for both the screen view and the PDF, so they cannot drift. |
 | `app/auth.py` | Shared-password login. |
 | `scripts/seed_demo.py` | Realistic demo job, no API key needed. |
-| `tests/` | Comparison-engine tests. |
+| `tests/test_matching.py` | Comparison-engine tests. |
+| `tests/test_approval.py` | Three-way match and approval routing tests. |
 
 ## How documents get filed against a job
 
@@ -100,8 +140,13 @@ Worth being straight about:
 - **One shared password**, not per-user accounts. Fine for a small team; see
   `app/auth.py` for the upgrade path to Microsoft SSO through the same app
   registration the mailbox uses.
-- **No approval workflow yet.** The system flags pricing differences; it does not
-  track who accepted or disputed one.
+- **Approver identity is typed, not authenticated.** One shared password means
+  the app cannot know who is signed in, so approvers type their name and it is
+  recorded as-typed. Real segregation of duties needs per-user logins — see
+  `app/auth.py` for the upgrade path.
+- **Receipt matching is by job and vendor, not line by line.** It records that
+  somebody confirmed this vendor delivered on this job. Reconciling packing
+  slips item by item is a bigger job and nobody was going to do it by hand either.
 - **SQLite.** Correct and fast at this volume, single-server only. Moving to
   Postgres is a `DATABASE_URL` change.
 - **No QuickBooks connection.** Deliberately deferred — see the separate 13-day

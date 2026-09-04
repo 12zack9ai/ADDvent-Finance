@@ -54,6 +54,17 @@ class Settings:
     mail_poll_seconds: int = int(os.getenv("MAIL_POLL_SECONDS", "300"))
     mail_processed_folder: str = os.getenv("MAIL_PROCESSED_FOLDER", "Processed")
 
+    # --- approval policy ---------------------------------------------------
+    # Three-way match thresholds. A variance is "within tolerance" if it is
+    # under BOTH the percentage and the flat amount is not exceeded - i.e. the
+    # allowance is whichever of the two is greater, per the approval policy.
+    tolerance_pct: float = float(os.getenv("TOLERANCE_PCT", "5"))
+    tolerance_abs: str = os.getenv("TOLERANCE_ABS", "250")
+    # Even a clean invoice above this total gets an owner spot-check.
+    owner_review_above: str = os.getenv("OWNER_REVIEW_ABOVE", "5000")
+    # Require confirmation of delivery / work completion before approval.
+    require_receipt: bool = _bool("REQUIRE_RECEIPT", True)
+
     # --- matching ----------------------------------------------------------
     # Description similarity (0-100) required to consider two lines the same
     # item when SKUs are absent or differ.

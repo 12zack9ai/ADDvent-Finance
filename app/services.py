@@ -30,6 +30,7 @@ from app.extract import (
     normalize_job_number,
     parse_job_directive,
 )
+from app.approval import apply_routing
 from app.matching import compare_invoice, vendor_matches
 from app.models import (
     Document,
@@ -276,6 +277,7 @@ def recompare_invoice(session: Session, job: Job, invoice: Invoice) -> None:
         invoice.underbilled_amount = Decimal("0")
         invoice.lines_over = invoice.lines_under = invoice.lines_match = 0
         invoice.lines_unmatched = len(invoice.lines)
+        apply_routing(invoice)
         session.flush()
         return
 
@@ -287,6 +289,7 @@ def recompare_invoice(session: Session, job: Job, invoice: Invoice) -> None:
     invoice.lines_match = summary.lines_match
     invoice.lines_unmatched = summary.lines_unmatched
     invoice.render_path = ""  # stale: the marked-up PDF must be regenerated
+    apply_routing(invoice)
     session.flush()
 
 

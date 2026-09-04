@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Vendors · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>Vendor billing accuracy</h1>
+    <p class="sub">
+      How often each supplier bills above their own quote. One mistake is a
+      mistake; a pattern is a pricing decision for the next bid.
+    </p>
+  </div>
+</div>
+
+{% if not rows %}
+  <div class="panel">
+    <div class="empty">
+      <div class="big">No invoices yet.</div>
+      This fills in as invoices are checked.
+    </div>
+  </div>
+{% else %}
+  {% if total_overbilled and total_overbilled > 0 %}
+  <div class="panel tight" style="border-left:4px solid var(--over-line)">
+    <strong style="color:var(--over-ink)">
+      {{ total_overbilled | money }} billed above quote across all vendors
+    </strong>
+    <div class="muted">
+      Recovering it means going back to the vendor with the quote attached — the
+      marked-up copy on each invoice is built for exactly that conversation.
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="panel" style="padding:0;overflow:hidden">
+    <table class="grid">
+      <thead>
+        <tr>
+          <th style="padding-left:20px">Vendor</th>
+          <th class="r">Invoices</th>
+          <th class="r">Billed</th>
+          <th class="r">Over quote</th>
+          <th class="r">Under quote</th>
+          <th class="r">Over-bill rate</th>
+          <th class="r" style="padding-right:20px">Unchecked lines</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+        <tr>
+          <td style="padding-left:20px">
+            <a href="/?q={{ row.vendor }}" style="font-weight:700">{{ row.vendor }}</a>
+          </td>
+          <td class="r">{{ row.invoices }}</td>
+          <td class="r">{{ row.billed | money }}</td>
+          <td class="r">
+            {% if row.overbilled > 0 %}
+              <span class="chip c-over">+{{ row.overbilled | money }}</span>
+            {% else %}<span class="muted">—</span>{% endif %}
+          </td>
+          <td class="r">
+            {% if row.underbilled > 0 %}
+              <span class="chip c-ok">−{{ row.underbilled | money }}</span>
+            {% else %}<span class="muted">—</span>{% endif %}
+          </td>
+          <td class="r">
+            {% if row.over_count %}
+              <strong{% if row.over_rate >= 33 %} style="color:var(--over-ink)"{% endif %}>
+                {{ "%.0f"|format(row.over_rate) }}%
+              </strong>
+              <span class="muted">({{ row.over_count }}/{{ row.invoices }})</span>
+            {% else %}
+              <span class="chip c-ok">0%</span>
+            {% endif %}
+          </td>
+          <td class="r" style="padding-right:20px">
+            {% if row.unmatched_lines %}
+              <span class="chip c-none">{{ row.unmatched_lines }}</span>
+            {% else %}<span class="muted">—</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="muted" style="margin-top:12px">
+    <strong>Unchecked lines</strong> are items billed that weren't on the master quote.
+    A high count for one vendor usually means their invoice wording differs from their
+    quote wording — worth a look, since those prices aren't being verified against anything.
+  </div>
+{% endif %}
+{% endblock %}

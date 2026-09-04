@@ -111,6 +111,43 @@
   .foot strong{color:var(--soft)}
   .warn{margin-top:10px;background:#fdf3e0;border-left:4px solid #c98a12;color:#7a5310;
         padding:8px 12px;font-size:8.6pt;border-radius:2px}
+
+  /* ---- approval panel (screen only) ---- */
+  .approval{background:#fff;border:1px solid var(--rule);border-radius:7px;padding:16px 18px;
+            font-size:10pt}
+  .ap-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;
+           flex-wrap:wrap;margin-bottom:10px}
+  .ap-title{font-size:13pt;font-weight:700;color:var(--navy);margin-top:4px}
+  .ap-tier{text-align:right;font-size:9pt;color:var(--mute);line-height:1.35}
+  .ap-tier strong{color:var(--navy);font-size:10.5pt}
+  .ap-status{display:inline-block;padding:2px 10px;border-radius:11px;font-size:8.5pt;
+             font-weight:800;letter-spacing:.4px;text-transform:uppercase}
+  .ap-pending_review{background:#eaf1fa;color:#2563a8}
+  .ap-held{background:var(--over-bg);color:var(--over-ink)}
+  .ap-approved{background:var(--under-bg);color:var(--under-ink)}
+  .ap-paid{background:#e8eaed;color:#4a5262}
+  .ap-rejected{background:#e8eaed;color:#4a5262}
+  .ap-blockers,.ap-reasons{margin:8px 0;padding-left:18px;font-size:9.4pt}
+  .ap-blockers li{color:var(--over-ink);font-weight:600;margin-bottom:3px}
+  .ap-reasons li{color:var(--soft);margin-bottom:3px}
+  .ap-hold{background:var(--over-bg);color:var(--over-ink);padding:8px 12px;border-radius:4px;
+           font-size:9.4pt;margin:8px 0}
+  .ap-form{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px;
+           padding-top:12px;border-top:1px solid var(--rule-lt)}
+  .ap-form input{flex:1;min-width:130px;padding:7px 10px;border:1px solid var(--rule);
+                 border-radius:5px;font-size:9.6pt;font-family:inherit}
+  .ap-form .btn{background:#2563a8;color:#fff;border:none;padding:7px 15px;border-radius:5px;
+                font-weight:700;font-size:9.6pt;cursor:pointer;text-decoration:none}
+  .ap-form .btn.ghost{background:#fff;color:#2563a8;border:1px solid var(--rule)}
+  .ap-form .btn[disabled]{opacity:.45;cursor:not-allowed}
+  .ap-note{font-size:9pt;color:var(--mute);margin-top:7px}
+  .ap-done{background:var(--under-bg);color:var(--under-ink);padding:8px 12px;
+           border-radius:4px;font-size:9.4pt}
+  .ap-trail{margin-top:11px;font-size:9pt}
+  .ap-trail summary{cursor:pointer;color:#2563a8;font-weight:700}
+  .ap-trail table{width:100%;margin-top:7px;font-size:8.8pt}
+  .ap-trail td{padding:4px 8px 4px 0;border-bottom:1px solid var(--rule-lt);color:var(--soft)}
+  :root{--mute:#727a88;--soft:#4a5262;--rule:#dfe3e9;--rule-lt:#eef0f4}
 </style>
 </head>
 <body>
@@ -300,5 +337,91 @@
   </div>
 
 </div>
+
+{% if not print_mode and routing %}
+<div style="max-width:8.5in;margin:14px auto 0;padding:0 22px">
+  <div class="approval">
+    <div class="ap-head">
+      <div>
+        <div class="ap-status ap-{{ invoice.approval_status }}">{{ status_label }}</div>
+        <div class="ap-title">{{ routing.headline }}</div>
+      </div>
+      <div class="ap-tier">
+        Approver required<br><strong>{{ tier_label }}</strong>
+      </div>
+    </div>
+
+    {% if routing.blockers %}
+      <ul class="ap-blockers">
+        {% for b in routing.blockers %}<li>{{ b }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+
+    {% if routing.reasons %}
+      <ul class="ap-reasons">
+        {% for r in routing.reasons %}<li>{{ r }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+
+    {% if invoice.hold_reason %}
+      <div class="ap-hold"><strong>On hold:</strong> {{ invoice.hold_reason }}</div>
+    {% endif %}
+
+    {% if invoice.approval_status in ("pending_review", "held") %}
+      <form method="post" action="/invoice/{{ invoice.id }}/decide" class="ap-form">
+        <input type="text" name="actor" placeholder="Your name" required
+               style="max-width:180px">
+        <input type="text" name="note" placeholder="Note (optional)">
+        {% if routing.can_approve %}
+          <button class="btn" name="decision" value="approve" type="submit">Approve</button>
+        {% else %}
+          <button class="btn" type="button" disabled
+                  title="Confirm receipt on the job page first">Approve</button>
+        {% endif %}
+        <button class="btn ghost" name="decision" value="hold" type="submit">Hold</button>
+        <button class="btn ghost" name="decision" value="reject" type="submit">Reject</button>
+      </form>
+      {% if not routing.can_approve %}
+        <div class="ap-note">
+          Approval is blocked until receipt is confirmed &mdash;
+          <a href="/job/{{ job.job_number }}#receipts">confirm it on the job page</a>.
+        </div>
+      {% endif %}
+    {% elif invoice.approval_status == "approved" %}
+      <div class="ap-done">
+        Approved by <strong>{{ invoice.approved_by }}</strong>
+        on {{ invoice.approved_at.strftime("%d %b %Y") if invoice.approved_at else "" }}.
+      </div>
+      <form method="post" action="/invoice/{{ invoice.id }}/decide" class="ap-form">
+        <input type="text" name="actor" placeholder="Your name" required style="max-width:180px">
+        <button class="btn" name="decision" value="paid" type="submit">Mark paid</button>
+        <button class="btn ghost" name="decision" value="reopen" type="submit">Reopen</button>
+      </form>
+    {% else %}
+      <form method="post" action="/invoice/{{ invoice.id }}/decide" class="ap-form">
+        <input type="text" name="actor" placeholder="Your name" required style="max-width:180px">
+        <button class="btn ghost" name="decision" value="reopen" type="submit">Reopen</button>
+      </form>
+    {% endif %}
+
+    {% if invoice.approvals %}
+      <details class="ap-trail">
+        <summary>Decision history ({{ invoice.approvals|length }})</summary>
+        <table>
+          {% for a in invoice.approvals %}
+          <tr>
+            <td>{{ a.at.strftime("%d %b %Y %H:%M") }}</td>
+            <td><strong>{{ a.decision }}</strong></td>
+            <td>{{ a.actor }}</td>
+            <td>{{ a.note }}</td>
+          </tr>
+          {% endfor %}
+        </table>
+      </details>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
 </body>
 </html>
