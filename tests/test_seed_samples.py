@@ -161,6 +161,48 @@ def test_the_two_bills_that_are_not_ours_are_both_blocked(session):
     assert not flagged["NC-772110"]     # the real one stays quiet
 
 
+def test_the_forecast_sees_the_permits_and_deposits_too(session):
+    """They arrive with no invoice behind them, so a forecast assembled from
+    bills alone cannot see them - and a 13-week view that quietly omits money
+    going out is wrong in the direction that matters."""
+    from app import accounting
+    from app.cashflow import CAT_CHECKS
+
+    payables = accounting.LocalSource(session).payables()
+    from_checks = [p for p in payables if p.category == CAT_CHECKS]
+
+    open_requests = session.scalars(
+        select(CheckRequest).where(
+            CheckRequest.status.in_(("requested", "approved"))
+        )
+    ).all()
+    assert len(from_checks) == len(open_requests)
+    assert sum(p.amount for p in from_checks) == sum(
+        r.amount for r in open_requests)
+
+    # The undecided ones are listed, never scheduled as leaving.
+    assert {p.on_hold for p in from_checks} == {True, False}
+
+
+def test_no_dollar_reaches_the_forecast_twice(session):
+    """A sub's draw is an invoice and is counted as one. It must not also
+    arrive as a check request - and nothing else may be counted twice
+    either."""
+    from app import accounting
+
+    payables = accounting.LocalSource(session).payables()
+    keys = [(p.vendor, p.reference, p.amount) for p in payables]
+    assert len(keys) == len(set(keys))
+
+    invoices = session.scalars(
+        select(Invoice).where(Invoice.approval_status != "paid")
+    ).all()
+    live = [i for i in invoices if i.approval_status != "rejected"]
+    from_invoices = [p for p in payables if p.source == "This system"
+                     and p.category != "Permits, deposits and other checks"]
+    assert len(from_invoices) == len(live)
+
+
 # --- and it comes back out ------------------------------------------------
 
 def test_removal_takes_out_every_sample_row_and_nothing_else(session):

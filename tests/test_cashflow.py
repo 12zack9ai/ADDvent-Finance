@@ -297,3 +297,25 @@ def test_categories_report_their_own_weekly_row():
 def test_an_unknown_category_falls_back_to_supplier_rather_than_vanishing():
     f = build(payables=[pay(week=1, amount="500.00", category="Nonsense")])
     assert f.category_total(CAT_SUPPLIER) == D("500.00")
+
+
+# --- permits, deposits and fees ------------------------------------------
+
+def test_a_permit_is_its_own_category_not_a_supplier_payment():
+    """A township is not a supply house, and a forecast that files a permit
+    under subcontractor payments makes both numbers wrong."""
+    from app.cashflow import CAT_CHECKS
+    f = build([pay(week=2, amount="625.00", category=CAT_CHECKS)])
+
+    assert f.weeks[1].by_category[CAT_CHECKS] == D("625.00")
+    assert CAT_SUPPLIER not in f.weeks[1].by_category
+
+
+def test_a_check_nobody_has_approved_is_listed_but_not_scheduled():
+    from app.cashflow import CAT_CHECKS
+    f = build([pay(week=2, amount="4000.00", category=CAT_CHECKS,
+                   on_hold=True, hold_reason="Check request not approved yet")])
+
+    assert f.weeks[1].outflow == D('0')
+    assert len(f.held_payables) == 1
+    assert f.held_total == D("4000.00")

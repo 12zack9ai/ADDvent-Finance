@@ -273,7 +273,7 @@ def _detail(pdf: _Doc, f: Forecast) -> None:
                      f"save {fmt.money(p.discount_amount)}") for p in f.discounts],
               ink=GREEN_INK)
     if f.held_payables:
-        _heading(pdf, "Held - not scheduled to pay")
+        _heading(pdf, "Waiting on a decision - not scheduled to pay")
         _list(pdf, [(p.vendor, p.reference, p.job_number,
                      p.hold_reason or "on hold", fmt.money(p.amount)) for p in f.held_payables],
               ink=AMBER_INK)

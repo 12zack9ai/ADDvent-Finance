@@ -127,3 +127,19 @@ def test_the_rejection_says_what_it_saw_and_what_to_do():
 def test_an_empty_file_is_rejected_not_read_as_zero():
     with pytest.raises(AgingParseError):
         payables_from_csv("")
+
+
+# --- dates that arrive as timestamps ---------------------------------------
+
+def test_a_datetime_is_narrowed_to_a_date():
+    """datetime is a subclass of date, so the obvious isinstance check lets
+    one straight through - and the forecast raises the moment it compares a
+    datetime due date against the end of the horizon."""
+    from datetime import datetime
+    from app.accounting import _as_date
+
+    assert _as_date(datetime(2026, 8, 12, 9, 30)) == date(2026, 8, 12)
+    assert not isinstance(_as_date(datetime(2026, 8, 12, 9, 30)), datetime)
+    assert _as_date(date(2026, 8, 12)) == date(2026, 8, 12)
+    assert _as_date(None) is None
+    assert _as_date("08/12/2026") == date(2026, 8, 12)

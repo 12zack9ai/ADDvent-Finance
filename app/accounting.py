@@ -35,10 +35,10 @@ from sqlalchemy.orm import Session
 
 from app import cashflow
 from app.cashflow import (
-    CAT_INSURANCE, CAT_LOAN, CAT_OVERHEAD, CAT_PAYROLL, CAT_RENT, CAT_SUPPLIER,
-    CAT_TAX, CAT_VEHICLE, CATEGORIES, Payable, Receivable, ZERO,
+    CAT_CHECKS, CAT_INSURANCE, CAT_LOAN, CAT_OVERHEAD, CAT_PAYROLL, CAT_RENT,
+    CAT_SUPPLIER, CAT_TAX, CAT_VEHICLE, CATEGORIES, Payable, Receivable, ZERO,
 )
-from app.models import Invoice
+from app.models import CHECK_APPROVED, CHECK_REQUESTED, CheckRequest, Invoice
 
 # --- reading whatever the accounting package produced ---------------------
 
@@ -269,6 +269,46 @@ class LocalSource:
                     "Not yet approved" if invoice.approval_status == "pending_review" else ""
                 ),
             ))
+        out.extend(self._check_requests())
+        return out
+
+    def _check_requests(self) -> list[Payable]:
+        """Permits, deposits, fees - and a sub's draw somebody typed in.
+
+        These are the one outflow in the business that arrives with no invoice
+        behind it, so a forecast assembled from bills alone simply cannot see
+        them. A permit fee is small; a lift deposit and a sub's draw are not,
+        and a 13-week view that quietly omits them is wrong in the direction
+        that matters.
+
+        A subcontractor's *invoice* is not one of these and never reaches here
+        - it is an invoice, counted above with every other bill. Only a typed
+        request is a row in this table.
+        """
+        out: list[Payable] = []
+        requests = self.session.scalars(
+            select(CheckRequest).where(
+                CheckRequest.status.in_((CHECK_REQUESTED, CHECK_APPROVED))
+            )
+        ).all()
+        for request in requests:
+            approved = request.status == CHECK_APPROVED
+            # An approved check is due the day it was approved: that is when
+            # somebody decided the money leaves. If it was approved a
+            # fortnight ago and never cut, the forecast says so by placing it
+            # in the past, which is the truth and is worth seeing.
+            due = _as_date(request.decided_at) if approved else None
+            out.append(Payable(
+                due_date=due or request.requested_on,
+                vendor=request.payee or "Unknown payee",
+                amount=request.amount or ZERO,
+                category=CAT_CHECKS,
+                reference=request.reference or f"Check request #{request.id}",
+                job_number=request.job.job_number if request.job else "",
+                source=self.name,
+                on_hold=not approved,
+                hold_reason="" if approved else "Check request not approved yet",
+            ))
         return out
 
     def receivables(self) -> list[Receivable]:
@@ -324,7 +364,19 @@ class QuickBooksSource:
 
 
 def _as_date(value) -> Optional[date]:
-    if value is None or isinstance(value, date):
+    """A plain date, whatever shape it arrived in.
+
+    datetime is a subclass of date, so the obvious isinstance check lets one
+    straight through - and a datetime in `due_date` raises the moment the
+    forecast compares it to the end of the horizon. Narrowed here rather than
+    at each caller, because the next column somebody reads off a timestamp
+    will hit exactly the same wall.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
         return value
     return parse_date(str(value))
 

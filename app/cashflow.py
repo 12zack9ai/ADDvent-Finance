@@ -54,9 +54,13 @@ CAT_VEHICLE = "Vehicle & equipment"
 CAT_LOAN = "Other loan payments"
 CAT_TAX = "Estimated tax payments"
 CAT_OVERHEAD = "Other overhead (office, admin, software)"
+# Permits, deposits, filing fees, reimbursements. Not supplier payments, and
+# they are the one outflow in this business that arrives with no invoice at
+# all - so a forecast built from bills alone cannot see them.
+CAT_CHECKS = "Permits, deposits and other checks"
 
 CATEGORIES = [
-    CAT_PAYROLL, CAT_SUPPLIER, CAT_INSURANCE, CAT_RENT,
+    CAT_PAYROLL, CAT_SUPPLIER, CAT_CHECKS, CAT_INSURANCE, CAT_RENT,
     CAT_VEHICLE, CAT_LOAN, CAT_TAX, CAT_OVERHEAD,
 ]
 
