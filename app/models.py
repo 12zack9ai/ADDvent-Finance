@@ -74,6 +74,11 @@ class Job(Base):
     # quote is how somebody learns to filter these.
     quote_chase_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     quote_chase_to: Mapped[str] = mapped_column(String(255), default="")
+    # How many times anyone has been asked for the quotes on this job. The
+    # automatic ask fires only at zero; the button on the job page goes by the
+    # timestamp instead, so a person can chase again tomorrow but not twice in
+    # an afternoon.
+    quote_chase_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     quotes: Mapped[list["Quote"]] = relationship(back_populates="job", cascade="all, delete-orphan")
     invoices: Mapped[list["Invoice"]] = relationship(back_populates="job", cascade="all, delete-orphan")

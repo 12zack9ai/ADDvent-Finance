@@ -331,3 +331,37 @@ def test_an_ordinary_email_from_a_person_is_not_automatic():
     msg["Auto-Submitted"] = "no"
     assert not is_automatic(msg)
     assert not is_automatic(build(subject="Quote", body="Attached"))
+
+
+# --- "this replaces the last one", in the words people actually use --------
+
+@pytest.mark.parametrize("text", [
+    "This is an updated quote for job 260000",
+    "Revised quote for job 260000 attached",
+    "Job 260000 - quote revision 2",
+    "Corrected quote for job 260000",
+    "Updated pricing on job 260000",
+    "This replaces the quote I sent Tuesday. Job 260000",
+    "Please disregard the previous quote. Job 260000",
+    "Supersedes the previous pricing - job 260000",
+    "Use this instead of the one I sent. Job 260000",
+    "master updated to job 260000",
+])
+def test_a_replacement_is_recognised_in_plain_english(text):
+    """The old rule only matched the word 'master', which is this system's own
+    jargon. Nobody in the field writes it."""
+    assert parse_job_directive(text, "").is_master_update
+
+
+@pytest.mark.parametrize("text", [
+    "New quote for job 260000 - skylights",
+    "Quote for job 260000",
+    "Here is the quote for the skylights on job 260000",
+    "Attached is our proposal for job 260000",
+    "Second quote for job 260000",
+])
+def test_a_second_scope_is_not_read_as_a_replacement(text):
+    """The dangerous direction. Reading 'new quote for job 260000' as a
+    replacement would stand down the roofing quote on a job that simply has
+    two scopes - and its prices would stop checking anything."""
+    assert not parse_job_directive(text, "").is_master_update

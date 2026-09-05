@@ -16,7 +16,7 @@ import tempfile
 import uuid
 import json
 import shutil
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Optional
@@ -401,8 +401,8 @@ def chase_quote(session: Session, job: Job, invoice: Invoice) -> None:
     """
     if not settings.ask_for_quote:
         return
-    if job.quote_chase_sent_at is not None:
-        return
+    if job.quote_chase_count:
+        return              # the automatic ask happens once, ever
 
     try:
         assignment = jobnimbus.find_job(job.job_number)
@@ -421,6 +421,7 @@ def chase_quote(session: Session, job: Job, invoice: Invoice) -> None:
     # raises must not leave the door open to asking again on the next invoice.
     job.quote_chase_sent_at = utcnow()
     job.quote_chase_to = assignment.email
+    job.quote_chase_count += 1
     session.flush()
 
     try:
@@ -428,6 +429,94 @@ def chase_quote(session: Session, job: Job, invoice: Invoice) -> None:
     except Exception as exc:                       # noqa: BLE001
         log.warning("QUOTE: could not email %s about job %s: %s",
                     assignment.email, job.job_number, exc)
+
+
+# A person may chase a job again tomorrow, not twice in an afternoon. The point
+# is to stop one job turning into a stream of identical emails at somebody who
+# is on a roof and cannot do anything about it until they are back at a desk.
+CHASE_COOLDOWN = timedelta(hours=24)
+
+
+def chase_cooldown_left(job: Job) -> Optional[timedelta]:
+    """How long until this job can be chased again. None means now."""
+    if job.quote_chase_sent_at is None:
+        return None
+    last = job.quote_chase_sent_at
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    remaining = (last + CHASE_COOLDOWN) - utcnow()
+    return remaining if remaining.total_seconds() > 0 else None
+
+
+def chase_quote_now(
+    session: Session, job: Job, to_address: str = "", actor: str = ""
+) -> tuple[bool, str]:
+    """Ask for the quotes on this job, because a person clicked the button.
+
+    The deliberate alternative to the automatic ask: that one fires once ever,
+    off the back of an invoice arriving, and only if JobNimbus names somebody.
+    This one is a person deciding, so it works without JobNimbus - they can
+    type the address - and it can be repeated, once a day.
+
+    Returns (sent, message) rather than raising, because every outcome here is
+    something to tell the person who clicked, not an error.
+    """
+    if job.masters:
+        return False, "This job already has a quote on it."
+
+    left = chase_cooldown_left(job)
+    if left is not None:
+        hours = int(left.total_seconds() // 3600) + 1
+        return False, (
+            f"Already asked in the last 24 hours — {job.quote_chase_to or 'somebody'} "
+            f"can be asked again in about {hours} hour{'' if hours == 1 else 's'}."
+        )
+
+    if not settings.can_send_mail():
+        return False, "Email is not set up on this server, so nothing can be sent."
+
+    assignment = None
+    typed = (to_address or "").strip()
+    if typed:
+        assignment = jobnimbus.Assignment(job_number=job.job_number, email=typed)
+    else:
+        try:
+            assignment = jobnimbus.find_job(job.job_number)
+        except Exception as exc:                   # noqa: BLE001
+            log.warning("QUOTE: JobNimbus lookup failed for %s: %s", job.job_number, exc)
+
+    if assignment is None or not assignment.usable:
+        return False, (
+            "Nobody to send it to. JobNimbus did not give an assignee for this "
+            "job — type the address to send it to instead."
+        )
+
+    if not settings.may_email(assignment.email):
+        allowed = ", ".join(sorted(settings.reply_domains())) or "(no domain set)"
+        return False, f"{assignment.email} is outside {allowed}, so nothing was sent."
+
+    invoice = job.invoices[0] if job.invoices else None
+    if invoice is None:
+        # Chasing a quote before any invoice has arrived is legitimate - the PM
+        # knows the job is coming - so a placeholder stands in for the details
+        # the email would otherwise carry.
+        invoice = Invoice(job_id=job.id, document_id=0, vendor="", invoice_number="")
+
+    job.quote_chase_sent_at = utcnow()
+    job.quote_chase_to = assignment.email
+    job.quote_chase_count += 1
+    session.flush()
+
+    try:
+        mail_send.ask_for_quote(job, invoice, assignment, automatic=False)
+    except Exception as exc:                       # noqa: BLE001
+        log.warning("QUOTE: could not email %s about job %s: %s",
+                    assignment.email, job.job_number, exc)
+        return False, f"Could not send it: {exc}"
+
+    log.info("QUOTE: %s asked %s for the quotes on job %s",
+             actor or "somebody", assignment.email, job.job_number)
+    return True, f"Asked {assignment.email} for the quotes on job {job.job_number}."
 
 
 def recompare_job(session: Session, job: Job) -> int:

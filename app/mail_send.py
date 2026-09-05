@@ -244,7 +244,7 @@ def compose_quote_request(
     return msg
 
 
-def ask_for_quote(job, invoice, assignment) -> Optional[str]:
+def ask_for_quote(job, invoice, assignment, *, automatic: bool = True) -> Optional[str]:
     """Ask the job's project manager to send in the quotes. Returns who was asked.
 
     Returns None when the request is not appropriate or not possible, which is
@@ -257,7 +257,11 @@ def ask_for_quote(job, invoice, assignment) -> Optional[str]:
     the sort of quiet nothing that a guard duplicated across two files
     produces.
     """
-    if not settings.ask_for_quote:
+    # ASK_FOR_QUOTE governs the AUTOMATIC ask only. A person clicking a button
+    # is not the thing that flag exists to hold back - it exists so a deploy
+    # never starts emailing people by surprise. Someone deliberately asking for
+    # the quote on a job in front of them is not a surprise.
+    if automatic and not settings.ask_for_quote:
         return None
     if assignment is None or not assignment.usable:
         return None

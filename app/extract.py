@@ -338,8 +338,42 @@ _JOB_PATTERNS = [
     re.compile(r"#\s*(\d{2,10})\b"),
 ]
 
+# "This supersedes the one already on the job."
+#
+# The old version of this only matched the word "master", which is this
+# system's own jargon. Nobody in the field writes "master quote updated" - they
+# write "here is the updated quote for job 260000", and that sentence has to be
+# understood or the revised quote lands as a second scope and the stale prices
+# keep authorising invoices.
+#
+# What is deliberately NOT here is a bare "new quote". On a job with a roofing
+# quote and a skylight quote, "new quote for job 260000" is far more often a
+# second scope than a replacement, and reading it as a replacement would delete
+# the roofing prices. A replacement has to say so: updated, revised, corrected,
+# replaces, supersedes, or an explicit instruction to disregard the last one.
+_REVISED = r"(?:updated?|revised?|revision|corrected|amended)"
+_QUOTE_WORD = r"(?:quote|quotation|proposal|estimate|bid|pricing|prices?)"
+_PRIOR = r"(?:previous|prior|last|earlier|original|first|old)"
+
 _MASTER_UPDATE_RE = re.compile(
-    r"\b(master\s+(?:quote\s+)?(?:is\s+)?updated?|updated?\s+master|new\s+master|replace\s+master|supersedes?\s+master)\b",
+    "|".join((
+        # Our own jargon, still honoured.
+        r"\bmaster\s+(?:quote\s+)?(?:is\s+)?updated?\b",
+        r"\bupdated?\s+master\b",
+        r"\bnew\s+master\b",
+        r"\breplaces?\s+master\b",
+        # "updated quote", "revised pricing", "quote revision"
+        rf"\b{_REVISED}\s+{_QUOTE_WORD}\b",
+        rf"\b{_QUOTE_WORD}\s+{_REVISED}\b",
+        # "this replaces the quote I sent Tuesday" / "supersedes the previous"
+        rf"\b(?:replaces?|replacing|supersedes?|superseding)\s+(?:the\s+)?(?:{_PRIOR}\s+)?{_QUOTE_WORD}\b",
+        rf"\b(?:replaces?|supersedes?)\s+(?:the\s+)?{_PRIOR}\b",
+        # "please disregard the previous quote"
+        rf"\b(?:disregard|ignore|discard|void|scrap|delete|remove)\s+(?:the\s+)?"
+        rf"(?:{_PRIOR}\s+)?(?:{_QUOTE_WORD}|one)\b",
+        # "use this one instead of the one I sent"
+        rf"\binstead\s+of\s+the\s+(?:{_PRIOR}\s+)?(?:{_QUOTE_WORD}|one)\b",
+    )),
     re.I,
 )
 

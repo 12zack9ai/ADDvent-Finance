@@ -1063,3 +1063,229 @@ def test_but_unquoted_material_on_the_same_job_is_raised(client, tmp_path):
     assert "Money on this job with no quoted price behind it" in page.text
     assert "$6,075.00" in page.text
     assert "material that appears on no quote" in page.text
+
+
+# --- the button: a person asking for the quote -----------------------------
+
+@pytest.fixture()
+def can_email(monkeypatch):
+    from app import mail_send
+    from app.config import settings
+    sent = []
+    monkeypatch.setattr(settings, "can_send_mail", lambda: True)
+    monkeypatch.setattr(settings, "reply_domains", lambda: {"addventuresinc.com"})
+    monkeypatch.setattr(settings, "smtp_settings",
+                        lambda: ("h", 587, "u", "p", "aifinance@addventuresinc.com"))
+    monkeypatch.setattr(mail_send, "send", lambda msg: sent.append(msg))
+    return sent
+
+
+def _bare_job(number="260000"):
+    session = SessionLocal()
+    try:
+        job = Job(job_number=number)
+        session.add(job)
+        session.commit()
+        return job.id
+    finally:
+        session.close()
+
+
+def test_the_button_asks_the_address_a_person_types(client, can_email):
+    _bare_job()
+    resp = client.post("/job/260000/ask-for-quote", follow_redirects=False, data={
+        "actor": "Jena", "to_address": "mreilly@addventuresinc.com",
+    })
+    assert resp.status_code == 303
+    assert "err=" not in resp.headers["location"]
+    assert len(can_email) == 1
+    assert can_email[0]["To"] == "mreilly@addventuresinc.com"
+
+
+def test_the_button_works_without_jobnimbus_or_the_automatic_flag(client, can_email, monkeypatch):
+    """A person clicking a button is not the thing ASK_FOR_QUOTE holds back —
+    that flag exists so a deploy never starts emailing people by surprise."""
+    from app import services as svc
+    from app.config import settings
+    monkeypatch.setattr(settings, "ask_for_quote", False)
+    monkeypatch.setattr(settings, "jobnimbus_api_key", "")
+    _bare_job()
+
+    client.post("/job/260000/ask-for-quote", follow_redirects=False,
+                data={"actor": "Jena", "to_address": "mreilly@addventuresinc.com"})
+    assert len(can_email) == 1
+
+
+def test_it_can_only_be_clicked_once_a_day(client, can_email):
+    """So somebody on a roof is not getting the same email all afternoon."""
+    _bare_job()
+    data = {"actor": "Jena", "to_address": "mreilly@addventuresinc.com"}
+
+    first = client.post("/job/260000/ask-for-quote", data=data, follow_redirects=False)
+    assert "err=" not in first.headers["location"]
+
+    second = client.post("/job/260000/ask-for-quote", data=data, follow_redirects=False)
+    assert "err=" in second.headers["location"]
+    assert "24+hours" in second.headers["location"]
+    assert len(can_email) == 1
+
+    # And the page says so instead of offering the button again.
+    page = client.get("/job/260000")
+    assert "Already asked in the last 24 hours" in page.text
+    assert "Ask for the quote" not in page.text
+
+    # A day later it is allowed again.
+    from datetime import timedelta
+    session = SessionLocal()
+    job = session.query(Job).filter_by(job_number="260000").one()
+    job.quote_chase_sent_at = job.quote_chase_sent_at - timedelta(hours=25)
+    session.commit()
+    session.close()
+
+    third = client.post("/job/260000/ask-for-quote", data=data, follow_redirects=False)
+    assert "err=" not in third.headers["location"]
+    assert len(can_email) == 2
+
+    session = SessionLocal()
+    assert session.query(Job).filter_by(job_number="260000").one().quote_chase_count == 2
+    session.close()
+
+
+def test_the_button_will_not_email_outside_the_company(client, can_email):
+    _bare_job()
+    resp = client.post("/job/260000/ask-for-quote", follow_redirects=False, data={
+        "actor": "Jena", "to_address": "sales@newcastlebp.com",
+    })
+    assert "err=" in resp.headers["location"]
+    assert can_email == []
+
+
+def test_a_job_that_already_has_a_quote_offers_no_button(client, tmp_path, can_email):
+    upload(client, _pdf(tmp_path, "q.pdf", "btn-q"), QUOTE_PAYLOAD, job_number="260000")
+
+    page = client.get("/job/260000")
+    assert "Ask for the quote" not in page.text
+
+    resp = client.post("/job/260000/ask-for-quote", follow_redirects=False,
+                       data={"actor": "Jena", "to_address": "pm@addventuresinc.com"})
+    assert "err=" in resp.headers["location"]
+    assert can_email == []
+
+
+def test_with_no_address_and_no_assignee_it_says_so_rather_than_failing(client, can_email, monkeypatch):
+    from app import services as svc
+    monkeypatch.setattr(svc.jobnimbus, "find_job", lambda number: None)
+    _bare_job()
+
+    resp = client.post("/job/260000/ask-for-quote", follow_redirects=False,
+                       data={"actor": "Jena", "to_address": ""})
+    assert "err=" in resp.headers["location"]
+    assert "type+the+address" in resp.headers["location"]
+    assert can_email == []
+
+
+def test_a_manual_ask_also_satisfies_the_automatic_one(client, can_email, monkeypatch):
+    """They share one counter, deliberately. If a person chased this job this
+    morning, an invoice arriving this afternoon must not produce a second email
+    saying the same thing to the same person."""
+    from app import jobnimbus, services as svc
+    from app.config import settings
+    monkeypatch.setattr(settings, "ask_for_quote", True)
+    monkeypatch.setattr(svc.jobnimbus, "find_job", lambda number: jobnimbus.Assignment(
+        job_number=number, person_name="Mike Reilly",
+        email="mreilly@addventuresinc.com"))
+    _bare_job()
+
+    client.post("/job/260000/ask-for-quote", follow_redirects=False,
+                data={"actor": "Jena", "to_address": "mreilly@addventuresinc.com"})
+    assert len(can_email) == 1
+
+    session = SessionLocal()
+    job = session.query(Job).filter_by(job_number="260000").one()
+    assert job.quote_chase_count == 1
+    session.close()
+
+    # An invoice now lands on the job. No second email.
+    upload(client, _pdf(Path(tempfile.mkdtemp()), "i.pdf", "manual-auto"),
+           INVOICE_PAYLOAD, job_number="260000")
+    assert len(can_email) == 1
+
+
+# --- "this is an updated quote" arriving by email --------------------------
+
+def _ingest_email_doc(client, path, payload, **kw):
+    client.queue.append(payload)
+    session = SessionLocal()
+    try:
+        document = services.ingest_file(session, path, path.name, source="email", **kw)
+        session.commit()
+        return document.id
+    finally:
+        session.close()
+
+
+def test_an_email_saying_updated_quote_supersedes_the_one_on_the_job(client, tmp_path):
+    """Zack: 'if it's an updated quote in the email, says this is an updated
+    quote for job number whatever, I'll take that as the superseder of the two.'
+
+    Note the line items here are the SAME items at new prices, so the overlap
+    rule would have caught it anyway. The next test is the one that proves the
+    sentence is doing the work."""
+    _ingest_email_doc(client, _pdf(tmp_path, "q1.pdf", "upd1"), QUOTE_PAYLOAD,
+                      sender="sales@newcastlebp.com", subject="Quote for job 260000")
+
+    revised = {**QUOTE_PAYLOAD, "document_number": "07RM0002885450"}
+    revised["lines"] = [dict(line) for line in QUOTE_PAYLOAD["lines"]]
+    revised["lines"][0]["unit_price"] = "131.00"
+    revised["lines"][0]["extended"] = "10480.00"
+    _ingest_email_doc(client, _pdf(tmp_path, "q2.pdf", "upd2"), revised,
+                      sender="sales@newcastlebp.com",
+                      subject="This is an updated quote for job 260000")
+
+    session = SessionLocal()
+    job = session.query(Job).filter_by(job_number="260000").one()
+    assert len(job.masters) == 1
+    assert job.masters[0].quote_number == "07RM0002885450"
+    superseded = [q for q in job.quotes if not q.is_master]
+    assert len(superseded) == 1
+    assert superseded[0].superseded_at is not None
+    session.close()
+
+
+def test_the_sentence_supersedes_even_when_the_items_are_different(client, tmp_path):
+    """The overlap rule alone would keep both of these, because they share no
+    items. The vendor said outright that one replaces the other, and that is
+    believed — this is what Zack actually asked for."""
+    _ingest_email_doc(client, _pdf(tmp_path, "q1.pdf", "say1"), QUOTE_PAYLOAD,
+                      sender="sales@newcastlebp.com", subject="Quote for job 260000")
+
+    different = {**QUOTE_PAYLOAD, "document_number": "07RM0002885451"}
+    different["lines"] = [
+        {"line_no": 1, "sku": "CERTAIN-LM", "description": "CERTAINTEED LANDMARK WEATHERED WOOD",
+         "qty": "80", "uom": "SQ", "unit_price": "118.00", "price_uom": "SQ",
+         "extended": "9440.00"},
+    ]
+    _ingest_email_doc(client, _pdf(tmp_path, "q2.pdf", "say2"), different,
+                      sender="sales@newcastlebp.com",
+                      subject="Revised quote for job 260000 - switched to CertainTeed")
+
+    session = SessionLocal()
+    job = session.query(Job).filter_by(job_number="260000").one()
+    assert len(job.masters) == 1
+    assert job.masters[0].quote_number == "07RM0002885451"
+    session.close()
+
+
+def test_a_new_scope_by_email_still_stands_alongside(client, tmp_path):
+    """And the sentence has to be absent for that to happen. 'New quote for the
+    skylights' is a second scope, not a replacement."""
+    _ingest_email_doc(client, _pdf(tmp_path, "q1.pdf", "sc1"), QUOTE_PAYLOAD,
+                      sender="sales@newcastlebp.com", subject="Quote for job 260000")
+    _ingest_email_doc(client, _pdf(tmp_path, "q2.pdf", "sc2"), SKYLIGHT_QUOTE,
+                      sender="sales@newcastlebp.com",
+                      subject="New quote for job 260000 - skylights")
+
+    session = SessionLocal()
+    job = session.query(Job).filter_by(job_number="260000").one()
+    assert len(job.masters) == 2
+    session.close()

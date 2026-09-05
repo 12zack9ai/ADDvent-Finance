@@ -240,14 +240,14 @@
   {% if not quote %}
     <div class="banner b-none">
       <div>
-        <div class="msg">No master quote on this job yet</div>
+        <div class="msg">No quote on this job yet</div>
         <div class="sub">Nothing to compare against. Add the quote and this page updates automatically.</div>
       </div>
     </div>
   {% elif invoice.lines_over > 0 %}
     <div class="banner b-over">
       <div>
-        <div class="msg">Billed above the master quote</div>
+        <div class="msg">Billed above quote</div>
         <div class="sub">
           {{ invoice.lines_over }} line{{ "" if invoice.lines_over == 1 else "s" }} priced higher than quoted{% if invoice.lines_under %}, {{ invoice.lines_under }} lower{% endif %}.
         </div>

@@ -10,7 +10,7 @@
         {{ jobs|length }} job{{ "" if jobs|length == 1 else "s" }} matching
         &ldquo;<strong>{{ q }}</strong>&rdquo; · <a href="/jobs">clear search</a>
       {% else %}
-        One folder per job. Master quote at the top of each, every invoice underneath.
+        One folder per job. The quotes at the top of each, every invoice underneath.
       {% endif %}
     </p>
   </div>
@@ -24,7 +24,7 @@
   <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">
     <div>
       <strong style="color:var(--over-ink)">
-        {{ needs_attention }} invoice{{ "" if needs_attention == 1 else "s" }} billed above the master quote
+        {{ needs_attention }} invoice{{ "" if needs_attention == 1 else "s" }} billed above quote
       </strong>
       <div class="muted">Total above quoted pricing: <strong>{{ total_overbilled | money }}</strong> across all open jobs.</div>
     </div>
@@ -40,7 +40,7 @@
       {% if q %}
         Try a job number, a vendor name, or an invoice number.
       {% else %}
-        Upload a quote and give it a job number — that becomes the master quote for the job.
+        Upload a quote and give it a job number — that is what its invoices get checked against.
         <div style="margin-top:15px"><a class="btn" href="/upload">Upload the first quote</a></div>
       {% endif %}
     </div>
@@ -51,7 +51,7 @@
       <thead>
         <tr>
           <th style="padding-left:20px">Job</th>
-          <th>Master quote</th>
+          <th>Quoted</th>
           <th class="r">Invoices</th>
           <th class="r">Quoted</th>
           <th class="r">Invoiced</th>
@@ -75,7 +75,7 @@
                 · {{ row.master.lines|length }} line{{ "" if row.master.lines|length == 1 else "s" }}
               </div>
             {% else %}
-              <span class="chip c-warn">No master quote</span>
+              <span class="chip c-warn">No quote</span>
             {% endif %}
           </td>
           <td class="r">{{ row.invoice_count }}</td>

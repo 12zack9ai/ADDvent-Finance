@@ -58,7 +58,7 @@
         {% if inv.lines_under %}<span class="chip under">{{ inv.lines_under }} under</span>{% endif %}
         {% if inv.lines_match %}<span class="chip ok">{{ inv.lines_match }} as quoted</span>{% endif %}
         {% if inv.lines_unmatched %}<span class="chip none">{{ inv.lines_unmatched }} not on quote</span>{% endif %}
-        {% if not inv.quote_id %}<span class="chip none">no master quote</span>{% endif %}
+        {% if not inv.quote_id %}<span class="chip none">no quote</span>{% endif %}
         {% if tblocked %}<span class="chip over">check the sender</span>
         {% elif tflags %}<span class="chip none">new sender</span>{% endif %}
       </div>

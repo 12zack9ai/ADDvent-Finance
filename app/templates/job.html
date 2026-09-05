@@ -10,7 +10,7 @@
   </div>
   <div style="display:flex;gap:9px;flex-wrap:wrap">
     <a class="btn ghost" href="/upload?job={{ job.job_number }}">Add invoice</a>
-    <a class="btn" href="/upload?job={{ job.job_number }}&amp;master=1">Add / replace master quote</a>
+    <a class="btn" href="/upload?job={{ job.job_number }}&amp;master=1">Add a quote</a>
   </div>
 </div>
 
@@ -25,9 +25,9 @@
       {% if s.change_orders %}
         + {{ s.change_orders | money }} in change orders
       {% elif not s.has_quote %}
-        no master quote on this job
+        no quote on this job
       {% else %}
-        {{ masters|length }} master quote{{ "" if masters|length == 1 else "s" }}
+        {{ masters|length }} quote{{ "" if masters|length == 1 else "s" }} on file
       {% endif %}
       {% if s.proposed_change_orders %}
         <a href="#change-orders" class="score-flag">
@@ -46,7 +46,9 @@
 
   <div class="score">
     <span class="score-k">Left to bill</span>
-    <span class="score-v">{{ s.remaining | money }}</span>
+    {# With no quote there is no such number. Showing minus the amount billed
+       reads as an overrun against a quote that does not exist. #}
+    <span class="score-v">{% if s.has_quote %}{{ s.remaining | money }}{% else %}—{% endif %}</span>
     <span class="score-n">
       {% if not s.has_quote %}nothing to measure against
       {% elif s.over_but_accounted_for %}more material than quoted, all at quoted prices
@@ -182,14 +184,51 @@
 {# ---------------- MASTER QUOTES (one per vendor) ---------------- #}
 {% if not masters %}
 <div class="panel">
-  <h2 style="margin-bottom:3px">Master quote</h2>
-  <div class="muted">Every invoice price on this job is checked against this quote.</div>
+  <h2 style="margin-bottom:3px">Quotes</h2>
+  <div class="muted">Every invoice price on this job is checked against these.</div>
   <div class="empty" style="padding:24px">
-    <div class="big">No master quote on this job yet.</div>
+    <div class="big">No quote on this job yet.</div>
     Invoices can still be filed here, but their prices are not being checked against anything.
     <div style="margin-top:14px">
-      <a class="btn" href="/upload?job={{ job.job_number }}&amp;master=1">Upload the master quote</a>
+      <a class="btn" href="/upload?job={{ job.job_number }}&amp;master=1">Upload a quote</a>
     </div>
+  </div>
+
+  <div class="askquote">
+    {% if job.quote_chase_sent_at %}
+      <div class="muted" style="margin-bottom:10px">
+        Last asked <strong>{{ job.quote_chase_to or "somebody" }}</strong>
+        {{ job.quote_chase_sent_at | ago }}{% if job.quote_chase_count > 1 %},
+        {{ job.quote_chase_count }} times in total{% endif %}.
+      </div>
+    {% endif %}
+
+    {% if not can_send_mail %}
+      <div class="muted">Email is not set up on this server, so the quote cannot be
+        requested from here.</div>
+    {% elif chase_wait %}
+      <div class="muted">
+        Already asked in the last 24 hours. Can be asked again in about
+        {{ (chase_wait.total_seconds() // 3600) | int + 1 }} hour{{ "" if (chase_wait.total_seconds() // 3600) | int + 1 == 1 else "s" }}
+        — long enough that somebody up on a roof is not getting the same email
+        all afternoon.
+      </div>
+    {% else %}
+      <form method="post" action="/job/{{ job.job_number }}/ask-for-quote" class="askform">
+        <div class="askrow">
+          <label class="fld" style="margin:0">
+            <span>Your name</span>
+            <input type="text" name="actor" placeholder="Your name" required>
+          </label>
+          <label class="fld" style="margin:0">
+            <span>Send to <span class="hint" style="display:inline">— leave blank to use whoever JobNimbus has assigned</span></span>
+            <input type="text" name="to_address" placeholder="pm@addventuresinc.com"
+                   autocomplete="off">
+          </label>
+        </div>
+        <button class="btn" type="submit">Ask for the quote</button>
+      </form>
+    {% endif %}
   </div>
 </div>
 {% else %}
@@ -198,7 +237,8 @@
     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
       <div>
         <h2 style="margin-bottom:3px">
-          Master quote{% if masters|length > 1 %} · {{ master.vendor or "Unknown vendor" }}{% endif %}
+          {% if masters|length > 1 %}Quote · {{ master.vendor or "Unknown vendor" }}
+          {% else %}Quote{% endif %}
         </h2>
         <div class="muted">
           {% if masters|length == 1 %}{{ master.vendor or "Unknown vendor" }} · {% endif %}

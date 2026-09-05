@@ -59,6 +59,8 @@ from app.models import (
 )
 from app.pdf import PdfUnavailable, pdf_available, render_html_to_pdf
 from app.services import (
+    chase_cooldown_left,
+    chase_quote_now,
     ingest_scan,
     ST_ERROR,
     ST_NEEDS_JOB,
@@ -388,6 +390,8 @@ def job_detail(job_number: str, request: Request, session: Session = Depends(get
         # The strip at the top: the job added up, and the arithmetic that
         # catches what a per-invoice comparison structurally cannot see.
         s=jobsummary.build(job),
+        chase_wait=chase_cooldown_left(job),
+        can_send_mail=settings.can_send_mail(),
     ))
 
 
@@ -598,6 +602,27 @@ def confirm_receipt(
 
     label = "Delivery" if kind == RECEIPT_DELIVERY else "Work completion"
     return _redirect(f"/job/{job.job_number}", ok=f"{label} confirmed for {vendor or 'vendor'}.")
+
+
+@app.post("/job/{job_number}/ask-for-quote")
+def ask_for_quote_now(
+    job_number: str,
+    to_address: str = Form(""),
+    actor: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    """The button on a job with no quote on it."""
+    job = session.scalar(
+        select(Job).where(Job.job_number == normalize_job_number(job_number))
+    )
+    if job is None:
+        return _redirect("/jobs", err=f"No job {job_number}.")
+
+    sent, message = chase_quote_now(session, job, to_address, _actor(actor))
+    session.commit()
+    if sent:
+        return _redirect(f"/job/{job.job_number}", ok=message)
+    return _redirect(f"/job/{job.job_number}", err=message)
 
 
 @app.post("/job/{job_number}/change-order")
