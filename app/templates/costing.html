@@ -43,10 +43,7 @@
 {% if c.gaps %}
 <div class="panel" style="border-left:5px solid var(--ok-line);background:var(--warn-bg)">
   <h2 style="margin-bottom:6px;color:var(--ok-ink)">This is not the whole picture yet</h2>
-  <p class="muted" style="margin-top:0">
-    A margin figure that quietly leaves things out is worse than no margin
-    figure, so here is what is missing:
-  </p>
+  <p class="muted" style="margin-top:0">What is missing:</p>
   <ul style="margin:0;line-height:1.6">
     {% for gap in c.gaps %}<li>{{ gap }}</li>{% endfor %}
   </ul>
@@ -115,12 +112,12 @@
 {% endif %}
 
 <div class="panel">
-  <h2 style="margin-bottom:3px">The two numbers only you know</h2>
-  <div class="muted" style="margin-bottom:14px">
-    Everything above was read off documents. These two cannot be — our price to
-    the customer, and what our own crews cost.
-  </div>
-  <form method="post" action="/job/{{ job.job_number }}/costing" class="drawform">
+  <details class="add" {{ "open" if not c.has_revenue }}>
+    <summary>What we charged, and our own labour</summary>
+    <div class="muted" style="margin-bottom:14px">
+      Everything above was read off documents. These two cannot be.
+    </div>
+    <form method="post" action="/job/{{ job.job_number }}/costing" class="drawform">
     <label class="fld"><span>What we charged</span>
       <input type="text" name="contract_amount" inputmode="decimal"
              value="{{ job.contract_amount if job.contract_amount is not none else '' }}"
@@ -132,7 +129,8 @@
     <label class="fld wide"><span>Note</span>
       <input type="text" name="costing_note" value="{{ job.costing_note }}"
              placeholder="Anything the numbers above do not say"></label>
-    <div class="drawgo"><button class="btn" type="submit">Save</button></div>
-  </form>
+      <div class="drawgo"><button class="btn" type="submit">Save</button></div>
+    </form>
+  </details>
 </div>
 {% endblock %}

@@ -1506,38 +1506,80 @@ def cashflow_report_pdf(report_id: int, session: Session = Depends(get_session))
 
 # --- incoming: what has just arrived, newest first ------------------------
 
+@dataclass
+class Folder:
+    """One job, as it appears on the Invoices page."""
+
+    job: Job
+    invoice_count: int = 0
+    needs_review: int = 0        # nobody has decided on these yet
+    over_quote: int = 0
+    untrusted: int = 0           # provenance flags nobody has cleared
+    billed: Decimal = ZERO
+    has_quote: bool = False
+    latest: Optional[datetime] = None
+
+    @property
+    def wants_attention(self) -> bool:
+        return bool(self.needs_review or self.untrusted)
+
+
+def _folder(job: Job) -> Folder:
+    folder = Folder(job=job, has_quote=bool(job.masters))
+    for invoice in job.invoices:
+        if invoice.approval_status == APPROVAL_REJECTED:
+            continue
+        folder.invoice_count += 1
+        folder.billed += invoice.total or ZERO
+        if invoice.approval_status in (APPROVAL_PENDING, APPROVAL_HELD):
+            folder.needs_review += 1
+        if invoice.overbilled_amount and invoice.overbilled_amount > 0:
+            folder.over_quote += 1
+        # A bill from somebody we do not deal with must not become invisible
+        # because the page got tidier. It is the loudest thing on a folder.
+        if trust.blocking(trust.flags_for(invoice.document)):
+            folder.untrusted += 1
+        if folder.latest is None or invoice.created_at > folder.latest:
+            folder.latest = invoice.created_at
+    return folder
+
+
 INCOMING_LIMIT = 60
 
 
 @app.get("/incoming", response_class=HTMLResponse)
 def incoming(request: Request, session: Session = Depends(get_session)):
-    """Invoices in the order they arrived, newest at the top.
+    """One folder per job, not one long list of every invoice ever uploaded.
 
-    Deliberately not the Approvals queue, which is sorted by urgency - held
-    first, then blocked, then biggest variance. That ordering is right when
-    working through a backlog and wrong when the question is "what came in
-    today?", because a three-week-old dispute outranks the invoice that landed
-    an hour ago and the new one is never seen.
+    The flat list was right when there was one job on the board. With eight
+    running it stops answering the only question somebody opens this page to
+    ask, which is *which job needs me*. A job with three invoices nobody has
+    looked at is a different thing from a job with three invoices that are all
+    settled, and in a single stream they look identical.
 
-    Here, arrival order is the only order. Nothing old can float to the top.
+    So: folders, and the ones with something waiting come first and carry a
+    mark. Everything else is ordered by what happened most recently.
     """
-    which = (request.query_params.get("show") or "").strip()
+    jobs = session.scalars(
+        select(Job)
+        .join(Invoice, Invoice.job_id == Job.id)
+        .distinct()
+        .options(
+            selectinload(Job.invoices).selectinload(Invoice.document),
+            selectinload(Job.quotes),
+        )
+    ).all()
 
-    stmt = select(Invoice).order_by(Invoice.created_at.desc())
-    if which == "unreviewed":
-        stmt = stmt.where(Invoice.approval_status.in_([APPROVAL_PENDING, APPROVAL_HELD]))
-    elif which == "over":
-        stmt = stmt.where(Invoice.overbilled_amount > 0)
+    folders = [_folder(job) for job in jobs]
+    # Anything waiting on a person first, then by the most recent arrival.
+    # Within "waiting", the job with the most waiting is the worse problem.
+    folders.sort(key=lambda f: (-f.untrusted, -f.needs_review, -f.over_quote,
+                                -(f.latest.timestamp() if f.latest else 0)))
 
-    invoices = session.scalars(stmt.limit(INCOMING_LIMIT)).all()
-
-    # Documents that arrived but could not be filed are arrivals too, and they
-    # are invisible on this page unless they are counted somewhere.
     stuck = session.scalar(
         select(func.count(Document.id))
         .where(Document.status.in_([ST_NEEDS_JOB, ST_ERROR]))
     ) or 0
-
     unreviewed = session.scalar(
         select(func.count(Invoice.id))
         .where(Invoice.approval_status.in_([APPROVAL_PENDING, APPROVAL_HELD]))
@@ -1545,9 +1587,7 @@ def incoming(request: Request, session: Session = Depends(get_session)):
 
     return templates.TemplateResponse(request, "incoming.html", _ctx(
         request, session,
-        invoices=invoices,
-        show=which,
+        folders=folders,
         stuck=stuck,
         unreviewed=unreviewed,
-        limit=INCOMING_LIMIT,
     ))

@@ -15,21 +15,19 @@
   </div>
 </div>
 
-{# ---------------- THE JOB, ADDED UP ---------------- #}
-{#  The five numbers that answer "where is this job?" without opening
-    anything. The last two are the ones nobody has today. #}
+{# ---------------- THE JOB, ADDED UP ----------------
+    Four, not five. "Left to bill" was quoted minus billed, which the first two
+    already say, and it was the card that needed the longest caption to stop it
+    reading as an overrun. The captions are short now or absent: a number that
+    needs a sentence under it every time is a number in the wrong place. #}
 <div class="scorecard">
   <div class="score">
     <span class="score-k">Quoted</span>
     <span class="score-v">{{ s.quoted | money }}</span>
     <span class="score-n">
-      {% if s.change_orders %}
-        + {{ s.change_orders | money }} in change orders
-      {% elif not s.has_quote %}
-        no quote on this job
-      {% else %}
-        {{ masters|length }} quote{{ "" if masters|length == 1 else "s" }} on file
-      {% endif %}
+      {% if not s.has_quote %}no quote on this job
+      {% elif s.change_orders %}+ {{ s.change_orders | money }} in change orders
+      {% else %}{{ masters|length }} quote{{ "" if masters|length == 1 else "s" }}{% endif %}
       {% if s.proposed_change_orders %}
         <a href="#change-orders" class="score-flag">
           + {{ s.proposed_total | money }} awaiting approval</a>
@@ -37,24 +35,16 @@
     </span>
   </div>
 
-  <div class="score{{ ' bad' if s.needs_explaining }}">
-    <span class="score-k">Billed to date</span>
+  <div class="score">
+    <span class="score-k">Billed</span>
     <span class="score-v">{{ s.invoiced | money }}</span>
     <span class="score-n">
-      {{ s.invoice_count }} invoice{{ "" if s.invoice_count == 1 else "s" }}{% if s.percent_billed is not none %} · {{ s.percent_billed }}% of authorised{% endif %}
-    </span>
-  </div>
-
-  <div class="score">
-    <span class="score-k">Left to bill</span>
-    {# With no quote there is no such number. Showing minus the amount billed
-       reads as an overrun against a quote that does not exist. #}
-    <span class="score-v">{% if s.has_quote %}{{ s.remaining | money }}{% else %}—{% endif %}</span>
-    <span class="score-n">
-      {% if not s.has_quote %}nothing to measure against
-      {% elif s.over_but_accounted_for %}more material than quoted, all at quoted prices
-      {% elif s.remaining < 0 %}billed past the quote
-      {% else %}against quote plus change orders{% endif %}
+      {# Billed past the quote looks alarming next to it, so the one case where
+         that is entirely normal has to say so right here. #}
+      {% if s.over_but_accounted_for %}more material than quoted, all at quoted prices
+      {% else %}{{ s.invoice_count }} invoice{{ "" if s.invoice_count == 1 else "s" }}
+        {%- if s.has_quote %} · {{ s.remaining | money }} left{% endif %}
+      {% endif %}
     </span>
   </div>
 
@@ -62,11 +52,8 @@
     <span class="score-k">Not on the quote</span>
     <span class="score-v">{{ s.off_quote | money }}</span>
     <span class="score-n">
-      {% if s.off_quote_lines %}
-        {{ s.off_quote_lines }} line{{ "" if s.off_quote_lines == 1 else "s" }} nobody quoted a price for
-      {% else %}
-        every billed line traced to the quote
-      {% endif %}
+      {% if s.off_quote_lines %}{{ s.off_quote_lines }} line{{ "" if s.off_quote_lines == 1 else "s" }}
+      {% else %}every line traced{% endif %}
     </span>
   </div>
 
@@ -74,15 +61,9 @@
     <span class="score-k">Caught by checking</span>
     <span class="score-v">{{ s.found | money }}</span>
     <span class="score-n">
-      {% if s.found <= 0 %}
-        nothing billed above quote
-      {% elif s.approved_anyway > 0 and s.still_held > 0 %}
-        {{ s.still_held | money }} still held · {{ s.approved_anyway | money }} approved anyway
-      {% elif s.approved_anyway > 0 %}
-        approved anyway — not recovered
-      {% else %}
-        held, not yet paid
-      {% endif %}
+      {% if s.found <= 0 %}nothing over quote
+      {% elif s.approved_anyway > 0 %}{{ s.approved_anyway | money }} approved anyway
+      {% else %}held, not paid{% endif %}
     </span>
   </div>
 </div>
@@ -299,8 +280,29 @@
         </tbody>
       </table>
     </details>
+
   </div>
   {% endfor %}
+
+<div class="panel tight">
+  <details class="add" >
+    <summary>Mark a quote as a subcontract</summary>
+    <div class="muted" style="margin-bottom:12px">
+      That vendor's invoices then get the contract ceiling on top of the
+      ordinary line check — a contract caps what they can bill in total, a
+      material quote never does.
+    </div>
+    {% for m in masters %}
+    <form method="post" action="/job/{{ job.job_number }}/subcontract" class="checkform"
+          style="justify-content:flex-start;margin-bottom:8px">
+      <input type="hidden" name="quote_id" value="{{ m.id }}">
+      <input type="hidden" name="is_subcontract" value="1">
+      <span>{{ m.vendor or "Unknown" }} · {{ m.total | money }}</span>
+      <button class="btn ghost sm" type="submit">This is a subcontract</button>
+    </form>
+    {% endfor %}
+  </details>
+</div>
 {% endif %}
 
 {% if superseded %}
@@ -315,14 +317,16 @@
 {% endif %}
 
 
+
+
 {# ---------------- RECEIVING + CHANGE ORDERS ---------------- #}
 <div class="row" style="align-items:stretch">
 
   <div class="panel" id="receipts" style="flex:1;min-width:320px">
     <h2 style="margin-bottom:3px">Receiving confirmations</h2>
     <div class="muted" style="margin-bottom:12px">
-      An invoice cannot be approved until someone confirms the material arrived
-      or the work was completed. This is the third leg of the match.
+      The third leg of the match: nothing gets approved until somebody confirms
+      it arrived.
     </div>
 
     {% if job.receipts %}
@@ -348,47 +352,44 @@
       </div>
     {% endif %}
 
-    <form method="post" action="/job/{{ job.job_number }}/receipt">
-      <div class="row" style="margin-bottom:9px">
-        <div>
-          <label class="fld" for="r-vendor">Vendor</label>
-          <input type="text" id="r-vendor" name="vendor" required list="job-vendors"
-                 placeholder="Who delivered it" autocomplete="off">
+    <details class="add">
+  <summary>Confirm a delivery</summary>
+  <form method="post" action="/job/{{ job.job_number }}/receipt">
+        <div class="row" style="margin-bottom:9px">
+          <div>
+            <label class="fld" for="r-vendor">Vendor</label>
+            <input type="text" id="r-vendor" name="vendor" required list="job-vendors"
+                   placeholder="Who delivered it" autocomplete="off">
+          </div>
+          <div>
+            <label class="fld" for="r-kind">What happened</label>
+            <select id="r-kind" name="kind">
+              <option value="delivery">Material delivered</option>
+              <option value="work_completion">Work completed</option>
+            </select>
+          </div>
         </div>
-        <div>
-          <label class="fld" for="r-kind">What happened</label>
-          <select id="r-kind" name="kind">
-            <option value="delivery">Material delivered</option>
-            <option value="work_completion">Work completed</option>
-          </select>
+        <div class="row" style="margin-bottom:11px">
+          <div>
+            <label class="fld" for="r-ref">Packing slip / reference</label>
+            <input type="text" id="r-ref" name="reference" placeholder="Optional" autocomplete="off">
+          </div>
+          <div>
+            <label class="fld" for="r-by">Confirmed by</label>
+            <input type="text" id="r-by" name="confirmed_by" required
+                   placeholder="Your name" autocomplete="off">
+          </div>
         </div>
-      </div>
-      <div class="row" style="margin-bottom:11px">
-        <div>
-          <label class="fld" for="r-ref">Packing slip / reference</label>
-          <input type="text" id="r-ref" name="reference" placeholder="Optional" autocomplete="off">
-        </div>
-        <div>
-          <label class="fld" for="r-by">Confirmed by</label>
-          <input type="text" id="r-by" name="confirmed_by" required
-                 placeholder="Your name" autocomplete="off">
-        </div>
-      </div>
-      <button class="btn" type="submit">Confirm receipt</button>
-    </form>
+        <button class="btn" type="submit">Confirm receipt</button>
+      </form>
+</details>
   </div>
 
   <div class="panel" id="change-orders" style="flex:1;min-width:320px">
     <h2 style="margin-bottom:3px">Vendor change orders</h2>
     <div class="muted" style="margin-bottom:12px">
-      A supplier's written authorisation to charge above their quoted
-      <em>price</em>. Rare — using more material than quoted needs nothing here,
-      because the unit price is unchanged, and different material usually comes
-      as its own quote. This is only for when a vendor's price itself moves.
-      <br>
-      Change orders to the customer — our price to the association going up —
-      are not these. They belong on the cash flow side, where they raise the
-      contract value being billed out.
+      Only for when a supplier's own price moves. Using more material than
+      quoted needs nothing here.
     </div>
 
     {% set proposed = job.change_orders | selectattr("status", "equalto", "proposed") | list %}
@@ -458,37 +459,40 @@
       <div class="muted" style="margin-bottom:14px">None on this job.</div>
     {% endif %}
 
-    <form method="post" action="/job/{{ job.job_number }}/change-order">
-      <div class="row" style="margin-bottom:9px">
-        <div>
-          <label class="fld" for="c-vendor">Vendor</label>
-          <input type="text" id="c-vendor" name="vendor" required list="job-vendors"
-                 autocomplete="off">
+    <details class="add">
+  <summary>Record a change order</summary>
+  <form method="post" action="/job/{{ job.job_number }}/change-order">
+        <div class="row" style="margin-bottom:9px">
+          <div>
+            <label class="fld" for="c-vendor">Vendor</label>
+            <input type="text" id="c-vendor" name="vendor" required list="job-vendors"
+                   autocomplete="off">
+          </div>
+          <div>
+            <label class="fld" for="c-amount">Amount authorised</label>
+            <input type="text" id="c-amount" name="amount" required placeholder="1200.00"
+                   autocomplete="off">
+          </div>
         </div>
-        <div>
-          <label class="fld" for="c-amount">Amount authorised</label>
-          <input type="text" id="c-amount" name="amount" required placeholder="1200.00"
-                 autocomplete="off">
+        <div class="row" style="margin-bottom:9px">
+          <div>
+            <label class="fld" for="c-number">Change order no.</label>
+            <input type="text" id="c-number" name="number" placeholder="CO-1" autocomplete="off">
+          </div>
+          <div>
+            <label class="fld" for="c-by">Approved by</label>
+            <input type="text" id="c-by" name="approved_by" required placeholder="Your name"
+                   autocomplete="off">
+          </div>
         </div>
-      </div>
-      <div class="row" style="margin-bottom:9px">
-        <div>
-          <label class="fld" for="c-number">Change order no.</label>
-          <input type="text" id="c-number" name="number" placeholder="CO-1" autocomplete="off">
+        <div style="margin-bottom:11px">
+          <label class="fld" for="c-desc">What changed</label>
+          <input type="text" id="c-desc" name="description"
+                 placeholder="e.g. hidden rot at north elevation" autocomplete="off">
         </div>
-        <div>
-          <label class="fld" for="c-by">Approved by</label>
-          <input type="text" id="c-by" name="approved_by" required placeholder="Your name"
-                 autocomplete="off">
-        </div>
-      </div>
-      <div style="margin-bottom:11px">
-        <label class="fld" for="c-desc">What changed</label>
-        <input type="text" id="c-desc" name="description"
-               placeholder="e.g. hidden rot at north elevation" autocomplete="off">
-      </div>
-      <button class="btn" type="submit">Record change order</button>
-    </form>
+        <button class="btn" type="submit">Record change order</button>
+      </form>
+</details>
   </div>
 </div>
 
@@ -541,28 +545,7 @@
 </div>
 {% endif %}
 
-{% if masters %}
-<div class="panel">
-  <details>
-    <summary style="cursor:pointer;font-weight:700;color:var(--brand);font-size:.92rem">
-      Is one of these quotes actually a subcontract?</summary>
-    <div class="muted" style="margin:8px 0">
-      Mark it and that vendor's invoices get the contract ceiling on top of the
-      ordinary line-by-line check — a contract caps what they can bill in total,
-      which a material quote never does.
-    </div>
-    {% for m in masters %}
-    <form method="post" action="/job/{{ job.job_number }}/subcontract" class="checkform"
-          style="justify-content:flex-start;margin-bottom:8px">
-      <input type="hidden" name="quote_id" value="{{ m.id }}">
-      <input type="hidden" name="is_subcontract" value="1">
-      <span>{{ m.vendor or "Unknown" }} · {{ m.total | money }}</span>
-      <button class="btn ghost sm" type="submit">This is a subcontract</button>
-    </form>
-    {% endfor %}
-  </details>
-</div>
-{% endif %}
+
 
 {# ---------------- INVOICES ---------------- #}
 <div class="panel" style="padding:0;overflow:hidden">

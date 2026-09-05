@@ -1,97 +1,72 @@
 {% extends "base.html" %}
-{% block title %}Incoming · {{ site_name }}{% endblock %}
+{% block title %}Invoices · {{ site_name }}{% endblock %}
 
 {% block content %}
 <div class="pagehead">
   <div>
-    <h1>Incoming</h1>
-    <p class="sub">Invoices in the order they arrived — newest first. Nothing old
-      floats to the top.</p>
+    <h1>Invoices</h1>
+    <p class="sub">One folder per job. Anything waiting on you comes first.</p>
   </div>
-  <div><a class="btn ghost" href="/approvals">Approvals queue</a></div>
+  <div style="display:flex;gap:9px;flex-wrap:wrap">
+    {# Shown even at zero. Hiding a queue when it is empty is how somebody
+       stops knowing it exists, and then does not look when it is not. #}
+    <a class="btn ghost" href="/approvals">To review{% if unreviewed %} ({{ unreviewed }}){% endif %}</a>
+    <a class="btn ghost" href="/inbox">No job number{% if stuck %} ({{ stuck }}){% endif %}</a>
+    <a class="btn" href="/upload">Upload</a>
+  </div>
 </div>
 
-<div class="tabs">
-  <a class="tab {{ 'on' if not show }}" href="/incoming">Everything</a>
-  <a class="tab {{ 'on' if show == 'unreviewed' }}" href="/incoming?show=unreviewed">
-    Not yet reviewed{% if unreviewed %} <span class="pill">{{ unreviewed }}</span>{% endif %}</a>
-  <a class="tab {{ 'on' if show == 'over' }}" href="/incoming?show=over">Over quote</a>
-  <a class="tab" href="/inbox">No job number{% if stuck %} <span class="pill">{{ stuck }}</span>{% endif %}</a>
-</div>
-
-{% if stuck %}
-<div class="banner warnb">
-  <strong>{{ stuck }} document{{ "" if stuck == 1 else "s" }}</strong> arrived but
-  could not be filed — no job number, or it could not be read.
-  <a href="/inbox">Open the Inbox</a> to place them.
-</div>
-{% endif %}
-
-{% if not invoices %}
+{% if not folders %}
   <div class="panel">
-    <p class="muted" style="margin:0">
-      {% if show == 'unreviewed' %}Nothing is waiting to be reviewed.
-      {% elif show == 'over' %}Nothing has been billed over quote.
-      {% else %}Nothing has arrived yet. Invoices appear here as they are uploaded
-        or emailed in.{% endif %}
-    </p>
+    <div class="empty">
+      <div class="big">No invoices yet.</div>
+      They appear here as folders, one per job, as soon as any are uploaded or
+      emailed in.
+      <div style="margin-top:14px">
+        <a class="btn" href="/upload">Upload an invoice</a>
+      </div>
+    </div>
   </div>
 {% else %}
-<div class="feed">
-  {% for inv in invoices %}
-  {% set tflags = trust_flags(inv.document) %}
-  {% set tblocked = tflags | selectattr("blocks") | list %}
-  <a class="item {{ 'attn' if tblocked or (inv.overbilled_amount and inv.overbilled_amount > 0) else '' }}"
-     href="/invoice/{{ inv.id }}">
-    <div class="item-when">
-      <strong>{{ inv.created_at | ago }}</strong>
-      <span>{% if inv.document and inv.document.source == 'email' %}emailed in{% else %}uploaded{% endif %}</span>
-    </div>
 
-    <div class="item-main">
-      <div class="item-top">
-        <strong>{{ inv.vendor or "Unknown vendor" }}</strong>
-        <span class="muted">{{ inv.invoice_number or "no number" }}</span>
-        {% if inv.job %}<span class="jobtag">Job {{ inv.job.job_number }}</span>{% endif %}
-      </div>
-      <div class="item-sub">
-        {% if inv.lines_over %}<span class="chip over">{{ inv.lines_over }} over</span>{% endif %}
-        {% if inv.lines_under %}<span class="chip under">{{ inv.lines_under }} under</span>{% endif %}
-        {% if inv.lines_match %}<span class="chip ok">{{ inv.lines_match }} as quoted</span>{% endif %}
-        {% if inv.lines_unmatched %}<span class="chip none">{{ inv.lines_unmatched }} not on quote</span>{% endif %}
-        {% if not inv.quote_id %}<span class="chip none">no quote</span>{% endif %}
-        {% if tblocked %}<span class="chip over">check the sender</span>
-        {% elif tflags %}<span class="chip none">new sender</span>{% endif %}
-      </div>
-    </div>
-
-    <div class="item-money">
-      <strong>{{ inv.total | money }}</strong>
-      {% if inv.overbilled_amount and inv.overbilled_amount > 0 %}
-        <span class="neg">+{{ inv.overbilled_amount | money }} over</span>
-      {% elif inv.underbilled_amount and inv.underbilled_amount > 0 %}
-        <span class="pos">&minus;{{ inv.underbilled_amount | money }} under</span>
-      {% else %}
-        <span class="muted">as quoted</span>
+<div class="folders">
+  {% for f in folders %}
+  <a class="folder{{ ' attn' if f.wants_attention }}" href="/job/{{ f.job.job_number }}">
+    <div class="folder-top">
+      <span class="folder-no">{{ f.job.job_number }}</span>
+      {% if f.wants_attention %}
+        <span class="folder-dot" title="{{ f.needs_review }} to look at"></span>
       {% endif %}
     </div>
-
-    <div class="item-status">
-      <span class="status s-{{ inv.approval_status }}">
-        {{ {"pending_review": "Review",
-            "held": "Held",
-            "approved": "Approved",
-            "paid": "Paid",
-            "rejected": "Rejected"}.get(inv.approval_status, inv.approval_status) }}
-      </span>
+    <div class="folder-name">{{ f.job.name or "No job name" }}</div>
+    <div class="folder-meta">
+      {{ f.invoice_count }} invoice{{ "" if f.invoice_count == 1 else "s" }}
+      · {{ f.billed | money }}
+    </div>
+    <div class="folder-tags">
+      {% if f.untrusted %}
+        <span class="chip c-over">check the sender</span>
+      {% endif %}
+      {% if f.needs_review %}
+        <span class="chip c-over">{{ f.needs_review }} to look at</span>
+      {% endif %}
+      {% if f.over_quote %}
+        <span class="chip c-warn">{{ f.over_quote }} over quote</span>
+      {% endif %}
+      {% if not f.has_quote %}
+        <span class="chip c-none">no quote</span>
+      {% endif %}
+      {% if not f.needs_review and not f.over_quote and not f.untrusted and f.has_quote %}
+        <span class="chip c-ok">all checked</span>
+      {% endif %}
     </div>
   </a>
   {% endfor %}
 </div>
 
-{% if invoices | length >= limit %}
-  <p class="muted" style="font-size:.85rem">Showing the {{ limit }} most recent.
-    Older invoices are on their job pages.</p>
-{% endif %}
+<p class="muted" style="font-size:.9rem">
+  Open a folder to see that job's invoices alongside the quotes they were
+  checked against.
+</p>
 {% endif %}
 {% endblock %}

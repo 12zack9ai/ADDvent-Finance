@@ -200,6 +200,48 @@ div.grid{display:grid;gap:16px}
 tr.bandrow td{background:var(--brand-lt);color:#1e40af;font-weight:800;
               font-size:.82rem;letter-spacing:.05em;text-transform:uppercase;
               padding-top:9px;padding-bottom:9px}
+/* ---------- disclosures ----------
+   Data entry is rare and reading is constant, so every form that is not the
+   point of its page lives behind one of these. It reads as a button, because
+   a bare triangle is not something a person clicks on purpose. */
+details.add > summary{
+  display:inline-flex;align-items:center;gap:8px;cursor:pointer;
+  background:var(--surface);color:var(--brand);border:1.5px solid #cbd9f2;
+  border-radius:var(--pill);padding:9px 17px;font-weight:700;font-size:.94rem;
+  list-style:none;user-select:none;
+}
+details.add > summary::-webkit-details-marker{display:none}
+details.add > summary::before{content:"+";font-size:1.15rem;line-height:1;font-weight:800}
+details.add[open] > summary::before{content:"\2212"}
+details.add > summary:hover{background:var(--brand-lt)}
+details.add[open] > summary{margin-bottom:16px}
+details.add{margin-top:4px}
+
+/* ---------- job folders on the Invoices page ----------
+   Deliberately small and repetitive: eight of these should read as eight
+   folders on a shelf, scannable in one pass, with the ones that need
+   somebody carrying a mark you cannot miss. */
+.folders{display:grid;grid-template-columns:repeat(auto-fill,minmax(215px,1fr));
+         gap:14px;margin-bottom:20px}
+.folder{
+  display:flex;flex-direction:column;gap:5px;background:var(--surface);
+  border:1px solid var(--rule);border-top:4px solid var(--rule);
+  border-radius:var(--r-sm);padding:15px 17px 14px;text-decoration:none;
+  color:inherit;box-shadow:var(--sh-1);min-width:0;
+  transition:transform .12s ease,box-shadow .18s ease,border-color .18s ease;
+}
+.folder:hover{text-decoration:none;transform:translateY(-2px);
+              box-shadow:var(--sh-3);border-color:#c7d7f3}
+.folder.attn{border-top-color:var(--over-line)}
+.folder-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.folder-no{font-size:1.35rem;font-weight:800;letter-spacing:-.02em;
+           font-variant-numeric:tabular-nums}
+.folder-dot{width:11px;height:11px;border-radius:50%;background:var(--over-line);
+            flex:none;box-shadow:0 0 0 3px var(--over-bg)}
+.folder-name{font-size:.95rem;color:var(--soft);overflow-wrap:anywhere}
+.folder-meta{font-size:.85rem;color:var(--mute)}
+.folder-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:5px}
+
 .askquote{border-top:1px solid var(--rule);margin-top:18px;padding-top:16px}
 .askform .askrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
                  gap:14px;margin-bottom:13px}

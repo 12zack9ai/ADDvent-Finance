@@ -77,11 +77,6 @@
   </table>
 </div>
 
-<p class="muted" style="font-size:.9rem">
-  Ordered by how long each has been sitting, and by nothing else. Sorting by
-  amount or by job has the same failure — the request nobody has looked at stays
-  the request nobody has looked at.
-</p>
 {% else %}
   <div class="panel">
     <div class="empty">
@@ -93,14 +88,13 @@
 {% endif %}
 
 <div class="panel">
-  <h2 style="margin-bottom:3px">Request a check</h2>
-  <div class="muted" style="margin-bottom:14px">
-    Not only for subcontractors — permits, deposits and fees belong here too.
-    A subcontractor's <em>invoice</em> is not one of these; it goes through
-    <a href="/upload">Upload</a> like any other invoice and gets checked against
-    their contract.
-  </div>
-  <form method="post" action="/checks/new" class="drawform">
+  <details class="add">
+    <summary>Request a check</summary>
+    <div class="muted" style="margin-bottom:14px">
+      A subcontractor's <em>invoice</em> is not one of these — that goes through
+      <a href="/upload">Upload</a> and gets checked against their contract.
+    </div>
+    <form method="post" action="/checks/new" class="drawform">
     <label class="fld"><span>Pay to</span>
       <input type="text" name="payee" required placeholder="Township of Oakland"
              autocomplete="off"></label>
@@ -119,7 +113,8 @@
       <input type="date" name="requested_on"></label>
     <label class="fld wide"><span>What it is for</span>
       <input type="text" name="description" placeholder="Roofing permit, 63 Winding Ridge"></label>
-    <div class="drawgo"><button class="btn" type="submit">Record check request</button></div>
-  </form>
+      <div class="drawgo"><button class="btn" type="submit">Record check request</button></div>
+    </form>
+  </details>
 </div>
 {% endblock %}

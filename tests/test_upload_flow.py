@@ -302,40 +302,77 @@ def test_the_apps_own_log_lines_are_visible():
 
 # --- incoming: arrival order, not urgency order --------------------------
 
-def test_incoming_lists_invoices_newest_first(client, tmp_path):
-    """The point of the page: an invoice that landed an hour ago must not sit
-    below a three-week-old dispute."""
+def test_invoices_are_folders_one_per_job(client, tmp_path):
+    """With eight jobs running, a single stream of every invoice ever uploaded
+    stops answering the question somebody opens this page to ask: which job
+    needs me?"""
     from datetime import datetime, timedelta
     from app.models import Invoice
 
+    from app.models import Quote
+
     session = SessionLocal()
-    job = session.query(Job).first() or Job(job_number="260000")
-    if job.id is None:
-        session.add(job)
-        session.flush()
+    quiet = Job(job_number="260001", name="Bergen Point")
+    busy = Job(job_number="260002", name="Daul Gardens")
+    session.add_all([quiet, busy])
+    session.flush()
+    session.add(Quote(job_id=quiet.id, document_id=1, vendor="ABC",
+                      is_master=True, total=D("500.00")))
     now = datetime.utcnow()
 
-    def arrived(tag, when):
-        doc = Document(filename=f"{tag}.pdf", sha256=f"sha-{tag}",
-                       stored_path=f"/tmp/{tag}.pdf", kind="invoice",
-                       source="email", status="matched", received_at=when)
-        session.add(doc)
+    def doc(tag):
+        d = Document(filename=f"{tag}.pdf", sha256=f"sha-{tag}",
+                     stored_path=f"/tmp/{tag}.pdf", kind="invoice",
+                     source="email", status="matched")
+        session.add(d)
         session.flush()
-        return doc
+        return d.id
 
     session.add_all([
-        Invoice(job_id=job.id, document_id=arrived("old", now - timedelta(days=21)).id,
-                vendor="Old Vendor", invoice_number="OLD-1", total=D("100.00"),
-                approval_status="held", created_at=now - timedelta(days=21)),
-        Invoice(job_id=job.id, document_id=arrived("new", now - timedelta(hours=1)).id,
-                vendor="New Vendor", invoice_number="NEW-1", total=D("200.00"),
-                approval_status="pending_review", created_at=now - timedelta(hours=1)),
+        # Settled: nothing waiting on anybody.
+        Invoice(job_id=quiet.id, document_id=doc("q1"), vendor="ABC",
+                invoice_number="Q-1", total=D("100.00"),
+                approval_status="paid", created_at=now - timedelta(days=1)),
+        # Two nobody has looked at.
+        Invoice(job_id=busy.id, document_id=doc("b1"), vendor="ABC",
+                invoice_number="B-1", total=D("200.00"),
+                approval_status="pending_review", created_at=now - timedelta(days=9)),
+        Invoice(job_id=busy.id, document_id=doc("b2"), vendor="ABC",
+                invoice_number="B-2", total=D("300.00"),
+                approval_status="held", created_at=now - timedelta(days=8)),
     ])
     session.commit()
+    session.close()
 
     body = client.get("/incoming").text
-    assert body.index("NEW-1") < body.index("OLD-1")
-    session.close()
+
+    # A folder per job, opening onto the job itself.
+    assert 'href="/job/260001"' in body
+    assert 'href="/job/260002"' in body
+    assert "Daul Gardens" in body and "Bergen Point" in body
+
+    # The one with work waiting comes first and is marked; the settled one is
+    # not. That distinction is the entire point of the page.
+    assert body.index("260002") < body.index("260001")
+    assert "2 to look at" in body
+    assert "folder-dot" in body
+    assert "all checked" in body
+
+    # And it is folders now, not a stream of individual invoices.
+    assert "B-1" not in body and "Q-1" not in body
+
+
+def test_a_folder_says_when_a_job_has_no_quote(client, tmp_path):
+    upload(client, _pdf(tmp_path, "i.pdf", "noq"), INVOICE_PAYLOAD, job_number="260000")
+    assert "no quote" in client.get("/incoming").text
+
+
+def test_both_exception_queues_stay_visible_when_empty(client):
+    """Hiding a queue when it is empty is how somebody stops knowing it exists,
+    and then does not look when it is not."""
+    body = client.get("/incoming").text
+    assert 'href="/approvals"' in body
+    assert 'href="/inbox"' in body
 
 
 def test_incoming_can_be_narrowed_to_what_still_needs_review(client):
