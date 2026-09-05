@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app import (
     accounting, auth, cashflow, cashflow_pdf, fmt, invoice_pdf, jobnimbus,
-    jobsummary, scheduler, trust,
+    jobsummary, scheduler, subs, trust,
 )
 from app.config import settings
 from app.db import get_session, init_db, to_decimal
@@ -32,7 +32,7 @@ from app.approval import (
     find_receipt,
     route,
 )
-from app.matching import norm_vendor
+from app.matching import norm_vendor, vendor_matches
 from app.models import (
     CashReport,
     APPROVAL_APPROVED,
@@ -41,6 +41,12 @@ from app.models import (
     APPROVAL_PENDING,
     APPROVAL_LABELS,
     APPROVAL_REJECTED,
+    CHECK_APPROVED,
+    CHECK_PAID,
+    CHECK_REJECTED,
+    CHECK_REQUESTED,
+    CHECK_LABELS,
+    CheckRequest,
     CO_APPROVED,
     CO_PROPOSED,
     CO_REJECTED,
@@ -59,6 +65,7 @@ from app.models import (
 )
 from app.pdf import PdfUnavailable, pdf_available, render_html_to_pdf
 from app.services import (
+    recompare_job,
     chase_cooldown_left,
     chase_quote_now,
     ingest_scan,
@@ -240,6 +247,12 @@ def _ctx(request: Request, session: Session, **kw) -> dict:
         "messages": _messages(request),
         "q": request.query_params.get("q", ""),
         "unassigned_count": count,
+        # On the nav, because a subcontractor waiting on a check is the one
+        # thing here that somebody outside the building is actively chasing.
+        "checks_waiting": session.scalar(
+            select(func.count(CheckRequest.id))
+            .where(CheckRequest.status == CHECK_REQUESTED)
+        ) or 0,
     }
     base.update(kw)
     return base
@@ -393,6 +406,11 @@ def job_detail(job_number: str, request: Request, session: Session = Depends(get
         chase_wait=chase_cooldown_left(job),
         can_send_mail=settings.can_send_mail(),
         jobnimbus_on=jobnimbus.configured(),
+        subs=subs.positions(job),
+        check_verdict={
+            r.id: subs.check(job, r) for r in job.check_requests if r.is_open
+        },
+        check_labels=CHECK_LABELS,
     ))
 
 
@@ -854,6 +872,170 @@ def clear_trust_flags(
         f"/invoice/{invoice.id}",
         ok="Recorded. The invoice can now be reviewed on its numbers.",
     )
+
+
+# --- subcontractors: check requests ---------------------------------------
+
+@app.get("/checks", response_class=HTMLResponse)
+def check_queue(request: Request, session: Session = Depends(get_session)):
+    """Who is waiting to be paid, longest first."""
+    jobs = session.scalars(
+        select(Job)
+        .join(CheckRequest, CheckRequest.job_id == Job.id)
+        .where(CheckRequest.status == CHECK_REQUESTED)
+        .distinct()
+        .options(
+            selectinload(Job.check_requests),
+            selectinload(Job.quotes),
+            selectinload(Job.change_orders),
+        )
+    ).all()
+
+    rows = subs.queue(jobs)
+    return templates.TemplateResponse(request, "checks.html", _ctx(
+        request, session,
+        rows=rows,
+        total=subs.total_waiting(rows),
+        bands=[label for _, _, label in subs.AGE_BANDS],
+    ))
+
+
+@app.post("/job/{job_number}/subcontract")
+def mark_subcontract(
+    job_number: str,
+    quote_id: int = Form(...),
+    is_subcontract: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    """Say that a quote on this job is a subcontract, not a material list."""
+    job = session.scalar(
+        select(Job).where(Job.job_number == normalize_job_number(job_number))
+    )
+    if job is None:
+        return _redirect("/jobs", err=f"No job {job_number}.")
+
+    quote = session.get(Quote, quote_id)
+    if quote is None or quote.job_id != job.id:
+        return _redirect(f"/job/{job.job_number}", err="No such quote on this job.")
+
+    quote.is_subcontract = bool(is_subcontract)
+    # Its lines were being used to price material invoices, or are about to be.
+    recompare_job(session, job)
+    session.commit()
+
+    what = "a subcontract" if quote.is_subcontract else "a material quote"
+    return _redirect(
+        f"/job/{job.job_number}",
+        ok=f"{quote.vendor or 'That quote'} is now recorded as {what}.",
+    )
+
+
+@app.post("/job/{job_number}/check-request")
+def add_check_request(
+    job_number: str,
+    vendor: str = Form(""),
+    amount: str = Form(""),
+    reference: str = Form(""),
+    description: str = Form(""),
+    requested_on: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    """Record a subcontractor's request to be paid."""
+    job = session.scalar(
+        select(Job).where(Job.job_number == normalize_job_number(job_number))
+    )
+    if job is None:
+        return _redirect("/jobs", err=f"No job {job_number}.")
+
+    value = to_decimal(amount)
+    if value is None or value <= 0:
+        return _redirect(f"/job/{job.job_number}#subs",
+                         err="A check request needs an amount.")
+    if not vendor.strip():
+        return _redirect(f"/job/{job.job_number}#subs",
+                         err="Say which subcontractor is asking.")
+
+    on = None
+    if requested_on.strip():
+        try:
+            on = date.fromisoformat(requested_on.strip())
+        except ValueError:
+            return _redirect(f"/job/{job.job_number}#subs",
+                             err="The request date was not a date.")
+
+    contract = next(
+        (q for q in job.subcontracts if vendor_matches(q.vendor, vendor)), None
+    )
+    session.add(CheckRequest(
+        job_id=job.id,
+        subcontract_id=contract.id if contract else None,
+        vendor=vendor.strip(),
+        amount=value,
+        reference=reference.strip(),
+        description=description.strip(),
+        requested_on=on,
+    ))
+    session.commit()
+    return _redirect(f"/job/{job.job_number}#subs",
+                     ok=f"Check request recorded for {vendor.strip()}.")
+
+
+@app.post("/check/{check_id}/decide")
+def decide_check_request(
+    check_id: int,
+    decision: str = Form(...),
+    actor: str = Form(""),
+    note: str = Form(""),
+    over_contract_note: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    """Approve, refuse, or mark paid one check request."""
+    check_request = session.get(CheckRequest, check_id)
+    if check_request is None:
+        return _redirect("/checks", err="No such check request.")
+
+    job = check_request.job
+    who = _actor(actor)
+    back = f"/job/{job.job_number}#subs"
+
+    if decision == "approve":
+        verdict = subs.check(job, check_request)
+        if not verdict.can_approve:
+            # An overage can be approved knowingly. Anything else - no contract
+            # on file - cannot be waved through, because there is nothing to
+            # wave it through against.
+            if not verdict.over_contract:
+                return _redirect(back, err=" ".join(verdict.blockers))
+            if not over_contract_note.strip():
+                return _redirect(back, err=(
+                    "This takes them past their contract. Say what the extra "
+                    "work was before approving it."
+                ))
+            check_request.over_contract_note = over_contract_note.strip()
+        check_request.status = CHECK_APPROVED
+        message = f"Check approved for {check_request.vendor}."
+    elif decision == "reject":
+        check_request.status = CHECK_REJECTED
+        message = f"Request from {check_request.vendor} refused."
+    elif decision == "paid":
+        if check_request.status != CHECK_APPROVED:
+            return _redirect(back, err="Only an approved request can be marked paid.")
+        check_request.status = CHECK_PAID
+        check_request.paid_at = utcnow()
+        message = f"Marked paid: {check_request.vendor}."
+    elif decision == "reopen":
+        check_request.status = CHECK_REQUESTED
+        check_request.paid_at = None
+        check_request.over_contract_note = ""
+        message = "Request reopened."
+    else:
+        return _redirect(back, err="Unknown decision.")
+
+    check_request.decided_by = who
+    check_request.decided_at = utcnow()
+    check_request.decided_note = note.strip()
+    session.commit()
+    return _redirect(back, ok=message)
 
 
 @app.get("/approvals", response_class=HTMLResponse)

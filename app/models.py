@@ -11,7 +11,7 @@ result of that comparison is stored on the line as a `verdict`.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -89,6 +89,15 @@ class Job(Base):
     change_orders: Mapped[list["ChangeOrder"]] = relationship(
         back_populates="job", cascade="all, delete-orphan"
     )
+    check_requests: Mapped[list["CheckRequest"]] = relationship(
+        back_populates="job", cascade="all, delete-orphan"
+    )
+
+    @property
+    def subcontracts(self) -> list["Quote"]:
+        """Live subcontracts on this job, largest first."""
+        subs = [q for q in self.quotes if q.is_subcontract and q.is_master]
+        return sorted(subs, key=lambda q: (-(q.total or Decimal("0")), q.vendor.lower()))
 
     @property
     def masters(self) -> list["Quote"]:
@@ -123,7 +132,10 @@ class Job(Base):
         """
         from app.matching import vendor_matches
 
-        matching = [q for q in self.masters if vendor_matches(q.vendor, vendor)]
+        matching = [
+            q for q in self.masters
+            if not q.is_subcontract and vendor_matches(q.vendor, vendor)
+        ]
         return sorted(
             matching,
             key=lambda q: (q.quote_date or date.min, q.id),
@@ -154,6 +166,103 @@ class Job(Base):
             if vendor_matches(quote.vendor, vendor):
                 return quote, "vendor"
         return None, "none"
+
+
+# Check request states. Deliberately shorter than the invoice workflow: a check
+# request is not priced line by line, so there is nothing to hold pending a
+# comparison. It is waiting, it is approved, it is paid, or it was refused.
+CHECK_REQUESTED = "requested"
+CHECK_APPROVED = "approved"
+CHECK_PAID = "paid"
+CHECK_REJECTED = "rejected"
+
+CHECK_LABELS = {
+    CHECK_REQUESTED: "Waiting",
+    CHECK_APPROVED: "Approved to pay",
+    CHECK_PAID: "Paid",
+    CHECK_REJECTED: "Refused",
+}
+
+CHECK_OPEN = (CHECK_REQUESTED,)
+CHECK_COUNTS_AGAINST_CONTRACT = (CHECK_APPROVED, CHECK_PAID)
+
+
+class CheckRequest(Base):
+    """A subcontractor asking to be paid part of their contract.
+
+    Not an invoice, and the difference is the whole reason this table exists.
+    An invoice is a list of priced items and the question is whether each price
+    matches a quote. A check request is a claim on a number already agreed -
+    "we are 30% done, release 30%" - and the question is cumulative: does
+    everything this sub has been paid, plus this, still fit inside what they
+    were awarded?
+
+    Any single request can look perfectly reasonable and the seventh one still
+    takes the sub past their contract. Only the running total sees that.
+    """
+
+    __tablename__ = "check_request"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("job.id"), index=True)
+    # The subcontract this draws against. Nullable, because a request can
+    # arrive before anyone has filed the contract - which is exactly when it
+    # most needs to be visible rather than rejected at the door.
+    subcontract_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("quote.id"), nullable=True, index=True
+    )
+    document_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("document.id"), nullable=True
+    )
+
+    vendor: Mapped[str] = mapped_column(String(255), default="", index=True)
+    reference: Mapped[str] = mapped_column(String(128), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    amount: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"))
+
+    # The date the SUB put on their request, which is what they are counting
+    # from when they ring up asking where their money is.
+    requested_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    # When it reached us. Always set, so the queue can always age something.
+    received_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+    status: Mapped[str] = mapped_column(
+        String(16), default=CHECK_REQUESTED, server_default=CHECK_REQUESTED, index=True
+    )
+    decided_by: Mapped[str] = mapped_column(String(128), default="")
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    decided_note: Mapped[str] = mapped_column(Text, default="")
+    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    # Set when somebody knowingly approved a request that took the sub past
+    # their contract. Extras are legitimate; unrecorded extras are not.
+    over_contract_note: Mapped[str] = mapped_column(Text, default="")
+
+    job: Mapped["Job"] = relationship(back_populates="check_requests")
+    subcontract: Mapped[Optional["Quote"]] = relationship()
+    document: Mapped[Optional["Document"]] = relationship()
+
+    @property
+    def is_open(self) -> bool:
+        return self.status in CHECK_OPEN
+
+    @property
+    def counts_against_contract(self) -> bool:
+        return self.status in CHECK_COUNTS_AGAINST_CONTRACT
+
+    @property
+    def waiting_since(self) -> date:
+        """What the sub is counting from.
+
+        Their own request date when they gave one - that is the day they think
+        the clock started, and arguing about it helps nobody. Otherwise the day
+        it reached us, so the queue can always age a request.
+        """
+        return self.requested_on or self.received_at.date()
+
+    def days_waiting(self, today: Optional[date] = None) -> int:
+        if not self.is_open:
+            return 0
+        return max((today or date.today()) - self.waiting_since, timedelta()).days
 
 
 class CashReport(Base):
@@ -257,6 +366,20 @@ class Quote(Base):
     is_master: Mapped[bool] = mapped_column(default=True, index=True)
     superseded_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     supersede_reason: Mapped[str] = mapped_column(Text, default="")
+
+    # A subcontract rather than a material price list.
+    #
+    # The same object because it arrives the same way and needs the same
+    # things - a job, a vendor, a document, screening. What differs is
+    # entirely downstream: a material quote is a list of prices to check
+    # invoice lines against, while a subcontract is one agreed number that
+    # gets drawn down in progress payments. So a subcontract is deliberately
+    # kept OUT of line matching (see Job.masters_for_vendor): pricing a
+    # delivery ticket against a labour contract would compare nothing to
+    # nothing and report it as agreement.
+    is_subcontract: Mapped[bool] = mapped_column(
+        default=False, server_default="0", index=True,
+    )
 
     vendor: Mapped[str] = mapped_column(String(255), default="")
     quote_number: Mapped[str] = mapped_column(String(128), default="")

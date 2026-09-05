@@ -1,10 +1,10 @@
 # Programme 3 — Subcontractor check requests
 
-**Status: pinned, not started.** Zack: *"you can build that after just put a pin
-in that. Once we get the vendor one running we can worry about the (Sub) one."*
-
-This is the specification as described, plus the questions that have to be
-answered before anyone writes code. Nothing here is built.
+**Status: core built, 5 Sep 2026.** The contract, check requests, the cumulative
+check and the waiting queue are live. What is NOT built is subcontracts and
+check requests arriving by email — today a contract is marked from a quote
+already on the job, and requests are entered by hand. Question 2 below is still
+the open fork and still gates that.
 
 ---
 
@@ -126,7 +126,7 @@ should **propose and let a person confirm**, the same way `quote_match == "sole"
 is surfaced rather than assumed. Filing a subcontract as a material quote would
 price every one of that sub's bills against nothing.
 
-**2. Schedule of values, or a single contract number?**
+**2. Schedule of values, or a single contract number? — STILL OPEN**
 If subs bill AIA-style (G702/G703) against a schedule of values, the ledger is
 per phase and the check is per line of the schedule. If they bill a flat
 percentage of one number, it is far simpler. **Ask Zack which his subs actually

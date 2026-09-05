@@ -1311,3 +1311,179 @@ def test_with_a_key_the_lookup_is_offered(client, can_email, monkeypatch):
 
     page = client.get("/job/260000")
     assert "leave blank to use whoever JobNimbus has assigned" in page.text
+
+
+# --- check requests through the web app ------------------------------------
+
+def _sub_job(number="260000", contract="120000.00", vendor="Reilly Roofing LLC"):
+    from app.models import Quote
+    session = SessionLocal()
+    try:
+        job = Job(job_number=number)
+        session.add(job)
+        session.flush()
+        session.add(Quote(job_id=job.id, document_id=1, vendor=vendor,
+                          is_master=True, is_subcontract=True, total=D(contract)))
+        session.commit()
+        return job.id
+    finally:
+        session.close()
+
+
+def test_a_check_request_is_recorded_and_appears_in_the_queue(client):
+    from app.models import CheckRequest
+    _sub_job()
+
+    resp = client.post("/job/260000/check-request", follow_redirects=False, data={
+        "vendor": "Reilly Roofing LLC", "amount": "30,000.00",
+        "reference": "Req 1", "description": "Buildings 1-3 complete",
+        "requested_on": "2026-08-20",
+    })
+    assert resp.status_code == 303
+    assert "err=" not in resp.headers["location"]
+
+    session = SessionLocal()
+    req = session.query(CheckRequest).one()
+    assert req.amount == D("30000.00")
+    assert req.subcontract_id is not None      # tied to their contract
+    session.close()
+
+    page = client.get("/checks")
+    assert "Reilly Roofing LLC" in page.text
+    assert "Req 1" in page.text
+    assert "$30,000.00" in page.text
+
+
+def test_the_queue_puts_the_longest_wait_first(client):
+    _sub_job("260000")
+    _sub_job("260001", vendor="Bravo Electric")
+
+    client.post("/job/260000/check-request", follow_redirects=False, data={
+        "vendor": "Reilly Roofing LLC", "amount": "5000", "requested_on": "2026-09-04"})
+    client.post("/job/260001/check-request", follow_redirects=False, data={
+        "vendor": "Bravo Electric", "amount": "90000", "requested_on": "2026-07-01"})
+
+    page = client.get("/checks")
+    assert page.text.index("Bravo Electric") < page.text.index("Reilly Roofing LLC")
+    assert "Longest wait" in page.text
+
+
+def test_approving_past_the_contract_needs_a_reason(client):
+    from app.models import CheckRequest
+    _sub_job(contract="60000.00")
+
+    client.post("/job/260000/check-request", follow_redirects=False, data={
+        "vendor": "Reilly Roofing LLC", "amount": "50000"})
+    client.post("/job/260000/check-request", follow_redirects=False, data={
+        "vendor": "Reilly Roofing LLC", "amount": "30000"})
+
+    session = SessionLocal()
+    first, second = session.query(CheckRequest).order_by(CheckRequest.id).all()
+    first_id, second_id = first.id, second.id
+    session.close()
+
+    ok = client.post(f"/check/{first_id}/decide", follow_redirects=False,
+                     data={"decision": "approve", "actor": "Zack"})
+    assert "err=" not in ok.headers["location"]
+
+    # The second takes them $20,000 past a $60,000 contract.
+    refused = client.post(f"/check/{second_id}/decide", follow_redirects=False,
+                          data={"decision": "approve", "actor": "Zack"})
+    assert "err=" in refused.headers["location"]
+    assert "past+their+contract" in refused.headers["location"]
+
+    session = SessionLocal()
+    assert session.get(CheckRequest, second_id).status == "requested"
+    session.close()
+
+    # With the extra work named, it goes through — and the reason is kept.
+    allowed = client.post(f"/check/{second_id}/decide", follow_redirects=False, data={
+        "decision": "approve", "actor": "Zack",
+        "over_contract_note": "Rotten deck on building 4, agreed on site",
+    })
+    assert "err=" not in allowed.headers["location"]
+
+    session = SessionLocal()
+    approved = session.get(CheckRequest, second_id)
+    assert approved.status == "approved"
+    assert "Rotten deck" in approved.over_contract_note
+    assert approved.decided_by == "Zack"
+    session.close()
+
+
+def test_a_request_with_no_contract_cannot_be_waved_through(client):
+    from app.models import CheckRequest
+    session = SessionLocal()
+    session.add(Job(job_number="260000"))
+    session.commit()
+    session.close()
+
+    client.post("/job/260000/check-request", follow_redirects=False,
+                data={"vendor": "Nobody We Know", "amount": "30000"})
+    session = SessionLocal()
+    req_id = session.query(CheckRequest).one().id
+    session.close()
+
+    # Not an overage, so the over-contract note does not unlock it.
+    resp = client.post(f"/check/{req_id}/decide", follow_redirects=False, data={
+        "decision": "approve", "actor": "Zack",
+        "over_contract_note": "trust me",
+    })
+    assert "err=" in resp.headers["location"]
+    assert "No+subcontract+on+file" in resp.headers["location"]
+
+
+def test_approved_then_paid_and_it_leaves_the_queue(client):
+    from app.models import CheckRequest
+    _sub_job()
+    client.post("/job/260000/check-request", follow_redirects=False,
+                data={"vendor": "Reilly Roofing LLC", "amount": "30000"})
+    session = SessionLocal()
+    req_id = session.query(CheckRequest).one().id
+    session.close()
+
+    client.post(f"/check/{req_id}/decide", follow_redirects=False,
+                data={"decision": "approve", "actor": "Zack"})
+    assert "Reilly Roofing LLC" not in client.get("/checks").text
+
+    client.post(f"/check/{req_id}/decide", follow_redirects=False,
+                data={"decision": "paid", "actor": "Jena"})
+    session = SessionLocal()
+    req = session.get(CheckRequest, req_id)
+    assert req.status == "paid" and req.paid_at is not None
+    session.close()
+
+    page = client.get("/job/260000")
+    assert "Approved to date" in page.text
+    assert "$30,000.00" in page.text
+
+
+def test_marking_a_quote_a_subcontract_takes_it_out_of_price_matching(client, tmp_path):
+    """A delivery ticket checked against a labour contract compares nothing to
+    nothing and reports it as agreement."""
+    from app.models import Quote
+    upload(client, _pdf(tmp_path, "q.pdf", "sub-q"), QUOTE_PAYLOAD, job_number="260000")
+    upload(client, _pdf(tmp_path, "i.pdf", "sub-i"), INVOICE_PAYLOAD, job_number="260000")
+
+    session = SessionLocal()
+    invoice = session.query(Invoice).one()
+    assert invoice.quote_id is not None        # priced, before we reclassify
+    quote_id = session.query(Quote).one().id
+    session.close()
+
+    client.post("/job/260000/subcontract", follow_redirects=False,
+                data={"quote_id": quote_id, "is_subcontract": "1"})
+
+    session = SessionLocal()
+    invoice = session.query(Invoice).one()
+    assert invoice.quote_id is None            # no longer priced against it
+    assert invoice.lines_unmatched == len(invoice.lines)
+    session.close()
+
+
+def test_the_nav_shows_how_many_people_are_waiting(client):
+    _sub_job()
+    assert "Checks</a>" in client.get("/jobs").text
+    client.post("/job/260000/check-request", follow_redirects=False,
+                data={"vendor": "Reilly Roofing LLC", "amount": "30000"})
+    assert "Checks (1)" in client.get("/jobs").text

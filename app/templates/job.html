@@ -496,6 +496,151 @@
   {% for i in invoices %}<option value="{{ i.vendor }}">{% endfor %}
 </datalist>
 
+{# ---------------- SUBCONTRACTORS ---------------- #}
+<div class="panel" id="subs">
+  <h2 style="margin-bottom:3px">Subcontractors</h2>
+  <div class="muted" style="margin-bottom:14px">
+    A sub bills against one agreed number rather than a list of prices, so the
+    question is never "is this priced right" — it is whether everything approved
+    so far, plus this, still fits inside what they were awarded.
+  </div>
+
+  {% for p in subs %}
+  <div class="subcard">
+    <div class="sub-head">
+      <div>
+        <strong style="font-size:1.05rem">{{ p.vendor }}</strong>
+        {% if not p.has_contract %}
+          <span class="chip c-warn">no contract on file</span>
+        {% elif p.overage %}
+          <span class="chip c-over">{{ p.overage | money }} over contract</span>
+        {% endif %}
+      </div>
+      {% if p.percent_drawn is not none %}
+        <div class="muted">{{ p.percent_drawn }}% drawn</div>
+      {% endif %}
+    </div>
+
+    <div class="substrip">
+      <div><span class="sk">Contract</span>
+        <span class="sv">{{ p.awarded | money }}</span>
+        <span class="sn">{% if p.change_orders %}incl. {{ p.change_orders | money }} extras
+          {% elif not p.has_contract %}nothing on file{% else %}as awarded{% endif %}</span></div>
+      <div><span class="sk">Approved to date</span>
+        <span class="sv">{{ p.approved | money }}</span>
+        <span class="sn">{{ p.paid | money }} of it paid</span></div>
+      <div><span class="sk">Remaining</span>
+        <span class="sv">{% if p.has_contract %}{{ p.remaining | money }}{% else %}—{% endif %}</span>
+        <span class="sn">{% if p.has_contract %}left to draw{% else %}nothing to measure against{% endif %}</span></div>
+      <div><span class="sk">Waiting</span>
+        <span class="sv">{{ p.waiting | money }}</span>
+        <span class="sn">{% if p.open_requests %}oldest {{ p.oldest_wait() }} day{{ "" if p.oldest_wait() == 1 else "s" }}
+          {% else %}nothing outstanding{% endif %}</span></div>
+    </div>
+
+    {% if p.requests %}
+    <table class="grid" style="margin-top:14px">
+      <thead><tr><th>Requested</th><th>Reference</th><th class="r">Amount</th>
+        <th>Status</th><th class="r"></th></tr></thead>
+      <tbody>
+        {% for r in p.requests %}
+        <tr>
+          <td>{{ r.waiting_since }}
+            {% if r.is_open %}<div class="muted">{{ r.days_waiting() }} day{{ "" if r.days_waiting() == 1 else "s" }} waiting</div>{% endif %}</td>
+          <td>{{ r.reference or "—" }}
+            {% if r.description %}<div class="muted">{{ r.description }}</div>{% endif %}
+            {% if r.over_contract_note %}
+              <div class="muted"><strong>Over contract:</strong> {{ r.over_contract_note }}</div>
+            {% endif %}</td>
+          <td class="r" style="font-weight:700">{{ r.amount | money }}</td>
+          <td><span class="status s-{{ r.status }}">{{ check_labels.get(r.status, r.status) }}</span>
+            {% if r.decided_by %}<div class="muted">{{ r.decided_by }}</div>{% endif %}</td>
+          <td class="r">
+            {% if r.is_open %}
+              {% set v = check_verdict.get(r.id) %}
+              <form method="post" action="/check/{{ r.id }}/decide" class="checkform">
+                <input type="text" name="actor" placeholder="Your name" required>
+                {% if v and not v.can_approve and v.over_contract %}
+                  <input type="text" name="over_contract_note" required
+                         placeholder="What was the extra work?">
+                {% endif %}
+                {% if v and v.can_approve %}
+                  <button class="btn sm" name="decision" value="approve" type="submit">Approve</button>
+                {% elif v and v.over_contract %}
+                  <button class="btn sm" name="decision" value="approve" type="submit">Approve anyway</button>
+                {% else %}
+                  <button class="btn sm" type="button" disabled
+                          title="File their subcontract first">Approve</button>
+                {% endif %}
+                <button class="btn ghost sm" name="decision" value="reject" type="submit">Refuse</button>
+              </form>
+              {% if v and v.blockers %}
+                <div class="muted checknote">{{ v.blockers | join(" ") }}</div>
+              {% elif v and v.reasons %}
+                <div class="muted checknote">{{ v.reasons | join(" ") }}</div>
+              {% endif %}
+            {% elif r.status == "approved" %}
+              <form method="post" action="/check/{{ r.id }}/decide" class="checkform">
+                <input type="text" name="actor" placeholder="Your name" required>
+                <button class="btn sm" name="decision" value="paid" type="submit">Mark paid</button>
+                <button class="btn ghost sm" name="decision" value="reopen" type="submit">Reopen</button>
+              </form>
+            {% else %}
+              <form method="post" action="/check/{{ r.id }}/decide" class="checkform">
+                <input type="text" name="actor" placeholder="Your name" required>
+                <button class="btn ghost sm" name="decision" value="reopen" type="submit">Reopen</button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+  {% else %}
+    <div class="muted">No subcontractors on this job.</div>
+  {% endfor %}
+
+  <form method="post" action="/job/{{ job.job_number }}/check-request" class="drawform">
+    <label class="fld"><span>Subcontractor</span>
+      <input type="text" name="vendor" required list="job-subs" autocomplete="off"></label>
+    <label class="fld"><span>Amount requested</span>
+      <input type="text" name="amount" required placeholder="24,500.00" autocomplete="off"></label>
+    <label class="fld"><span>Their reference</span>
+      <input type="text" name="reference" placeholder="Req 3" autocomplete="off"></label>
+    <label class="fld"><span>Dated</span>
+      <input type="date" name="requested_on"></label>
+    <label class="fld wide"><span>What it is for</span>
+      <input type="text" name="description" placeholder="Buildings 1–3 complete"></label>
+    <div class="drawgo"><button class="btn" type="submit">Record check request</button></div>
+  </form>
+
+  <datalist id="job-subs">
+    {% for p in subs %}<option value="{{ p.vendor }}">{% endfor %}
+  </datalist>
+
+  {% if masters %}
+  <details style="margin-top:16px">
+    <summary style="cursor:pointer;font-weight:700;color:var(--brand);font-size:.92rem">
+      A quote on this job is actually a subcontract?</summary>
+    <div class="muted" style="margin:8px 0">
+      Mark it and it stops being used to price material invoices — a delivery
+      ticket checked against a labour contract compares nothing to nothing and
+      reports it as agreement.
+    </div>
+    {% for m in masters %}
+    <form method="post" action="/job/{{ job.job_number }}/subcontract" class="checkform">
+      <input type="hidden" name="quote_id" value="{{ m.id }}">
+      <input type="hidden" name="is_subcontract" value="1">
+      <span>{{ m.vendor or "Unknown" }} · {{ m.total | money }}</span>
+      <button class="btn ghost sm" type="submit">This is a subcontract</button>
+    </form>
+    {% endfor %}
+  </details>
+  {% endif %}
+</div>
+
 {# ---------------- INVOICES ---------------- #}
 <div class="panel" style="padding:0;overflow:hidden">
   <div style="padding:16px 20px 12px;display:flex;justify-content:space-between;
