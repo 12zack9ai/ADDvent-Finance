@@ -142,6 +142,18 @@ Hours **and** cost, because a cost with no hours behind it cannot be checked by
 anybody. Blank stays a real answer: on a fully subbed job there is no crew
 figure to give, and the report is complete without one.
 
+## Copying the database
+
+SQLite runs in WAL mode, so the data lives in **three** files: `finance.db`,
+`finance.db-wal` and `finance.db-shm`. Copying only the `.db` loses whatever is
+in the write-ahead log — which is the most recent work, and exactly what you
+would least want to lose. Copy all three, or run
+`sqlite3 finance.db ".backup safe.db"`, which handles it properly.
+
+WAL is not cosmetic here: reading a document is a twenty-second Claude call
+with the transaction held open, and on the stock settings anyone approving an
+invoice during one got a 500 rather than a wait.
+
 ## Sample data
 
 `SEED_SAMPLES=true` fills every part of the site with eight sample jobs, so a

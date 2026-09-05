@@ -11,7 +11,7 @@ import logging
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
-from sqlalchemy import String, TypeDecorator, create_engine, text
+from sqlalchemy import String, TypeDecorator, create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.config import settings
@@ -143,6 +143,47 @@ _db_url = settings.resolved_db_url()
 _connect_args = {"check_same_thread": False} if _db_url.startswith("sqlite") else {}
 
 engine = create_engine(_db_url, connect_args=_connect_args, future=True)
+
+
+@event.listens_for(engine, "connect")
+def _sqlite_pragmas(dbapi_connection, _record) -> None:
+    """Make SQLite survive a slow write, because this application has one.
+
+    Reading a document is a Claude call taking around twenty seconds, and the
+    row is written before the call and committed after it - so a write
+    transaction is held open for the whole of it. The mailbox poller does that
+    from inside the web process every five minutes.
+
+    On the stock settings that meant: the first person to approve an invoice
+    while a document was being read waited five seconds and then got a 500,
+    "database is locked". Nothing about the page they were on would have
+    suggested why. Reproduced before changing anything, and it failed exactly
+    like that.
+
+      * WAL lets readers carry on throughout, instead of being shut out at the
+        moment the writer commits. Every page in this app is a read.
+      * A thirty-second busy timeout is longer than the write it has to wait
+        out, so a person's approval queues behind the poller and then goes
+        through, rather than failing five seconds in.
+      * synchronous=NORMAL is the documented companion to WAL: still safe
+        against a process crash, and it is a crash - not power loss on a
+        managed host - that this needs to survive.
+
+    The real fix is to not hold a transaction open across an API call at all.
+    That is a change to the ingestion path and wants doing deliberately; this
+    stops people being thrown out of the app in the meantime.
+    """
+    if not _db_url.startswith("sqlite"):
+        return
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+    finally:
+        cursor.close()
+
+
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
 
 
