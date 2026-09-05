@@ -5,7 +5,7 @@
 <div class="pagehead">
   <div>
     <h1>Subcontractor invoices</h1>
-    <p class="sub">Each sub's invoices against what they were awarded.</p>
+    <p class="sub">Billed against what they were awarded.</p>
   </div>
   <div>
     <a class="btn" href="/upload?sub=1">Upload</a>
@@ -17,9 +17,8 @@
   <div class="panel">
     <div class="empty">
       <div class="big">No subcontracts on file.</div>
-      A sub's contract comes in exactly like a supplier's quote — upload it
-      here against its job number, and their invoices are then read, priced
-      against it line by line, and stopped at the award.
+      Upload a sub's contract against its job number and their invoices are
+      checked against it.
       <div style="margin-top:14px">
         <a class="btn" href="/upload?sub=1">Upload a subcontract</a>
       </div>
@@ -85,7 +84,7 @@
   </div>
 
   {% if p.invoices %}
-  <table class="grid" style="margin-top:14px">
+  <table class="grid stack" style="margin-top:14px">
     <thead><tr><th>Invoice</th><th>Date</th><th class="r">Amount</th>
       <th class="r">Vs. contract</th><th class="r">Status</th></tr></thead>
     <tbody>
@@ -93,9 +92,9 @@
       <tr>
         <td><a href="/invoice/{{ inv.id }}" style="font-weight:700">
           {{ inv.invoice_number or ("Invoice #" ~ inv.id) }}</a></td>
-        <td class="muted">{{ inv.invoice_date or "—" }}</td>
-        <td class="r" style="font-weight:700">{{ inv.total | money }}</td>
-        <td class="r">
+        <td class="muted" data-l="Date">{{ inv.invoice_date or "—" }}</td>
+        <td class="r" data-l="Amount" style="font-weight:700">{{ inv.total | money }}</td>
+        <td class="r" data-l="Vs. contract">
           {% set past = p.would_exceed_with(inv) if inv in p.open_invoices else 0 %}
           {% if past %}
             <span class="chip c-over">{{ past | money }} past the award</span>
@@ -107,7 +106,7 @@
             <span class="chip c-ok">within the contract</span>
           {% endif %}
         </td>
-        <td class="r">
+        <td class="r" data-l="Status">
           <span class="status s-{{ inv.approval_status }}">
             {{ {"pending_review": "Review", "held": "Held", "approved": "Approved",
                 "paid": "Paid", "rejected": "Rejected"}.get(inv.approval_status,

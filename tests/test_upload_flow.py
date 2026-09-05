@@ -715,7 +715,7 @@ def test_a_corrected_invoice_that_never_replaced_the_original_is_called_out(clie
     # panel has to say the right thing about which of the two it is.
     assert "Two invoices look like the same material" in page.text
     assert "This job does not add up" not in page.text
-    assert "Same material billed on two invoices" in page.text
+    assert "on both" in page.text          # the two numbers, on one line
     assert "INV-551900" in page.text and "INV-552140" in page.text
 
     # Rejecting the superseded one clears it, and clears the totals with it.
@@ -785,8 +785,8 @@ def test_a_change_order_arrives_as_a_document_and_waits_for_a_person(client, tmp
         assert co_status == "proposed"
 
         page = client.get("/job/260000")
-        assert "Waiting on you" in page.text
-        assert "authorises nothing" in page.text
+        assert "change order to approve" in page.text
+        assert "Authorises nothing" in page.text
 
         # It has NOT closed the gap - but the reviewer is told it is here.
         page = client.get(f"/invoice/{invoice_id}")
@@ -1069,7 +1069,7 @@ def test_ordering_more_material_at_the_quoted_price_raises_nothing(client, tmp_p
 
     page = client.get("/job/260000")
     assert "$30,125.00" in page.text
-    assert "more material than quoted, all at quoted prices" in page.text
+    assert "more than quoted, at quoted prices" in page.text
     # And no alarm, even though billed is nearly double quoted.
     assert "Money on this job with no quoted price behind it" not in page.text
 
@@ -1093,7 +1093,7 @@ def test_but_unquoted_material_on_the_same_job_is_raised(client, tmp_path):
     page = client.get("/job/260000")
     assert "Money on this job with no quoted price behind it" in page.text
     assert "$6,075.00" in page.text
-    assert "material that appears on no quote" in page.text
+    assert "off-quote items" in page.text
 
 
 # --- the button: a person asking for the quote -----------------------------
@@ -1633,7 +1633,7 @@ def test_the_costing_report_pulls_invoices_subs_and_permits_together(client, tmp
     assert "$6,604.00" in page.text        # added up
     assert "Permits, deposits and other checks" in page.text
     # No price entered, so no margin is claimed.
-    assert "what we billed the customer is not known yet" in page.text
+    assert "what we billed" in page.text
 
 
 def test_entering_the_price_produces_the_margin(client):
@@ -1667,7 +1667,7 @@ def test_clearing_the_labour_figure_is_not_the_same_as_zero(client):
     assert job.labour_cost is None
     session.close()
 
-    assert "hours and cost have not been entered" in client.get("/job/260000/costing").text
+    assert "hours and cost" in client.get("/job/260000/costing").text
 
 
 def test_the_job_page_links_to_the_costing_report(client):
@@ -1807,7 +1807,7 @@ def test_the_panel_comes_back_if_receipts_are_switched_on(client, tmp_path, monk
     from app.config import settings
     monkeypatch.setattr(settings, "require_receipt", True)
     upload(client, _pdf(tmp_path, "q.pdf", "rcpt-q3"), QUOTE_PAYLOAD, job_number="260000")
-    assert "Receiving confirmations" in client.get("/job/260000").text
+    assert "Deliveries confirmed" in client.get("/job/260000").text
 
 
 def test_a_straggler_from_another_supplier_is_not_measured_against_the_quote(client, tmp_path):

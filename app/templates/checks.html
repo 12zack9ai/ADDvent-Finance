@@ -5,7 +5,7 @@
 <div class="pagehead">
   <div>
     <h1>Check requests</h1>
-    <p class="sub">Who needs a check cut — longest wait first. Subcontractor invoices are in here too.</p>
+    <p class="sub">Longest wait first.</p>
   </div>
   <div><a class="btn ghost" href="/sub-invoices">Subcontractor invoices</a></div>
 </div>
@@ -35,7 +35,7 @@
 </div>
 
 <div class="panel" style="padding:0;overflow-x:auto">
-  <table class="grid">
+  <table class="grid stack">
     <thead>
       <tr>
         <th style="padding-left:20px">Waiting</th>
@@ -63,16 +63,16 @@
             <strong>{{ w.payee }}</strong>
             {% if w.reference %}<div class="muted mono">{{ w.reference }}</div>{% endif %}
           </td>
-          <td>
+          <td data-l="For">
             <span class="chip c-info">{{ w.purpose_label }}</span>
             {% if w.state %}
               <div><span class="chip c-{{ {'ok': 'ok', 'bad': 'over'}.get(w.tone, 'none') }}">{{ w.state }}</span></div>
             {% endif %}
             {% if w.description %}<div class="muted">{{ w.description }}</div>{% endif %}
           </td>
-          <td><a href="/job/{{ w.job_number }}">{{ w.job_number }}</a></td>
-          <td class="r" style="font-weight:700">{{ w.amount | money }}</td>
-          <td class="r" style="padding-right:20px">
+          <td data-l="Job"><a href="/job/{{ w.job_number }}">{{ w.job_number }}</a></td>
+          <td class="r" data-l="Amount" style="font-weight:700">{{ w.amount | money }}</td>
+          <td class="r" data-l="Decision" style="padding-right:20px">
             {% if w.decide_here %}
             <form method="post" action="/check/{{ w.request.id }}/decide" class="checkform">
               <input type="text" name="actor" placeholder="Your name" required>
@@ -106,8 +106,7 @@
   <div class="panel">
     <div class="empty">
       <div class="big">Nobody is waiting on a check.</div>
-      Subcontractor invoices appear here on their own as they arrive. Record
-      anything else below — a permit, a deposit, a reimbursement.
+      Subcontractor invoices land here on their own.
     </div>
   </div>
 {% endif %}
@@ -116,10 +115,8 @@
   <details class="add">
     <summary>Request a check</summary>
     <div class="muted" style="margin-bottom:14px">
-      A subcontractor's invoice is already in this queue — it arrives through
-      <a href="/upload?sub=1">Upload</a>, gets checked against their contract,
-      and appears above on its own. This form is for the rest: permits,
-      deposits, fees, reimbursements.
+      For permits, deposits and fees. A subcontractor's invoice is already
+      here — it arrives through <a href="/upload?sub=1">Upload</a>.
     </div>
     <form method="post" action="/checks/new" class="drawform">
     <label class="fld"><span>Pay to</span>

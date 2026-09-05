@@ -158,43 +158,21 @@ class Costing:
     def gaps(self) -> list[str]:
         missing: list[str] = []
         if not self.has_revenue:
-            missing.append(
-                "what we billed the customer is not known yet — it comes from "
-                "QuickBooks, which is not connected"
-            )
+            missing.append("what we billed — it comes from QuickBooks, not connected yet")
         elif not self.billing_synced:
-            missing.append(
-                "what we billed was typed in by hand rather than read from "
-                "QuickBooks, so it is only as current as the day somebody typed it"
-            )
+            missing.append("what we billed was typed by hand, so it may be out of date")
         if not self.collected_known:
-            missing.append(
-                "how much of it has actually been collected is not known yet"
-            )
+            missing.append("how much has been collected")
         if not self.purchases_captured:
-            missing.append(
-                "no receipts have come in for this job, so anything bought "
-                "over the counter is missing"
-            )
+            missing.append("anything bought over the counter — no receipts yet")
         if not self.labour_given:
-            missing.append(
-                "our own crew's hours and cost have not been entered — leave "
-                "them out on a job that was fully subbed"
-            )
+            missing.append("our crew's hours and cost — leave blank if fully subbed")
         elif self.labour_hours is None:
-            missing.append(
-                "our crew's cost was entered without the hours behind it, so "
-                "nobody can check the rate"
-            )
+            missing.append("the hours behind the crew cost, so nobody can check the rate")
         if self.job.outcome == JOB_LOST:
-            missing.append(
-                "we did not get this job, so everything spent on it is a loss "
-                "rather than a cost"
-            )
+            missing.append("we did not get this job — everything here is a loss, not a cost")
         if self.pending > ZERO:
-            missing.append(
-                "there is money still waiting on a decision, shown separately below"
-            )
+            missing.append("money still waiting on a decision, shown below")
         return missing
 
 

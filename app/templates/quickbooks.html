@@ -5,10 +5,7 @@
 <div class="pagehead">
   <div>
     <h1>QuickBooks</h1>
-    <p class="sub">
-      Where what we billed and what we collected come from — so nobody types
-      them again.
-    </p>
+    <p class="sub">Where billed and collected come from.</p>
   </div>
   <div><a class="btn ghost" href="/quickbooks/qwc">Download the .qwc file</a></div>
 </div>
@@ -44,11 +41,9 @@
 <div class="panel" style="border-left:5px solid var(--ok-line);background:var(--warn-bg)">
   <h2 style="margin-bottom:6px;color:var(--ok-ink)">Nothing will happen until this is set up</h2>
   <p class="muted" style="margin-top:0">
-    QuickBooks Desktop has no cloud API — none. It cannot be reached over the
-    internet, by us or by anybody else. The only supported way in is the
-    <strong>QuickBooks Web Connector</strong>: a small Intuit program that runs
-    on a Windows machine beside the company file and calls <em>this</em> site
-    on a schedule. Everything below is already built and waiting for it.
+    QuickBooks Desktop has no internet API. A small Intuit program runs on a
+    Windows machine beside the company file and calls this site on a schedule.
+    Three steps:
   </p>
   <ol style="margin:0;line-height:1.7">
     <li>Set <code>QBWC_PASSWORD</code> and <code>QUICKBOOKS_ENABLED=true</code>.</li>
@@ -57,8 +52,7 @@
     <li>An administrator approves the connection once, inside QuickBooks.</li>
   </ol>
   <p class="muted" style="margin-bottom:0">
-    The full instructions, for whoever runs that machine, are in
-    <code>docs/QUICKBOOKS-SETUP.md</code>.
+    Full instructions: <code>docs/QUICKBOOKS-SETUP.md</code>.
   </p>
 </div>
 {% endif %}
@@ -86,7 +80,7 @@
         <td>every {{ minutes }} minutes</td></tr>
       <tr><td><strong>qbXML version</strong></td>
         <td class="mono">{{ qbxml_version }}
-          <span class="muted">— asked for, or lower if the file is older</span></td></tr>
+          <span class="muted">— or lower on an older file</span></td></tr>
       <tr><td><strong>Writing bills back</strong></td>
         <td>{% if write_back %}on{% else %}off — reads only{% endif %}</td></tr>
     </tbody>
@@ -144,10 +138,7 @@
 <div class="panel">
   <h2>QuickBooks jobs we could not match</h2>
   <p class="muted" style="margin-top:0">
-    Matched on the six-digit job number in the name, and on nothing else. Two
-    associations can both have a "Building 4", and filing one job's money
-    against another is not a mistake anybody would catch from a costing report.
-    These have no number in them, so nobody has claimed them.
+    Matched on the job number in the name and nothing else. These have none.
   </p>
   <table class="grid">
     <thead><tr><th>In QuickBooks</th></tr></thead>

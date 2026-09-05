@@ -29,8 +29,8 @@
   --mute:#7b8a9e;
 
   /* lines */
-  --rule:#e2e8f0;
-  --rule-lt:#eef2f7;
+  --rule:#e6ebf2;
+  --rule-lt:#f0f3f8;
 
   /* brand */
   --brand:#2563eb;
@@ -45,10 +45,13 @@
   --none-bg:#eef1f6;  --none-ink:#5b6b80;  --none-line:#98a6ba;
   --warn-bg:#fef6e7;  --warn-ink:#93700a;
 
-  --r:14px; --r-sm:10px; --r-lg:18px; --pill:999px;
-  --sh-1:0 1px 2px rgba(13,27,42,.05);
-  --sh-2:0 4px 18px -6px rgba(13,27,42,.14);
-  --sh-3:0 12px 32px -10px rgba(13,27,42,.20);
+  --r:16px; --r-sm:11px; --r-lg:22px; --pill:999px;
+  /* Depth instead of outlines. Every panel having a hard border made a page
+     of many panels read as a page of many boxes, and the boxes competed with
+     the numbers inside them. */
+  --sh-1:0 1px 2px rgba(13,27,42,.04),0 1px 3px rgba(13,27,42,.05);
+  --sh-2:0 4px 18px -6px rgba(13,27,42,.13);
+  --sh-3:0 14px 38px -12px rgba(13,27,42,.20);
 }
 
 *{box-sizing:border-box}
@@ -63,8 +66,8 @@ body{
   -webkit-font-smoothing:antialiased;
 }
 h1,h2,h3{line-height:1.25;letter-spacing:-.015em;margin:0}
-h1{font-size:1.75rem;font-weight:800}
-h2{font-size:1.12rem;font-weight:750}
+h1{font-size:clamp(1.6rem,5vw,2rem);font-weight:800;letter-spacing:-.025em}
+h2{font-size:1.05rem;font-weight:750;letter-spacing:-.01em}
 a{color:var(--brand);text-decoration:none}
 a:hover{text-decoration:underline}
 :focus-visible{outline:3px solid #93b4fd;outline-offset:2px;border-radius:6px}
@@ -121,12 +124,12 @@ stroke='%23bcd3f4' stroke-width='2' stroke-linecap='round'>\
 }
 
 /* ---------- layout ---------- */
-.wrap{max-width:1240px;margin:0 auto;padding:26px 20px 72px}
+.wrap{max-width:1240px;margin:0 auto;padding:30px 20px 80px}
 @media (max-width:880px){ .wrap{padding:18px 14px 56px} }
 
 .pagehead{
   display:flex;justify-content:space-between;align-items:flex-start;
-  gap:18px;flex-wrap:wrap;margin-bottom:22px;
+  gap:18px;flex-wrap:wrap;margin-bottom:26px;
 }
 .pagehead .sub{color:var(--soft);margin:6px 0 0;font-size:1rem}
 .muted{color:var(--mute)}
@@ -134,8 +137,8 @@ stroke='%23bcd3f4' stroke-width='2' stroke-linecap='round'>\
 
 /* ---------- cards ---------- */
 .panel{
-  background:var(--surface);border:1px solid var(--rule);border-radius:var(--r);
-  padding:20px 22px;margin-bottom:18px;box-shadow:var(--sh-1);
+  background:var(--surface);border:1px solid var(--rule-lt);border-radius:var(--r);
+  padding:22px 24px;margin-bottom:20px;box-shadow:var(--sh-1);
   /* A table with seven columns cannot fit a phone, and something has to give.
      Without this the whole page widens: the body scrolls sideways and takes
      the nav, the headings and the job number off screen with it - so the
@@ -163,9 +166,10 @@ div.grid{display:grid;gap:16px}
   gap:14px;margin-bottom:18px;
 }
 .score{
-  background:var(--surface);border:1px solid var(--rule);border-left:5px solid var(--rule);
-  border-radius:var(--r);padding:16px 18px;box-shadow:var(--sh-1);
-  display:flex;flex-direction:column;gap:4px;min-width:0;
+  background:var(--surface);border:1px solid var(--rule-lt);
+  border-left:4px solid var(--rule);
+  border-radius:var(--r);padding:18px 20px;box-shadow:var(--sh-1);
+  display:flex;flex-direction:column;gap:5px;min-width:0;
 }
 .score.bad{border-left-color:var(--over-line);background:linear-gradient(180deg,#fffafa,var(--surface))}
 .score.good{border-left-color:var(--under-line)}
@@ -352,8 +356,8 @@ table.list td.r,table.list th.r{text-align:right;font-variant-numeric:tabular-nu
 
 /* ---------- chips ---------- */
 .chip{
-  display:inline-block;padding:3px 10px;border-radius:var(--pill);
-  font-size:.76rem;font-weight:750;white-space:nowrap;
+  display:inline-block;padding:4px 11px;border-radius:var(--pill);
+  font-size:.78rem;font-weight:700;white-space:nowrap;line-height:1.35;
 }
 .c-over{background:var(--over-bg);color:var(--over-ink)}
 .c-under{background:var(--under-bg);color:var(--under-ink)}
@@ -454,6 +458,82 @@ form.stack label.check input{width:auto;min-height:0;margin:5px 0 0}
 }
 .prog:hover .prog-go{gap:11px;transition:gap .18s ease}
 .quick-row{display:flex;gap:11px;flex-wrap:wrap;margin-top:10px}
+
+/* ---------- a table that stops being a table on a phone ----------
+   Seven columns squeezed into 390px is not a table anybody reads: the vendor
+   name breaks over three lines and the two columns that carry the verdict end
+   up off the side, behind a scroll nobody knows is there. Below 700px each row
+   becomes a small card, with the label in front of each value so nothing
+   depends on a heading that is no longer above it. */
+@media (max-width:700px){
+  table.stack thead{position:absolute;left:-9999px}
+  table.stack, table.stack tbody, table.stack tr, table.stack td{display:block;width:auto}
+  table.stack{min-width:0}
+  table.stack tr{
+    padding:14px 4px;border-bottom:1px solid var(--rule-lt);
+  }
+  table.stack tr:last-child{border-bottom:none}
+  table.stack td{
+    border:none;padding:3px 0;text-align:left !important;
+    display:flex;justify-content:space-between;align-items:baseline;gap:14px;
+  }
+  table.stack td::before{
+    content:attr(data-l);color:var(--mute);font-size:.82rem;font-weight:700;
+    text-transform:uppercase;letter-spacing:.04em;flex:none;
+  }
+  table.stack td:first-child{
+    display:block;font-size:1.05rem;margin-bottom:4px;
+  }
+  table.stack td:first-child::before{display:none}
+}
+
+/* ---------- what needs a person ----------
+   One list, at the top, of the things somebody has to do something about. It
+   replaced four explanatory panels: the explaining was correct and nobody was
+   going to read it, and a page that explains itself at length is a page that
+   has not decided what matters. Each line is one sentence and a link to the
+   thing itself. */
+.needs{
+  background:var(--surface);border:1px solid var(--rule-lt);
+  border-left:4px solid var(--over-line);border-radius:var(--r);
+  padding:6px 22px;margin-bottom:20px;box-shadow:var(--sh-2);
+}
+.needs.calm{border-left-color:var(--ok-line)}
+.needs-row{
+  display:flex;gap:14px;align-items:baseline;justify-content:space-between;
+  padding:13px 0;border-bottom:1px solid var(--rule-lt);flex-wrap:wrap;
+}
+.needs-row:last-child{border-bottom:none}
+.needs-what{font-size:1rem;font-weight:650;color:var(--ink);min-width:0}
+.needs-what .muted{font-weight:400;display:block;font-size:.9rem;margin-top:2px}
+.needs-go{font-weight:750;color:var(--brand);white-space:nowrap;text-decoration:none}
+.needs-go:hover{text-decoration:underline}
+
+/* ---------- sections that stay shut ----------
+   Everything a job holds that is not needed right now. It is one click away
+   and it is not in the way, which between them is the whole request: "I can't
+   have it be confusing." */
+.more{margin-bottom:18px}
+.more > summary{
+  cursor:pointer;list-style:none;font-weight:750;font-size:1rem;color:var(--ink);
+  background:var(--surface);border:1px solid var(--rule-lt);border-radius:var(--r);
+  padding:16px 22px;box-shadow:var(--sh-1);display:flex;
+  justify-content:space-between;align-items:center;gap:12px;
+  transition:background .12s ease;
+}
+.more > summary::-webkit-details-marker{display:none}
+.more > summary::after{content:"＋";color:var(--mute);font-weight:700}
+.more[open] > summary{
+  border-radius:var(--r) var(--r) 0 0;border-bottom-color:transparent;
+}
+.more[open] > summary::after{content:"−"}
+.more > summary:hover{background:var(--surface-2)}
+.more-body{
+  background:var(--surface);border:1px solid var(--rule-lt);border-top:none;
+  border-radius:0 0 var(--r) var(--r);padding:4px 22px 20px;box-shadow:var(--sh-1);
+  overflow-x:auto;
+}
+.more-count{font-weight:600;color:var(--mute);font-size:.9rem}
 
 /* ---------- incoming feed ---------- */
 .tabs{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}

@@ -52,8 +52,7 @@
 
 {% if c.gaps %}
 <div class="panel" style="border-left:5px solid var(--ok-line);background:var(--warn-bg)">
-  <h2 style="margin-bottom:6px;color:var(--ok-ink)">This is not the whole picture yet</h2>
-  <p class="muted" style="margin-top:0">What is missing:</p>
+  <h2 style="margin-bottom:6px;color:var(--ok-ink)">Still missing</h2>
   <ul style="margin:0;line-height:1.6">
     {% for gap in c.gaps %}<li>{{ gap }}</li>{% endfor %}
   </ul>
@@ -106,8 +105,9 @@
 </div>
 
 {% if subs %}
-<div class="panel">
-  <h2>Subcontractors on this job</h2>
+<details class="more">
+  <summary>Subcontractors <span class="more-count">{{ subs|length }}</span></summary>
+  <div class="more-body">
   <table class="grid">
     <thead><tr><th>Sub</th><th class="r">Contract</th><th class="r">Approved</th>
       <th class="r">Paid</th><th class="r">Under review</th></tr></thead>
@@ -123,19 +123,18 @@
       {% endfor %}
     </tbody>
   </table>
-</div>
+  </div>
+</details>
 {% endif %}
 
-<div class="panel">
-  <details class="add" {{ "open" if not c.labour_given }}>
-    <summary>Our crew on this job</summary>
+<details class="more" {{ "open" if not c.labour_given }}>
+  <summary>Our crew on this job
+    <span class="more-count">{% if c.labour_given %}{{ c.labour | money }}
+      {%- else %}not entered{% endif %}</span></summary>
+  <div class="more-body">
     <div class="muted" style="margin-bottom:14px">
-      The one thing here nobody else can answer. Everything above was read off
-      documents, and what we billed and collected comes out of QuickBooks —
-      which of our men were on this roof, and for how long, has never been
-      written down anywhere. <strong>Leave it blank on a job that was fully
-      subbed out</strong>; blank and zero are different answers and the report
-      knows the difference.
+      Nobody else can answer this. <strong>Leave it blank if the job was fully
+      subbed</strong> — blank and zero are different answers.
     </div>
     <form method="post" action="/job/{{ job.job_number }}/costing" class="drawform">
     <label class="fld"><span>Hours worked</span>
@@ -153,12 +152,8 @@
 
     <div class="fld wide" style="border-top:1px solid var(--rule-lt);padding-top:14px">
       <div class="muted" style="margin-bottom:10px">
-        <strong>Billed and collected — until
-        <a href="/quickbooks">QuickBooks is connected</a>.</strong>
-        Both belong there: it holds every customer invoice and every payment
-        against this job already. Typing them here is a stand-in, and the
-        report says so rather than passing a hand-typed figure off as the
-        live one.
+        <strong>Billed and collected</strong> come from
+        <a href="/quickbooks">QuickBooks</a>. Type them here until it is connected.
       </div>
     </div>
     <label class="fld"><span>Billed to the customer</span>
@@ -171,6 +166,6 @@
              placeholder="96,400.00" autocomplete="off"></label>
       <div class="drawgo"><button class="btn" type="submit">Save</button></div>
     </form>
-  </details>
-</div>
+  </div>
+</details>
 {% endblock %}

@@ -5,10 +5,7 @@
 <div class="pagehead">
   <div>
     <h1>Receipts</h1>
-    <p class="sub">
-      Everything bought over the counter, in a folder for the job it was bought
-      for.
-    </p>
+    <p class="sub">Bought over the counter, by job.</p>
   </div>
   <div><a class="btn ghost" href="/upload">Upload a receipt</a></div>
 </div>
@@ -44,9 +41,7 @@
 <div class="panel" style="border-left:5px solid var(--over-line)">
   <h2 style="margin-bottom:6px;color:var(--over-ink)">These have no job on them</h2>
   <p class="muted" style="margin-top:0">
-    A receipt is the one thing that never arrives with a job number — it says
-    the amount and the time of day. We asked whoever sent it; until they
-    answer, it waits here.
+    We asked whoever sent it. Until they answer, it waits here.
   </p>
   <table class="grid">
     <thead><tr><th>Receipt</th><th>From</th><th>Asked</th>
@@ -78,8 +73,8 @@
   <div class="panel">
     <div class="empty">
       <div class="big">No receipts yet.</div>
-      Photograph it and send it in — email it to the finance mailbox, or text
-      the picture to it. We answer asking which job, and one number files it.
+      Email or text a photo to the finance mailbox. We answer asking which
+      job; one number files it.
     </div>
   </div>
 {% else %}
@@ -109,12 +104,10 @@
   {% endfor %}
 </div>
 
+{% if s.lost %}
 <p class="muted" style="margin-top:14px">
-  Open a folder to see that job's receipts alongside everything else on it.
-  {% if s.lost %}
-    The marked ones are jobs we did not get: that spend is a loss, not a cost,
-    and it is the only money here with nothing on the other side of it.
-  {% endif %}
+  The marked ones are jobs we did not get — that spend is a loss, not a cost.
 </p>
+{% endif %}
 {% endif %}
 {% endblock %}

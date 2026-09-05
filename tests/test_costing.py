@@ -178,7 +178,7 @@ def test_a_report_with_no_price_entered_refuses_to_show_a_margin():
     c = costing.build(job(invoices=[invoice("10000.00")], labour="0"))
     assert not c.has_revenue
     assert c.margin_pct is None
-    assert "what we billed the customer is not known" in " ".join(c.gaps)
+    assert "what we billed" in " ".join(c.gaps)
 
 
 def test_blank_labour_is_not_the_same_as_zero_labour():
@@ -186,12 +186,12 @@ def test_blank_labour_is_not_the_same_as_zero_labour():
     said, and the report has to know the difference."""
     unstated = costing.build(job(invoices=[invoice("10000.00")], charged="20000.00"))
     assert not unstated.labour_given
-    assert "hours and cost have not been entered" in " ".join(unstated.gaps)
+    assert "hours and cost" in " ".join(unstated.gaps)
 
     stated = costing.build(job(invoices=[invoice("10000.00")],
                                charged="20000.00", labour="0"))
     assert stated.labour_given
-    assert "hours and cost have not been entered" not in " ".join(stated.gaps)
+    assert "hours and cost" not in " ".join(stated.gaps)
 
 
 def test_labour_is_part_of_the_cost_when_it_is_given():
@@ -276,7 +276,7 @@ def test_not_knowing_what_was_collected_is_said_rather_than_shown_as_zero():
     c = costing.build(job(invoices=[invoice("10000.00")], charged="50000.00", labour="0"))
     assert not c.collected_known
     assert c.collected == D("0")
-    assert "collected is not known yet" in " ".join(c.gaps)
+    assert "how much has been collected" in " ".join(c.gaps)
 
 
 def test_a_hand_typed_billing_figure_says_it_was_hand_typed():
@@ -286,11 +286,11 @@ def test_a_hand_typed_billing_figure_says_it_was_hand_typed():
     j.billing_source = "manual"
     c = costing.build(j)
     assert not c.billing_synced
-    assert "typed in by hand" in " ".join(c.gaps)
+    assert "typed by hand" in " ".join(c.gaps)
 
     j.billing_source = "quickbooks"
     assert costing.build(j).billing_synced
-    assert "typed in by hand" not in " ".join(costing.build(j).gaps)
+    assert "typed by hand" not in " ".join(costing.build(j).gaps)
 
 
 def test_the_crews_rate_is_derived_so_a_foreman_can_check_it():

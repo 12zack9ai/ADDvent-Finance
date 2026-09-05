@@ -1,53 +1,46 @@
 {% extends "base.html" %}
 {% block title %}Job {{ job.job_number }} · {{ site_name }}{% endblock %}
 
+{# Three things on the page, and everything else one click away.
+   Zack: "there's a lot going on. I can't have it be confusing for the
+   dinosaur I'm working with. You have a ton of paragraphs and words."
+   He is right, and the paragraphs were the tell: a page that has to explain
+   itself at length is a page that has not decided what matters. #}
 {% block content %}
 <div class="pagehead">
   <div>
     <div class="muted"><a href="/jobs">Jobs</a> &rsaquo;</div>
     <h1>Job {{ job.job_number }}</h1>
-    <p class="sub">{{ job.name or "No job name set" }}</p>
+    <p class="sub">{{ job.name or "No job name set" }}
+      {% if job.outcome == "lost" %}
+        <span class="chip c-over">we didn't get it</span>
+      {% elif job.outcome == "won" %}<span class="chip c-ok">finished</span>{% endif %}
+    </p>
   </div>
   <div style="display:flex;gap:9px;flex-wrap:wrap">
-    <a class="btn ghost" href="/job/{{ job.job_number }}/costing">Job costing</a>
+    <a class="btn ghost" href="/job/{{ job.job_number }}/costing">Costing</a>
     <a class="btn ghost" href="/upload?job={{ job.job_number }}">Add invoice</a>
-    <a class="btn" href="/upload?job={{ job.job_number }}&amp;master=1">Add a quote</a>
+    <a class="btn" href="/upload?job={{ job.job_number }}&amp;master=1">Add quote</a>
   </div>
 </div>
 
-{# ---------------- THE JOB, ADDED UP ----------------
-    Four, not five. "Left to bill" was quoted minus billed, which the first two
-    already say, and it was the card that needed the longest caption to stop it
-    reading as an overrun. The captions are short now or absent: a number that
-    needs a sentence under it every time is a number in the wrong place. #}
+{# ---------------- 1. THE FOUR NUMBERS ---------------- #}
 <div class="scorecard">
   <div class="score">
     <span class="score-k">Quoted</span>
     <span class="score-v">{{ s.quoted | money }}</span>
     <span class="score-n">
-      {% if not s.has_quote %}no quote on this job
-      {% elif s.change_orders %}+ {{ s.change_orders | money }} in change orders
-      {% else %}{{ masters|length }} quote{{ "" if masters|length == 1 else "s" }}{% endif %}
-      {% if s.proposed_change_orders %}
-        <a href="#change-orders" class="score-flag">
-          + {{ s.proposed_total | money }} awaiting approval</a>
-      {% endif %}
-    </span>
+      {% if not s.has_quote %}no quote yet
+      {% else %}{{ masters|length }} quote{{ "" if masters|length == 1 else "s" }}
+        {%- if s.change_orders %} + extras{% endif %}{% endif %}</span>
   </div>
-
   <div class="score">
     <span class="score-k">Billed</span>
     <span class="score-v">{{ s.invoiced | money }}</span>
     <span class="score-n">
-      {# Billed past the quote looks alarming next to it, so the one case where
-         that is entirely normal has to say so right here. #}
-      {% if s.over_but_accounted_for %}more material than quoted, all at quoted prices
-      {% else %}{{ s.invoice_count }} invoice{{ "" if s.invoice_count == 1 else "s" }}
-        {%- if s.has_quote %} · {{ s.remaining | money }} left{% endif %}
-      {% endif %}
-    </span>
+      {% if s.over_but_accounted_for %}more than quoted, at quoted prices
+      {% else %}{{ s.invoice_count }} invoice{{ "" if s.invoice_count == 1 else "s" }}{% endif %}</span>
   </div>
-
   <div class="score">
     <span class="score-k">Not on the quote</span>
     <span class="score-v">{{ s.off_quote | money }}</span>
@@ -55,580 +48,399 @@
       {% if s.off_quote_lines %}{{ s.off_quote_lines }} line{{ "" if s.off_quote_lines == 1 else "s" }}
       {% else %}every line traced{% endif %}
       {%- if s.unquoted_supplier %}
-        <span class="score-flag" style="color:var(--soft);font-weight:600">
-          + {{ s.unquoted_supplier | money }} from a supplier with no quote here</span>
-      {% endif %}
-    </span>
+        <span class="score-flag" style="color:var(--soft);font-weight:600">+ {{ s.unquoted_supplier | money }} · {{ s.unquoted_vendors | join(", ") }}, no quote from them on this job</span>
+      {% endif %}</span>
   </div>
-
   <div class="score{{ ' good' if s.found > 0 }}">
     <span class="score-k">Caught by checking</span>
     <span class="score-v">{{ s.found | money }}</span>
-    <span class="score-n">
-      {% if s.found <= 0 %}nothing over quote
-      {% elif s.approved_anyway > 0 %}{{ s.approved_anyway | money }} approved anyway
-      {% else %}held, not paid{% endif %}
-    </span>
+    <span class="score-n">{% if s.found > 0 %}over quote{% else %}nothing over quote{% endif %}</span>
   </div>
 </div>
 
-{% if s.needs_explaining or s.overlaps %}
-<div class="panel selfcheck">
-  <h2>
-    {# A duplicate leads, always. It is the specific, actionable finding, and
-       the unexplained money is usually a consequence of it rather than a
-       second problem. #}
-    {% if s.overlaps %}Two invoices look like the same material
-    {% else %}Money on this job with no quoted price behind it{% endif %}
-  </h2>
-  {% if s.needs_explaining and s.unexplained > 0 %}
-    <p class="lead">
-      This job has billed <strong class="neg">{{ s.unexplained | money }}</strong>
-      that is not a quoted item at its quoted price.
-    </p>
-    <ul class="lead" style="margin-top:0">
-      {% if s.off_quote %}
-        <li><strong>{{ s.off_quote | money }}</strong> on material that appears on no quote
-          ({{ s.off_quote_lines }} line{{ "" if s.off_quote_lines == 1 else "s" }}).</li>
-      {% endif %}
-      {% if s.found %}
-        <li><strong>{{ s.found | money }}</strong> billed above a quoted price.</li>
-      {% endif %}
-    </ul>
-    <p class="muted">
-      Billing more than the quote is not itself the issue — a quote prices
-      material, it does not cap how much of it the roof needs. What is worth a
-      look is the money above that has no quoted price behind it.
-    </p>
-  {% endif %}
+{# ---------------- 2. WHAT NEEDS A PERSON ----------------
+    One list. Every line is one sentence and a link to the thing itself. #}
+{% set proposed = job.change_orders | selectattr("status", "equalto", "proposed") | list %}
+{% set blocked = invoices | selectattr("document") | selectattr("document") | list %}
+{% set needs = [] %}
 
-  {% if s.overlaps and not s.needs_explaining %}
-    <p class="lead">
-      This job is still inside its quote, so nothing here is over-billed yet.
-      These two invoices bill the same material, which is worth settling before
-      either gets paid.
-    </p>
-  {% endif %}
+{% for o in s.overlaps %}
+  {% set _ = needs.append({
+      "what": "Two invoices look like the same material",
+      "sub": o.earlier.invoice_number ~ " and " ~ o.later.invoice_number ~
+             " — " ~ (o.shared_value | money) ~ " on both. Reject one if it replaced the other.",
+      "go": "Compare", "href": "/invoice/" ~ o.later.id }) %}
+{% endfor %}
 
-  {% if s.overlaps %}
-    <div class="dupes">
-      {% for o in s.overlaps %}
-      <div class="dupe">
-        <div class="dupe-head">{{ o.headline }}</div>
-        <p>{{ o.explanation }}</p>
-        <div class="dupe-links">
-          <a class="btn ghost sm" href="/invoice/{{ o.earlier.id }}">
-            {{ o.earlier.invoice_number or ("Invoice #" ~ o.earlier.id) }} ·
-            {{ o.earlier.total | money }}</a>
-          <a class="btn ghost sm" href="/invoice/{{ o.later.id }}">
-            {{ o.later.invoice_number or ("Invoice #" ~ o.later.id) }} ·
-            {{ o.later.total | money }}</a>
-        </div>
-        <div class="muted" style="font-size:.88rem;margin-top:8px">
-          If one of these replaces the other, reject the one it replaced — that
-          takes it out of every total on this page.
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-  {% elif s.needs_explaining %}
-    <p class="muted">
-      No two invoices here bill the same material, so this is not a duplicate.
-      Either the extra material was never quoted, or a price moved after the
-      quote was given. Worth a call either way.
-    </p>
+{% for inv in invoices %}
+  {% if trust_blockers(inv.document) %}
+    {% set _ = needs.append({
+        "what": "Check where this bill came from",
+        "sub": (inv.vendor or "Unknown") ~ " · " ~ (inv.total | money),
+        "go": "Open", "href": "/invoice/" ~ inv.id }) %}
+  {% elif inv.approval_status == "held" %}
+    {% set _ = needs.append({
+        "what": "Held — billed over the quote",
+        "sub": (inv.invoice_number or inv.id) ~ " · " ~
+               (inv.overbilled_amount | money) ~ " above quoted price",
+        "go": "Review", "href": "/invoice/" ~ inv.id }) %}
   {% endif %}
+{% endfor %}
+
+{% for p in subs %}
+  {% for inv in p.open_invoices %}
+    {% if p.would_exceed_with(inv) %}
+      {% set _ = needs.append({
+          "what": p.vendor ~ " would go past their contract",
+          "sub": (inv.invoice_number or inv.id) ~ " · " ~
+                 (p.would_exceed_with(inv) | money) ~ " past the award",
+          "go": "Review", "href": "/invoice/" ~ inv.id }) %}
+    {% endif %}
+  {% endfor %}
+{% endfor %}
+
+{% if s.needs_explaining and s.unexplained > 0 %}
+  {% set _ = needs.append({
+      "what": "Money on this job with no quoted price behind it",
+      "sub": (s.unexplained | money) ~ " — off-quote items, or a price above the quote.",
+      "go": "See", "href": "#quotes" }) %}
+{% endif %}
+
+{% if proposed %}
+  {% set _ = needs.append({
+      "what": proposed|length ~ " change order" ~ ("" if proposed|length == 1 else "s") ~ " to approve",
+      "sub": "Authorises nothing until you do — no invoice released, no total changed.",
+      "go": "Open", "href": "#extras" }) %}
+{% endif %}
+
+{% if not masters and invoices %}
+  {% set _ = needs.append({
+      "what": "No quote on this job",
+      "sub": "Nothing is checking these prices.",
+      "go": "Add one", "href": "#quotes" }) %}
+{% endif %}
+
+{% if needs %}
+<div class="needs">
+  {% for n in needs %}
+  <div class="needs-row">
+    <div class="needs-what">{{ n.what }}<span class="muted">{{ n.sub }}</span></div>
+    <a class="needs-go" href="{{ n.href }}">{{ n.go }} &rarr;</a>
+  </div>
+  {% endfor %}
 </div>
 {% endif %}
 
-{% if s.vendors | length > 1 %}
-<div class="panel">
-  <h2>By vendor</h2>
-  <table class="grid">
-    <thead><tr><th>Vendor</th><th class="r">Quoted</th><th class="r">Change orders</th>
-      <th class="r">Billed</th><th class="r">Left to bill</th></tr></thead>
-    <tbody>
-      {% for v in s.vendors %}
+{# ---------------- 3. THE INVOICES ---------------- #}
+<div class="panel" style="padding:0;overflow-x:auto">
+  {% if not invoices %}
+    <div class="empty" style="padding:34px 20px">
+      <div class="big">No invoices on this job yet.</div>
+      <a class="btn" href="/upload?job={{ job.job_number }}"
+         style="margin-top:12px">Add one</a>
+    </div>
+  {% else %}
+  <div style="padding:18px 20px 6px"><h2 style="margin:0">Invoices</h2></div>
+  <table class="grid stack">
+    <thead>
       <tr>
-        <td><strong>{{ v.vendor }}</strong>
-          {% if not v.has_quote %}<span class="chip c-none">no quote</span>{% endif %}</td>
-        <td class="r">{% if v.has_quote %}{{ v.quoted | money }}{% else %}—{% endif %}</td>
-        <td class="r">{% if v.change_orders %}{{ v.change_orders | money }}{% else %}—{% endif %}</td>
-        <td class="r" style="font-weight:700">{{ v.invoiced | money }}</td>
-        <td class="r">
-          {% if not v.has_quote %}—
-          {% elif v.over_quote > 0 %}<span class="chip c-over">{{ v.over_quote | money }} over</span>
-          {% else %}{{ v.remaining | money }}{% endif %}
+        <th style="padding-left:20px">Invoice</th><th>Vendor</th><th>Date</th>
+        <th class="r">Total</th><th class="r">Vs. quote</th>
+        <th class="r" style="padding-right:20px">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for inv in invoices %}
+      <tr>
+        <td style="padding-left:20px">
+          <a href="/invoice/{{ inv.id }}" style="font-weight:700">
+            {{ inv.invoice_number or ("Invoice #" ~ inv.id) }}</a></td>
+        <td data-l="Vendor">{{ inv.vendor or "—" }}</td>
+        <td class="muted" data-l="Date">{{ inv.invoice_date or "—" }}</td>
+        <td class="r" data-l="Total" style="font-weight:700">{{ inv.total | money }}</td>
+        <td class="r" data-l="Vs. quote">
+          {% if inv.overbilled_amount and inv.overbilled_amount > 0 %}
+            <span class="chip c-over">+{{ inv.overbilled_amount | money }}</span>
+          {% elif not inv.quote_id %}<span class="chip c-none">no quote</span>
+          {% else %}<span class="chip c-ok">on quote</span>{% endif %}
+        </td>
+        <td class="r" data-l="Status" style="padding-right:20px">
+          {% if trust_blockers(inv.document) %}
+            <span class="chip c-over">Check the sender</span>
+          {% elif inv.approval_status == "approved" %}<span class="chip c-ok">Approved</span>
+          {% elif inv.approval_status == "paid" %}<span class="chip c-none">Paid</span>
+          {% elif inv.approval_status == "held" %}<span class="chip c-over">Held</span>
+          {% elif inv.approval_status == "rejected" %}<span class="chip c-none">Rejected</span>
+          {% else %}<span class="chip c-info">Pending</span>{% endif %}
         </td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  {% endif %}
 </div>
-{% endif %}
 
-{# ---------------- MASTER QUOTES (one per vendor) ---------------- #}
-{% if not masters %}
-<div class="panel">
-  <h2 style="margin-bottom:3px">Quotes</h2>
-  <div class="muted">Every invoice price on this job is checked against these.</div>
-  <div class="empty" style="padding:24px">
-    <div class="big">No quote on this job yet.</div>
-    Invoices can still be filed here, but their prices are not being checked against anything.
-    <div style="margin-top:14px">
+{# ---------------- EVERYTHING ELSE, SHUT ---------------- #}
+
+<details class="more" id="quotes" {{ "open" if not masters and invoices }}>
+  <summary>Quotes <span class="more-count">{{ masters|length }}</span></summary>
+  <div class="more-body">
+    {% if not masters %}
+      <p class="muted">Nothing is checking prices on this job.</p>
       <a class="btn" href="/upload?job={{ job.job_number }}&amp;master=1">Upload a quote</a>
-    </div>
-  </div>
-
-  <div class="askquote">
-    {% if job.quote_chase_sent_at %}
-      <div class="muted" style="margin-bottom:10px">
-        Last asked <strong>{{ job.quote_chase_to or "somebody" }}</strong>
-        {{ job.quote_chase_sent_at | ago }}{% if job.quote_chase_count > 1 %},
-        {{ job.quote_chase_count }} times in total{% endif %}.
-      </div>
-    {% endif %}
-
-    {% if not can_send_mail %}
-      <div class="muted">Email is not set up on this server, so the quote cannot be
-        requested from here.</div>
-    {% elif chase_wait %}
-      <div class="muted">
-        Already asked in the last 24 hours. Can be asked again in about
-        {{ (chase_wait.total_seconds() // 3600) | int + 1 }} hour{{ "" if (chase_wait.total_seconds() // 3600) | int + 1 == 1 else "s" }}
-        — long enough that somebody up on a roof is not getting the same email
-        all afternoon.
-      </div>
-    {% else %}
-      <form method="post" action="/job/{{ job.job_number }}/ask-for-quote" class="askform">
-        <div class="askrow">
-          <label class="fld" style="margin:0">
-            <span>Your name</span>
-            <input type="text" name="actor" placeholder="Your name" required>
-          </label>
-          <label class="fld" style="margin:0">
+      {% if can_send_mail and not chase_wait %}
+        <form method="post" action="/job/{{ job.job_number }}/ask-for-quote"
+              class="drawform" style="margin-top:16px">
+          <label class="fld"><span>Your name</span>
+            <input type="text" name="actor" required autocomplete="off"></label>
+          <label class="fld">
+            {# One line each: a hint broken across two source lines renders with
+               a newline in the middle of the sentence. #}
             {% if jobnimbus_on %}
-              <span>Send to <span class="hint" style="display:inline">— leave blank to use whoever JobNimbus has assigned</span></span>
-              <input type="text" name="to_address" placeholder="pm@addventuresinc.com"
-                     autocomplete="off">
+              <span>Ask <span class="hint" style="display:inline">— leave blank to use whoever JobNimbus has assigned</span></span>
             {% else %}
-              {# No JobNimbus key yet, so there is nobody to look up. Offering
-                 "leave blank" here would be offering a button that fails. #}
-              <span>Send to <span class="hint" style="display:inline">— an @addventuresinc.com address</span></span>
-              <input type="text" name="to_address" placeholder="pm@addventuresinc.com"
-                     autocomplete="off" required>
+              <span>Ask <span class="hint" style="display:inline">— an @addventuresinc.com address</span></span>
             {% endif %}
-          </label>
-        </div>
-        <button class="btn" type="submit">Ask for the quote</button>
-      </form>
-    {% endif %}
-  </div>
-</div>
-{% else %}
-  {% for master in masters %}
-  <div class="panel">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
-      <div>
-        <h2 style="margin-bottom:3px">
-          {% if masters|length > 1 %}Quote · {{ master.vendor or "Unknown vendor" }}
-          {% else %}Quote{% endif %}
-        </h2>
-        <div class="muted">
-          {% if masters|length == 1 %}{{ master.vendor or "Unknown vendor" }} · {% endif %}
-          {{ master.quote_number or "no quote number" }} ·
-          {{ master.quote_date or "no date" }} ·
-          {{ master.lines|length }} line{{ "" if master.lines|length == 1 else "s" }}
-          {% if master.page_info %} · page {{ master.page_info }}{% endif %}
-        </div>
-        {% if master.po_reference %}
-          <div class="muted">Vendor reference: <strong>{{ master.po_reference }}</strong></div>
-        {% endif %}
-      </div>
-      <div style="text-align:right">
-        <div style="font-size:20px;font-weight:800;color:var(--navy)">{{ master.total | money }}</div>
-        <div class="muted"><a href="/document/{{ master.document_id }}/file" target="_blank">Original PDF</a></div>
-      </div>
-    </div>
-
-    {% if master.page_info and " of " in master.page_info
-          and master.page_info.split(" of ")[0] != master.page_info.split(" of ")[1] %}
-      <div class="flash warn" style="margin:12px 0 0">
-        This quote says <strong>page {{ master.page_info }}</strong> — the remaining pages have
-        not been uploaded, so some quoted items may be missing.
-      </div>
-    {% endif %}
-
-    <details style="margin-top:13px">
-      <summary style="cursor:pointer;font-weight:700;color:var(--accent);font-size:13px">
-        Show the {{ master.lines|length }} quoted line{{ "" if master.lines|length == 1 else "s" }}
-      </summary>
-      <table class="grid" style="margin-top:11px">
-        <thead>
-          <tr><th>#</th><th>Item</th><th>Description</th><th class="r">Qty</th>
-              <th class="r">Unit price</th><th class="r">Amount</th></tr>
-        </thead>
-        <tbody>
-          {% for line in master.lines %}
-          <tr>
-            <td class="muted">{{ line.line_no }}</td>
-            <td class="mono">{{ line.sku or "—" }}</td>
-            <td>{{ line.description or "—" }}</td>
-            <td class="r">{{ line.qty | qty }} <span class="muted">{{ line.uom }}</span></td>
-            <td class="r" style="font-weight:700">
-              {{ line.unit_price | money4 }}{% if line.price_uom %}<span class="muted">/{{ line.price_uom }}</span>{% endif %}
-            </td>
-            <td class="r">{{ line.extended | money }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </details>
-
-  </div>
-  {% endfor %}
-
-{% endif %}
-
-{% if superseded %}
-<div class="panel tight">
-  <div class="muted">
-    {{ superseded|length }} earlier quote{{ "" if superseded|length == 1 else "s" }} superseded ·
-    {% for old in superseded %}
-      <a href="/document/{{ old.document_id }}/file" target="_blank">{{ old.quote_number or ("#" ~ old.id) }}</a>{% if not loop.last %}, {% endif %}
-    {% endfor %}
-  </div>
-</div>
-{% endif %}
-
-
-
-
-{# ---------------- RECEIVING + CHANGE ORDERS ---------------- #}
-<div class="row" style="align-items:stretch">
-
-  {% if require_receipt %}
-<div class="panel" id="receipts" style="flex:1;min-width:320px">
-    <h2 style="margin-bottom:3px">Receiving confirmations</h2>
-    <div class="muted" style="margin-bottom:12px">
-      The third leg of the match: nothing gets approved until somebody confirms
-      it arrived.
-    </div>
-
-    {% if job.receipts %}
-      <table class="grid" style="margin-bottom:14px">
-        <thead><tr><th>Vendor</th><th>What</th><th>Ref</th><th>Confirmed by</th></tr></thead>
-        <tbody>
-          {% for r in job.receipts %}
-          <tr>
-            <td>{{ r.vendor or "—" }}</td>
-            <td>{{ "Delivery" if r.kind == "delivery" else "Work completed" }}</td>
-            <td class="mono">{{ r.reference or "—" }}</td>
-            <td>
-              {{ r.confirmed_by }}
-              <div class="muted">{{ r.confirmed_at.strftime("%d %b %Y") }}</div>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+            <input type="text" name="to_address" placeholder="pm@addventuresinc.com"
+                   autocomplete="off" {{ "" if jobnimbus_on else "required" }}></label>
+          <div class="drawgo"><button class="btn" type="submit">Ask for it</button></div>
+        </form>
+      {% elif chase_wait %}
+        <p class="muted" style="margin-top:12px">Already asked in the last 24 hours.</p>
+      {% endif %}
     {% else %}
-      <div class="flash warn" style="margin-bottom:14px">
-        Nothing confirmed received on this job yet, so no invoice here can be approved.
-      </div>
-    {% endif %}
-
-    <details class="add">
-  <summary>Confirm a delivery</summary>
-  <form method="post" action="/job/{{ job.job_number }}/receipt">
-        <div class="row" style="margin-bottom:9px">
+      {% for m in masters %}
+      <div style="padding:14px 0;border-bottom:1px solid var(--rule-lt)">
+        <div style="display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap">
           <div>
-            <label class="fld" for="r-vendor">Vendor</label>
-            <input type="text" id="r-vendor" name="vendor" required list="job-vendors"
-                   placeholder="Who delivered it" autocomplete="off">
+            <strong>{{ m.vendor or "Unknown vendor" }}</strong>
+            <div class="muted">{{ m.quote_number or "no number" }} ·
+              {{ m.quote_date or "no date" }} ·
+              {{ m.lines|length }} line{{ "" if m.lines|length == 1 else "s" }}</div>
           </div>
-          <div>
-            <label class="fld" for="r-kind">What happened</label>
-            <select id="r-kind" name="kind">
-              <option value="delivery">Material delivered</option>
-              <option value="work_completion">Work completed</option>
-            </select>
+          <div style="text-align:right">
+            <div style="font-size:1.15rem;font-weight:800">{{ m.total | money }}</div>
+            <a href="/document/{{ m.document_id }}/file" target="_blank">Original</a>
           </div>
         </div>
-        <div class="row" style="margin-bottom:11px">
-          <div>
-            <label class="fld" for="r-ref">Packing slip / reference</label>
-            <input type="text" id="r-ref" name="reference" placeholder="Optional" autocomplete="off">
-          </div>
-          <div>
-            <label class="fld" for="r-by">Confirmed by</label>
-            <input type="text" id="r-by" name="confirmed_by" required
-                   placeholder="Your name" autocomplete="off">
-          </div>
-        </div>
-        <button class="btn" type="submit">Confirm receipt</button>
-      </form>
-</details>
-  </div>
-{% endif %}
-
-  <div class="panel" id="change-orders" style="flex:1;min-width:320px">
-    <h2 style="margin-bottom:3px">Vendor change orders</h2>
-    <div class="muted" style="margin-bottom:12px">
-      Only for when a supplier's own price moves. Using more material than
-      quoted needs nothing here.
-    </div>
-
-    {% set proposed = job.change_orders | selectattr("status", "equalto", "proposed") | list %}
-    {% set decided = job.change_orders | rejectattr("status", "equalto", "proposed") | list %}
-
-    {% if proposed %}
-      <div class="copending">
-        <div class="co-kicker">Waiting on you</div>
-        <p class="co-lead">
-          {{ proposed|length }} change order{{ "" if proposed|length == 1 else "s" }}
-          arrived by email and {{ "has" if proposed|length == 1 else "have" }} been
-          read but not approved. Until you approve one it authorises nothing —
-          no invoice is released and no total on this page includes it.
-        </p>
-        {% for c in proposed %}
-        <div class="co-card">
-          <div class="co-top">
-            <div>
-              <strong>{{ c.vendor or "Unknown vendor" }}</strong>
-              <span class="mono muted">{{ c.number or ("#" ~ c.id) }}</span>
-            </div>
-            <div class="co-amt">{{ c.amount | money }}</div>
-          </div>
-          <div class="muted" style="margin:5px 0 0">{{ c.description or "No description given." }}</div>
-          {% if c.document_id %}
-            <div style="margin-top:5px">
-              <a href="/document/{{ c.document_id }}/file" target="_blank">Read the original</a>
-            </div>
-          {% endif %}
-          <form method="post" action="/change-order/{{ c.id }}/decide" class="co-form">
-            <input type="text" name="actor" placeholder="Your name" required style="max-width:170px">
-            <input type="text" name="note" placeholder="Note (optional)">
-            <button class="btn" name="decision" value="approve" type="submit">Approve</button>
-            <button class="btn ghost" name="decision" value="reject" type="submit">Reject</button>
-          </form>
-        </div>
-        {% endfor %}
-      </div>
-    {% endif %}
-
-    {% if decided %}
-      <table class="grid" style="margin-bottom:14px">
-        <thead><tr><th>No.</th><th>Vendor</th><th>For</th><th class="r">Amount</th></tr></thead>
-        <tbody>
-          {% for c in decided %}
-          <tr{% if c.status == "rejected" %} style="opacity:.55"{% endif %}>
-            <td class="mono">{{ c.number or ("#" ~ c.id) }}</td>
-            <td>{{ c.vendor or "—" }}</td>
-            <td>
-              {{ c.description or "—" }}
-              <div class="muted">
-                {% if c.status == "rejected" %}rejected{% else %}approved{% endif %}
-                by {{ c.approved_by or "—" }}
-                {%- if c.decided_note %} · {{ c.decided_note }}{% endif %}
-              </div>
-            </td>
-            <td class="r" style="font-weight:700">
-              {% if c.status == "rejected" %}
-                <span class="muted" style="text-decoration:line-through">{{ c.amount | money }}</span>
-              {% else %}{{ c.amount | money }}{% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    {% elif not proposed %}
-      <div class="muted" style="margin-bottom:14px">None on this job.</div>
-    {% endif %}
-
-    <details class="add">
-  <summary>Record a change order</summary>
-  <form method="post" action="/job/{{ job.job_number }}/change-order">
-        <div class="row" style="margin-bottom:9px">
-          <div>
-            <label class="fld" for="c-vendor">Vendor</label>
-            <input type="text" id="c-vendor" name="vendor" required list="job-vendors"
-                   autocomplete="off">
-          </div>
-          <div>
-            <label class="fld" for="c-amount">Amount authorised</label>
-            <input type="text" id="c-amount" name="amount" required placeholder="1200.00"
-                   autocomplete="off">
-          </div>
-        </div>
-        <div class="row" style="margin-bottom:9px">
-          <div>
-            <label class="fld" for="c-number">Change order no.</label>
-            <input type="text" id="c-number" name="number" placeholder="CO-1" autocomplete="off">
-          </div>
-          <div>
-            <label class="fld" for="c-by">Approved by</label>
-            <input type="text" id="c-by" name="approved_by" required placeholder="Your name"
-                   autocomplete="off">
-          </div>
-        </div>
-        <div style="margin-bottom:11px">
-          <label class="fld" for="c-desc">What changed</label>
-          <input type="text" id="c-desc" name="description"
-                 placeholder="e.g. hidden rot at north elevation" autocomplete="off">
-        </div>
-        <button class="btn" type="submit">Record change order</button>
-      </form>
-</details>
-  </div>
-</div>
-
-<datalist id="job-vendors">
-  {% for m in masters %}<option value="{{ m.vendor }}">{% endfor %}
-  {% for i in invoices %}<option value="{{ i.vendor }}">{% endfor %}
-</datalist>
-
-{# ---------------- SUBCONTRACTORS ---------------- #}
-{% if subs %}
-<div class="panel" id="subs">
-  <h2 style="margin-bottom:3px">Subcontractors</h2>
-  <div class="muted" style="margin-bottom:14px">
-    Their invoices are checked like any other — read, compared against their
-    contract, marked up. What a contract adds is a ceiling: it is a fixed award,
-    and every invoice eats into a finite number.
-    <a href="/sub-invoices">See all subcontractor invoices</a>.
-  </div>
-
-  {% for p in subs %}
-  <div class="subcard">
-    <div class="sub-head">
-      <div>
-        <strong style="font-size:1.05rem">{{ p.vendor }}</strong>
-        {% if p.overage %}
-          <span class="chip c-over">{{ p.overage | money }} over contract</span>
+        {% if m.lines %}
+        <details style="margin-top:10px">
+          <summary style="cursor:pointer;font-weight:700;color:var(--brand);font-size:.9rem">
+            Show the lines</summary>
+          <table class="grid" style="margin-top:10px">
+            <thead><tr><th>Item</th><th>Description</th><th class="r">Qty</th>
+              <th class="r">Unit price</th><th class="r">Amount</th></tr></thead>
+            <tbody>
+              {% for line in m.lines %}
+              <tr>
+                <td class="mono">{{ line.sku or "—" }}</td>
+                <td>{{ line.description or "—" }}</td>
+                <td class="r">{{ line.qty | qty }} <span class="muted">{{ line.uom }}</span></td>
+                <td class="r" style="font-weight:700">{{ line.unit_price | money4 }}</td>
+                <td class="r">{{ line.extended | money }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </details>
         {% endif %}
       </div>
-      {% if p.percent_drawn is not none %}
-        <div class="muted">{{ p.percent_drawn }}% drawn</div>
+      {% endfor %}
+      {% if superseded %}
+        <p class="muted" style="margin-top:12px">
+          {{ superseded|length }} superseded ·
+          {% for old in superseded %}<a href="/document/{{ old.document_id }}/file"
+            target="_blank">{{ old.quote_number or ("#" ~ old.id) }}</a>{% if not loop.last %},
+          {% endif %}{% endfor %}
+        </p>
       {% endif %}
-    </div>
-
-    <div class="substrip">
-      <div><span class="sk">Contract</span>
-        <span class="sv">{{ p.awarded | money }}</span>
-        <span class="sn">{% if p.change_orders %}incl. {{ p.change_orders | money }} extras{% else %}as awarded{% endif %}</span></div>
-      <div><span class="sk">Billed</span>
-        <span class="sv">{{ p.billed | money }}</span>
-        <span class="sn">{{ p.paid | money }} of it paid</span></div>
-      <div><span class="sk">Remaining</span>
-        <span class="sv">{{ p.remaining | money }}</span>
-        <span class="sn">left on the contract</span></div>
-      <div><span class="sk">Under review</span>
-        <span class="sv">{{ p.pending | money }}</span>
-        <span class="sn">{% if p.open_invoices %}{{ p.open_invoices|length }} waiting{% else %}nothing outstanding{% endif %}</span></div>
-    </div>
-  </div>
-  {% endfor %}
-</div>
-{% endif %}
-
-
-
-{# ---------------- INVOICES ---------------- #}
-<div class="panel" style="padding:0;overflow-x:auto">
-  <div style="padding:16px 20px 12px;display:flex;justify-content:space-between;
-              align-items:center;gap:14px;flex-wrap:wrap">
-    <div>
-      <h2 style="margin:0">Invoices</h2>
-      <div class="muted">
-        {{ invoices|length }} invoice{{ "" if invoices|length == 1 else "s" }} ·
-        {{ s.invoiced | money }} billed
-        {% if s.quoted %} against {{ s.quoted | money }} quoted{% endif %}
-      </div>
-      {% if s.unquoted_vendors %}
-        <div class="muted">
-          {{ s.unquoted_supplier | money }} of that is from
-          {{ s.unquoted_vendors | join(", ") }} — no quote from them on this job,
-          so those prices were not checked against anything.
-        </div>
-      {% endif %}
-    </div>
-    {% if s.found > 0 %}
-      <span class="chip c-over" style="font-size:13px;padding:5px 13px">
-        +{{ s.found | money }} above quote
-      </span>
     {% endif %}
   </div>
+</details>
 
-  {% if not invoices %}
-    <div class="empty">
-      <div class="big">No invoices on this job yet.</div>
-      Forward one to the finance inbox, or upload it here.
-      <div style="margin-top:14px">
-        <a class="btn ghost" href="/upload?job={{ job.job_number }}">Add an invoice</a>
-      </div>
-    </div>
-  {% else %}
+{% if s.vendors|length > 1 %}
+<details class="more">
+  <summary>By vendor <span class="more-count">{{ s.vendors|length }}</span></summary>
+  <div class="more-body">
     <table class="grid">
-      <thead>
-        <tr>
-          <th style="padding-left:20px">Invoice</th>
-          <th>Vendor</th>
-          <th>Date</th>
-          <th class="r">Lines</th>
-          <th class="r">Total</th>
-          <th class="r">Vs. quote</th>
-          <th class="r">Status</th>
-          <th class="r" style="padding-right:20px">Marked-up copy</th>
-        </tr>
-      </thead>
+      <thead><tr><th>Vendor</th><th class="r">Quoted</th><th class="r">Billed</th>
+        <th class="r">Left</th></tr></thead>
       <tbody>
-        {% for inv in invoices %}
+        {% for v in s.vendors %}
         <tr>
-          <td style="padding-left:20px">
-            <a href="/invoice/{{ inv.id }}" style="font-weight:700">
-              {{ inv.invoice_number or ("Invoice #" ~ inv.id) }}
-            </a>
-            <div class="muted"><a href="/document/{{ inv.document_id }}/file" target="_blank">original</a></div>
-          </td>
-          <td>{{ inv.vendor or "—" }}</td>
-          <td class="muted">{{ inv.invoice_date or "—" }}</td>
+          <td><strong>{{ v.vendor }}</strong>
+            {% if not v.has_quote %}<span class="chip c-none">no quote</span>{% endif %}</td>
+          <td class="r">{% if v.has_quote %}{{ v.quoted | money }}{% else %}—{% endif %}</td>
+          <td class="r" style="font-weight:700">{{ v.invoiced | money }}</td>
           <td class="r">
-            {% if inv.lines_over %}<span class="chip c-over">{{ inv.lines_over }} over</span> {% endif %}
-            {% if inv.lines_under %}<span class="chip c-ok">{{ inv.lines_under }} under</span> {% endif %}
-            {% if inv.lines_match %}<span class="chip c-match">{{ inv.lines_match }} ok</span> {% endif %}
-            {% if inv.lines_unmatched %}<span class="chip c-none">{{ inv.lines_unmatched }} ?</span>{% endif %}
-          </td>
-          <td class="r" style="font-weight:700">{{ inv.total | money }}</td>
-          <td class="r">
-            {% if inv.overbilled_amount and inv.overbilled_amount > 0 %}
-              <span class="chip c-over">+{{ inv.overbilled_amount | money }}</span>
-            {% elif not inv.quote_id %}
-              <span class="chip c-none">no quote</span>
-            {% else %}
-              <span class="chip c-ok">on quote</span>
-            {% endif %}
-          </td>
-          <td class="r">
-            {# A bill from somewhere unexpected reads as an ordinary pending
-               invoice everywhere else on this row. It is not one, and this is
-               the page a project manager actually opens. #}
-            {% if trust_blockers(inv.document) %}
-              <div><span class="chip c-over">Check the sender</span></div>
-            {% endif %}
-            {% if inv.approval_status == "approved" %}<span class="chip c-ok">Approved</span>
-            {% elif inv.approval_status == "paid" %}<span class="chip c-none">Paid</span>
-            {% elif inv.approval_status == "held" %}<span class="chip c-over">Held</span>
-            {% elif inv.approval_status == "rejected" %}<span class="chip c-none">Rejected</span>
-            {% else %}<span class="chip c-info">Pending</span>{% endif %}
-          </td>
-          <td class="r" style="padding-right:20px">
-            <a class="btn ghost" href="/invoice/{{ inv.id }}">Review</a>
-          </td>
+            {% if not v.has_quote %}—
+            {% elif v.over_quote > 0 %}<span class="chip c-over">{{ v.over_quote | money }} over</span>
+            {% else %}{{ v.remaining | money }}{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
-  {% endif %}
-</div>
+  </div>
+</details>
+{% endif %}
+
+{% if subs %}
+<details class="more" id="subs">
+  <summary>Subcontractors <span class="more-count">{{ subs|length }}</span></summary>
+  <div class="more-body">
+    {% for p in subs %}
+    <div class="substrip" style="margin-top:12px">
+      <div><span class="sk">{{ p.vendor }}</span>
+        <span class="sv">{{ p.awarded | money }}</span><span class="sn">contract</span></div>
+      <div><span class="sk">Billed</span>
+        <span class="sv">{{ p.billed | money }}</span>
+        <span class="sn">{{ p.percent_drawn or 0 }}% drawn</span></div>
+      <div><span class="sk">Remaining</span>
+        <span class="sv">{{ p.remaining | money }}</span><span class="sn">on the contract</span></div>
+      <div><span class="sk">Under review</span>
+        <span class="sv">{{ p.pending | money }}</span><span class="sn">not decided</span></div>
+    </div>
+    {% endfor %}
+    <p class="muted" style="margin-top:12px">
+      <a href="/sub-invoices">All subcontractor invoices</a></p>
+  </div>
+</details>
+{% endif %}
+
+{% if job.purchases %}
+<details class="more">
+  <summary>Receipts <span class="more-count">{{ job.purchases|length }}</span></summary>
+  <div class="more-body">
+    <table class="grid">
+      <thead><tr><th>Where</th><th>What</th><th>When</th>
+        <th class="r">Amount</th><th class="r">Photo</th></tr></thead>
+      <tbody>
+        {% for p in job.purchases %}
+        <tr>
+          <td><strong>{{ p.merchant or "Unknown" }}</strong></td>
+          <td class="muted">{{ p.description or "—" }}</td>
+          <td class="muted">{{ p.purchased_on or "—" }}</td>
+          <td class="r" style="font-weight:700">{{ p.total | money }}</td>
+          <td class="r">{% if p.document_id %}<a href="/document/{{ p.document_id }}/file"
+            target="_blank">Open</a>{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</details>
+{% endif %}
+
+<details class="more" id="extras" {{ "open" if proposed }}>
+  <summary>Change orders
+    <span class="more-count">{% if proposed %}{{ proposed|length }} waiting
+      {%- elif job.change_orders %}{{ job.change_orders|length }}
+      {%- else %}none{% endif %}</span></summary>
+  <div class="more-body">
+    <p class="muted">Only when a supplier's own price moves.</p>
+    {% for c in job.change_orders %}
+    <div style="padding:12px 0;border-bottom:1px solid var(--rule-lt)">
+      <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div><strong>{{ c.vendor or "Unknown vendor" }}</strong>
+          <span class="mono muted">{{ c.number or ("#" ~ c.id) }}</span>
+          {% if c.status == "proposed" %}<span class="chip c-info">waiting on you</span>
+          {% elif c.status == "rejected" %}<span class="chip c-none">rejected</span>
+          {% else %}<span class="chip c-ok">approved</span>{% endif %}
+          <div class="muted">{{ c.description or "No description." }}</div>
+        </div>
+        <div style="font-weight:800">{{ c.amount | money }}</div>
+      </div>
+      {% if c.status == "proposed" %}
+      <form method="post" action="/change-order/{{ c.id }}/decide" class="co-form">
+        <input type="text" name="actor" placeholder="Your name" required style="max-width:170px">
+        <button class="btn" name="decision" value="approve" type="submit">Approve</button>
+        <button class="btn ghost" name="decision" value="reject" type="submit">Reject</button>
+      </form>
+      {% endif %}
+    </div>
+    {% endfor %}
+    <details class="add" style="margin-top:14px">
+      <summary>Record a change order</summary>
+      <form method="post" action="/job/{{ job.job_number }}/change-order" class="drawform">
+        <label class="fld"><span>Vendor</span>
+          <input type="text" name="vendor" required list="job-vendors" autocomplete="off"></label>
+        <label class="fld"><span>Amount added</span>
+          <input type="text" name="amount" required placeholder="1200.00" autocomplete="off"></label>
+        <label class="fld"><span>Number</span>
+          <input type="text" name="number" placeholder="CO-1" autocomplete="off"></label>
+        <label class="fld"><span>Approved by</span>
+          <input type="text" name="approved_by" required placeholder="Your name"
+                 autocomplete="off"></label>
+        <label class="fld wide"><span>What for</span>
+          <input type="text" name="description" placeholder="Hidden rot on the north slope"></label>
+        <div class="drawgo"><button class="btn" type="submit">Record it</button></div>
+      </form>
+    </details>
+  </div>
+</details>
+
+{% if require_receipt %}
+<details class="more">
+  <summary>Deliveries confirmed
+    <span class="more-count">{{ job.receipts|length }}</span></summary>
+  <div class="more-body">
+    {% if job.receipts %}
+    <table class="grid">
+      <thead><tr><th>Vendor</th><th>What</th><th>Ref</th><th>Confirmed by</th></tr></thead>
+      <tbody>
+        {% for r in job.receipts %}
+        <tr><td>{{ r.vendor or "—" }}</td>
+          <td>{{ "Delivery" if r.kind == "delivery" else "Work completed" }}</td>
+          <td class="mono">{{ r.reference or "—" }}</td>
+          <td>{{ r.confirmed_by }}
+            <div class="muted">{{ r.confirmed_at.strftime("%d %b %Y") }}</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="muted">Nothing confirmed yet.</p>{% endif %}
+    <details class="add" style="margin-top:14px">
+      <summary>Confirm a delivery</summary>
+      <form method="post" action="/job/{{ job.job_number }}/receipt" class="drawform">
+        <label class="fld"><span>Vendor</span>
+          <input type="text" name="vendor" required list="job-vendors" autocomplete="off"></label>
+        <label class="fld"><span>What</span>
+          <select name="kind">
+            <option value="delivery">Material delivered</option>
+            <option value="work">Work completed</option>
+          </select></label>
+        <label class="fld"><span>Packing slip</span>
+          <input type="text" name="reference" placeholder="Optional" autocomplete="off"></label>
+        <label class="fld"><span>Confirmed by</span>
+          <input type="text" name="confirmed_by" required placeholder="Your name"
+                 autocomplete="off"></label>
+        <div class="drawgo"><button class="btn" type="submit">Confirm</button></div>
+      </form>
+    </details>
+  </div>
+</details>
+{% endif %}
+
+<details class="more">
+  <summary>Did we get this job?
+    <span class="more-count">{{ job.outcome_label }}</span></summary>
+  <div class="more-body">
+    <p class="muted">Decides whether money spent here is cost or loss.</p>
+    <form method="post" action="/job/{{ job.job_number }}/outcome" class="drawform">
+      <label class="fld"><span>Where it stands</span>
+        <select name="outcome">
+          {% for value, label in outcomes %}
+            <option value="{{ value }}" {{ "selected" if job.outcome == value }}>{{ label }}</option>
+          {% endfor %}
+        </select></label>
+      <label class="fld wide"><span>Note</span>
+        <input type="text" name="note" value="{{ job.outcome_note }}"
+               placeholder="Board went with another contractor"></label>
+      <div class="drawgo"><button class="btn" type="submit">Save</button></div>
+    </form>
+  </div>
+</details>
+
+<datalist id="job-vendors">
+  {% for m in masters %}<option value="{{ m.vendor }}">{% endfor %}
+</datalist>
 {% endblock %}

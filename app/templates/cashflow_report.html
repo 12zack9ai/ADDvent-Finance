@@ -247,11 +247,8 @@
 {% if f.held_payables %}
 <div class="panel">
   <h2>Waiting on a decision — not scheduled to pay</h2>
-  <p class="muted" style="margin-top:0">Real money owed, and not counted as leaving:
-    invoices that do not tie back to a quote, and check requests nobody has approved.
-    Total <strong>{{ f.held_total | money }}</strong>.
-    <em>QuickBooks cannot produce this view — it does not know an invoice is disputed,
-    and it has never heard of the check requests at all.</em></p>
+  <p class="muted" style="margin-top:0">Owed, and not counted as leaving.
+    Total <strong>{{ f.held_total | money }}</strong>.</p>
   <table class="list"><tbody>
     {% for p in f.held_payables %}
     <tr><td><strong>{{ p.vendor }}</strong> <span class="muted">{{ p.reference }}</span></td>
