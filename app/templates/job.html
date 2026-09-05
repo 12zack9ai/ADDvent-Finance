@@ -221,9 +221,17 @@
             <input type="text" name="actor" placeholder="Your name" required>
           </label>
           <label class="fld" style="margin:0">
-            <span>Send to <span class="hint" style="display:inline">— leave blank to use whoever JobNimbus has assigned</span></span>
-            <input type="text" name="to_address" placeholder="pm@addventuresinc.com"
-                   autocomplete="off">
+            {% if jobnimbus_on %}
+              <span>Send to <span class="hint" style="display:inline">— leave blank to use whoever JobNimbus has assigned</span></span>
+              <input type="text" name="to_address" placeholder="pm@addventuresinc.com"
+                     autocomplete="off">
+            {% else %}
+              {# No JobNimbus key yet, so there is nobody to look up. Offering
+                 "leave blank" here would be offering a button that fails. #}
+              <span>Send to <span class="hint" style="display:inline">— an @addventuresinc.com address</span></span>
+              <input type="text" name="to_address" placeholder="pm@addventuresinc.com"
+                     autocomplete="off" required>
+            {% endif %}
           </label>
         </div>
         <button class="btn" type="submit">Ask for the quote</button>

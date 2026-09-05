@@ -20,8 +20,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app import (
-    accounting, auth, cashflow, cashflow_pdf, fmt, invoice_pdf, jobsummary,
-    scheduler, trust,
+    accounting, auth, cashflow, cashflow_pdf, fmt, invoice_pdf, jobnimbus,
+    jobsummary, scheduler, trust,
 )
 from app.config import settings
 from app.db import get_session, init_db, to_decimal
@@ -392,6 +392,7 @@ def job_detail(job_number: str, request: Request, session: Session = Depends(get
         s=jobsummary.build(job),
         chase_wait=chase_cooldown_left(job),
         can_send_mail=settings.can_send_mail(),
+        jobnimbus_on=jobnimbus.configured(),
     ))
 
 

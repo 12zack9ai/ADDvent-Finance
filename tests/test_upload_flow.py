@@ -1289,3 +1289,25 @@ def test_a_new_scope_by_email_still_stands_alongside(client, tmp_path):
     job = session.query(Job).filter_by(job_number="260000").one()
     assert len(job.masters) == 2
     session.close()
+
+
+def test_without_a_jobnimbus_key_the_address_is_required(client, can_email, monkeypatch):
+    """Offering 'leave blank and we'll look them up' with no key configured is
+    offering a button that cannot work."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "jobnimbus_api_key", "")
+    _bare_job()
+
+    page = client.get("/job/260000")
+    assert "leave blank to use whoever JobNimbus has assigned" not in page.text
+    assert "an @addventuresinc.com address" in page.text
+    assert 'name="to_address"' in page.text and "required" in page.text
+
+
+def test_with_a_key_the_lookup_is_offered(client, can_email, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "jobnimbus_api_key", "test-key")
+    _bare_job()
+
+    page = client.get("/job/260000")
+    assert "leave blank to use whoever JobNimbus has assigned" in page.text
