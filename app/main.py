@@ -189,15 +189,14 @@ def _load_samples_once() -> None:
 
 def _seed_samples_once() -> None:
     """Write the demo dataset, once. Skips silently if it is already there."""
-    from scripts.seed_samples import already_seeded, seed
+    from scripts.seed_samples import seed
     from app.db import SessionLocal
 
     log = logging.getLogger("finance")
     try:
         with SessionLocal() as session:
-            if already_seeded(session):
-                log.warning("SEED: sample jobs already present")
-                return
+            # seed() adds only what is missing, so a department built after
+            # the first deploy appears on the next restart instead of never.
             log.warning("SEED: %s", seed(session))
     except Exception as exc:                          # noqa: BLE001
         log.warning("SEED: failed - %s", exc)

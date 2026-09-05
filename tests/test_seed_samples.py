@@ -218,6 +218,42 @@ def test_the_receipt_department_has_the_most_folders(session):
     assert s.working_total == s.total - s.lost_total
 
 
+def test_an_install_carrying_older_samples_rebuilds_itself(session):
+    """A department built after the first deploy showed an empty page on the
+    live site forever: something in the 269xxx band already existed, so the
+    whole seed skipped itself, and the only fix was somebody wiping sample
+    data on a system that by then held real work too.
+
+    Safe only because of what this data is - the band is reserved, disposable
+    and nobody's real work is in it.
+    """
+    from sqlalchemy import delete
+    from app.models import Purchase
+
+    # An install from before the receipt department: no version marker, and
+    # two of the jobs missing.
+    session.execute(delete(Purchase))
+    for number in ("269009", "269010"):
+        job = job_of(session, number)
+        if job is not None:
+            session.delete(job)
+    session.execute(
+        delete(Document).where(Document.sha256 == seed_samples.VERSION_MARK)
+    )
+    session.commit()
+    assert seed_samples.installed_version(session) == 0
+
+    summary = seed_samples.seed(session)
+
+    assert "replacing an older set" in summary
+    assert len(seed_samples.sample_jobs(session)) == 10
+    assert session.scalars(select(Purchase)).all() != []
+    assert seed_samples.installed_version(session) == seed_samples.SAMPLE_VERSION
+
+    # And now it leaves itself alone.
+    assert seed_samples.seed(session) == "nothing to add"
+
+
 # --- and it comes back out ------------------------------------------------
 
 def test_removal_takes_out_every_sample_row_and_nothing_else(session):

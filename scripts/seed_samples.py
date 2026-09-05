@@ -103,6 +103,19 @@ JOB_BAND = "269"
 DOC_MARK = "sample-269-"
 CASH_MARK = "sample data"
 
+# Bump when the samples themselves change - a new department, a new job, a
+# figure that was wrong. An install carrying an older set rebuilds it once on
+# the next start.
+#
+# Rebuilding is only acceptable because of what this data is: the 269xxx band
+# is reserved, disposable, and nobody's real work is in it. Anything else in
+# the database is untouched. Without this, a department added after the first
+# deploy shows an empty page on the live site forever, and the only fix is
+# somebody manually wiping sample data on a system that by then holds real
+# work too.
+SAMPLE_VERSION = 2
+VERSION_MARK = f"{DOC_MARK}version"
+
 
 def ago(days: int) -> date:
     return TODAY - timedelta(days=days)
@@ -116,6 +129,46 @@ def money(value: Decimal) -> Decimal:
     return value.quantize(D("0.01"))
 
 
+def installed_version(session) -> int:
+    """Which generation of samples is in this database, or 0 for none."""
+    marker = session.scalar(
+        select(Document).where(Document.sha256 == VERSION_MARK)
+    )
+    if marker is None:
+        return 0
+    return int(marker.subject) if (marker.subject or "").isdigit() else 1
+
+
+def _stamp_version(session) -> None:
+    marker = session.scalar(
+        select(Document).where(Document.sha256 == VERSION_MARK)
+    )
+    if marker is None:
+        marker = Document(
+            filename="sample-data-version",
+            sha256=VERSION_MARK,
+            stored_path="(sample) version marker",
+            kind="other",
+            status="ready",
+        )
+        session.add(marker)
+    marker.subject = str(SAMPLE_VERSION)
+    session.flush()
+
+
+def _highest_document_number(session) -> int:
+    """The last number used by a previous seeding run, or 0."""
+    marks = session.scalars(
+        select(Document.sha256).where(Document.sha256.like(f"{DOC_MARK}%"))
+    ).all()
+    numbers = []
+    for mark in marks:
+        tail = mark[len(DOC_MARK):]
+        if tail.isdigit():
+            numbers.append(int(tail))
+    return max(numbers, default=0)
+
+
 # --- the writer -----------------------------------------------------------
 
 class Seed:
@@ -123,17 +176,23 @@ class Seed:
 
     def __init__(self, session):
         self.session = session
-        self.n = 0
+        # Carry on from whatever is already here rather than restarting at 1.
+        # The document mark is unique, so a top-up run that began again at 001
+        # collided with the first sample document ever written - which is a
+        # thing that only happens once samples can be added to an install that
+        # already has some, i.e. exactly when this became possible.
+        self.n = _highest_document_number(session)
 
     # -- documents ---------------------------------------------------------
     def doc(self, job, filename, kind, *, sender="", subject="", body="",
-            source="upload", days=0):
+            source="upload", days=0, mime_type="application/pdf"):
         self.n += 1
         doc = Document(
             job_id=job.id if job else None,
             filename=filename,
             sha256=f"{DOC_MARK}{self.n:03d}",
             stored_path=f"(sample) {filename}",
+            mime_type=mime_type,
             kind=kind,
             source=source,
             sender=sender,
@@ -257,8 +316,7 @@ class Seed:
         """A receipt photographed at the counter and sent in."""
         doc = self.doc(job, f"receipt-{self.n + 1:03d}.jpg", "receipt",
                        sender=who, source="email" if who else "upload",
-                       subject="", days=days)
-        doc.mime_type = "image/jpeg"
+                       subject="", days=days, mime_type="image/jpeg")
         row = Purchase(
             job_id=job.id, document_id=doc.id, merchant=merchant,
             purchased_on=ago(days), total=D(total),
@@ -801,9 +859,42 @@ def remove(session) -> str:
             f"{len(reports)} forecast(s)")
 
 
+# The job each builder makes, so one can be recognised as already present
+# without running it. Kept beside BUILDERS deliberately: a builder added
+# without its number here would be rebuilt on every restart.
+BUILT_JOBS = {
+    job_269001: "269001", job_269002: "269002", job_269003: "269003",
+    job_269004: "269004", job_269005: "269005", job_269006: "269006",
+    job_269007: "269007", job_269008: "269008", job_269009: "269009",
+    job_269010: "269010",
+}
+
+
 def seed(session) -> str:
+    """Add whatever samples are not here yet, and leave the rest alone.
+
+    Top-up rather than all-or-nothing, because the samples grow. A department
+    built after the first deploy - the receipt collector was - would otherwise
+    show an empty page on the live site forever, since something in the 269xxx
+    band already existed and the whole seed skipped itself. Somebody would
+    then have to wipe and rebuild sample data to see a feature, which is a
+    silly reason to touch a database that by then holds real work too.
+    """
+    rebuilt = ""
+    if sample_jobs(session) and installed_version(session) < SAMPLE_VERSION:
+        # An older set of samples. Out with all of it and in with the new -
+        # only the reserved band is touched, and topping up would leave the
+        # old jobs missing whatever was added to them since.
+        remove(session)
+        rebuilt = " (replacing an older set)"
+
+    existing = {job.job_number for job in sample_jobs(session)}
+    todo = [build for build in BUILDERS if BUILT_JOBS[build] not in existing]
+    if not todo:
+        return "nothing to add"
+
     s = Seed(session)
-    jobs = [build(s) for build in BUILDERS]
+    jobs = [build(s) for build in todo]
 
     # Routing last, once every quote, contract and change order on a job is
     # in place — a routing decision taken halfway through would be taken on
@@ -813,9 +904,20 @@ def seed(session) -> str:
         for invoice in job.invoices:
             apply_routing(invoice)
 
+    # The forecast is built from what is here, so anything added since the
+    # last one makes it stale. Replaced rather than added to - two sample
+    # forecasts and no way to tell which is current is worse than one.
+    for old_report in session.scalars(
+        select(CashReport).where(CashReport.source_label == CASH_MARK)
+    ).all():
+        session.delete(old_report)
     build_cash_report(session)
+    _stamp_version(session)
     session.commit()
-    return f"{len(jobs)} sample jobs and one 13-week forecast"
+
+    added = "" if len(jobs) == len(BUILDERS) else " added"
+    return (f"{len(jobs)} sample job{'' if len(jobs) == 1 else 's'}{added} and a "
+            f"fresh 13-week forecast{rebuilt}")
 
 
 def main() -> int:
@@ -827,12 +929,13 @@ def main() -> int:
         if "--remove" in sys.argv:
             return 0
 
-    if already_seeded(session):
-        print(f"Sample jobs are already loaded ({JOB_BAND}xxx). "
+    summary = seed(session)
+    if summary == "nothing to add":
+        print(f"Every sample job is already loaded ({JOB_BAND}xxx). "
               f"Re-run with --reset to rebuild, or --remove to clear them.")
         return 0
 
-    print(seed(session))
+    print(summary)
     for job in sorted(sample_jobs(session), key=lambda j: j.job_number):
         print(f"  {job.job_number}  {job.name}")
     return 0

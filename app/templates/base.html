@@ -173,8 +173,12 @@ div.grid{display:grid;gap:16px}
   font-size:.8rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
   color:var(--mute);
 }
-.score-v{font-size:1.65rem;font-weight:800;letter-spacing:-.02em;color:var(--ink);
-         line-height:1.15;overflow-wrap:anywhere}
+/* Shrinks rather than wraps. `overflow-wrap:anywhere` on a figure breaks it
+   mid-digit - $251,19 on one line and 2.10 on the next - which is worse than
+   the overflow it was there to prevent. break-word still catches a genuinely
+   unbreakable string. */
+.score-v{font-size:clamp(1.2rem,5.2vw,1.65rem);font-weight:800;letter-spacing:-.02em;
+         color:var(--ink);line-height:1.15;overflow-wrap:break-word}
 .score-n{font-size:.87rem;color:var(--soft);line-height:1.35}
 .score-flag{display:block;margin-top:3px;font-weight:700;color:var(--ok-ink)}
 
@@ -429,10 +433,16 @@ form.stack label.check input{width:auto;min-height:0;margin:5px 0 0}
 .prog-tag.soon{background:var(--none-bg);color:var(--none-ink)}
 .prog-what{color:var(--soft);font-size:1rem;line-height:1.6;margin:0 0 18px}
 .prog-stats{
-  display:grid;grid-template-columns:repeat(3,1fr);gap:12px;
+  /* auto-fit, not repeat(3): three fixed columns cannot hold three figures
+     like $421,733.40 on a phone, and a grid item without min-width:0 does not
+     shrink - it overflows the card and the last number is cut off mid-digit.
+     Wrapping to two and one is the readable answer; a number sliced in half
+     is not a number. */
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:12px;
   padding:16px 0;border-top:1px solid var(--rule-lt);border-bottom:1px solid var(--rule-lt);
 }
-.prog-stats strong{display:block;font-size:1.35rem;font-weight:800;
+.prog-stats > div{min-width:0}
+.prog-stats strong{display:block;font-size:clamp(1.05rem,4.4vw,1.35rem);font-weight:800;
                    font-variant-numeric:tabular-nums;letter-spacing:-.02em}
 .prog-stats span{display:block;font-size:.78rem;color:var(--mute);margin-top:3px}
 .prog-stats .is-bad strong{color:var(--over-ink)}
