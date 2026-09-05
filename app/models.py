@@ -72,6 +72,14 @@ class Job(Base):
     # Recorded on the job rather than the invoice: a job with no quote collects
     # several invoices before anyone acts, and three emails about one missing
     # quote is how somebody learns to filter these.
+    # What we charged the customer, and what our own crews cost. Neither can be
+    # read off a document that arrives here - the first is our price to the
+    # association, the second is payroll - so both are typed in on the costing
+    # report. They are the only two numbers on it that a person supplies.
+    contract_amount: Mapped[Optional[Decimal]] = mapped_column(Money, nullable=True)
+    labour_cost: Mapped[Optional[Decimal]] = mapped_column(Money, nullable=True)
+    costing_note: Mapped[str] = mapped_column(Text, default="")
+
     quote_chase_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     quote_chase_to: Mapped[str] = mapped_column(String(255), default="")
     # How many times anyone has been asked for the quotes on this job. The

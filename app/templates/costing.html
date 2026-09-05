@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Job {{ job.job_number }} costing · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <div class="muted"><a href="/job/{{ job.job_number }}">Job {{ job.job_number }}</a> &rsaquo;</div>
+    <h1>Job costing</h1>
+    <p class="sub">{{ job.name or "No job name set" }}</p>
+  </div>
+  <div><a class="btn ghost" href="#" onclick="window.print();return false;">Print</a></div>
+</div>
+
+<div class="scorecard">
+  <div class="score">
+    <span class="score-k">Charged</span>
+    <span class="score-v">{% if c.has_revenue %}{{ c.revenue | money }}{% else %}—{% endif %}</span>
+    <span class="score-n">{% if c.has_revenue %}what the customer was billed
+      {% else %}not entered yet{% endif %}</span>
+  </div>
+  <div class="score">
+    <span class="score-k">Cost</span>
+    <span class="score-v">{{ c.cost | money }}</span>
+    <span class="score-n">{% if c.pending %}plus {{ c.pending | money }} still on the table
+      {% else %}everything agreed{% endif %}</span>
+  </div>
+  <div class="score{{ ' good' if c.has_revenue and c.margin > 0 }}{{ ' bad' if c.has_revenue and c.margin < 0 }}">
+    <span class="score-k">Margin</span>
+    <span class="score-v">{% if c.has_revenue %}{{ c.margin | money }}{% else %}—{% endif %}</span>
+    <span class="score-n">
+      {% if not c.has_revenue %}enter what we charged
+      {% elif c.margin_pct is not none %}{{ c.margin_pct }}% of what we charged{% endif %}</span>
+  </div>
+  {% if c.pending %}
+  <div class="score">
+    <span class="score-k">If everything clears</span>
+    <span class="score-v">{% if c.has_revenue %}{{ c.worst_case_margin | money }}{% else %}—{% endif %}</span>
+    <span class="score-n">cost {{ c.worst_case_cost | money }}</span>
+  </div>
+  {% endif %}
+</div>
+
+{% if c.gaps %}
+<div class="panel" style="border-left:5px solid var(--ok-line);background:var(--warn-bg)">
+  <h2 style="margin-bottom:6px;color:var(--ok-ink)">This is not the whole picture yet</h2>
+  <p class="muted" style="margin-top:0">
+    A margin figure that quietly leaves things out is worse than no margin
+    figure, so here is what is missing:
+  </p>
+  <ul style="margin:0;line-height:1.6">
+    {% for gap in c.gaps %}<li>{{ gap }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="panel" style="padding:0;overflow:hidden">
+  <table class="grid">
+    <thead>
+      <tr><th style="padding-left:20px">What</th><th class="r">Agreed</th>
+        <th class="r">Still on the table</th><th class="r" style="padding-right:20px">Items</th></tr>
+    </thead>
+    <tbody>
+      {% for b in c.buckets %}
+      <tr>
+        <td style="padding-left:20px">
+          <strong>{{ b.label }}</strong>
+          {% if b.note %}<div class="muted">{{ b.note }}</div>{% endif %}
+        </td>
+        <td class="r" style="font-weight:700">{{ b.agreed | money }}</td>
+        <td class="r">{% if b.pending %}<span class="warn">{{ b.pending | money }}</span>
+          {% else %}<span class="muted">—</span>{% endif %}</td>
+        <td class="r muted" style="padding-right:20px">{{ b.count or "—" }}</td>
+      </tr>
+      {% endfor %}
+      <tr>
+        <td style="padding-left:20px">
+          <strong>Our own labour</strong>
+          {% if not c.labour_given %}
+            <div class="muted">Not entered. Leave it out on a job that was fully subbed.</div>
+          {% endif %}
+        </td>
+        <td class="r" style="font-weight:700">{% if c.labour_given %}{{ c.labour | money }}{% else %}—{% endif %}</td>
+        <td class="r muted">—</td>
+        <td class="r muted" style="padding-right:20px">—</td>
+      </tr>
+      <tr style="border-top:2px solid var(--rule)">
+        <td style="padding-left:20px"><strong>Total cost</strong></td>
+        <td class="r" style="font-weight:800;font-size:1.05rem">{{ c.cost | money }}</td>
+        <td class="r">{% if c.pending %}<strong class="warn">{{ c.pending | money }}</strong>{% else %}—{% endif %}</td>
+        <td class="r" style="padding-right:20px"></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+{% if subs %}
+<div class="panel">
+  <h2>Subcontractors on this job</h2>
+  <table class="grid">
+    <thead><tr><th>Sub</th><th class="r">Contract</th><th class="r">Approved</th>
+      <th class="r">Paid</th><th class="r">Waiting</th></tr></thead>
+    <tbody>
+      {% for p in subs %}
+      <tr>
+        <td><strong>{{ p.vendor }}</strong></td>
+        <td class="r">{% if p.has_contract %}{{ p.awarded | money }}{% else %}<span class="muted">none on file</span>{% endif %}</td>
+        <td class="r">{{ p.approved | money }}</td>
+        <td class="r">{{ p.paid | money }}</td>
+        <td class="r">{% if p.waiting %}<span class="warn">{{ p.waiting | money }}</span>{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2 style="margin-bottom:3px">The two numbers only you know</h2>
+  <div class="muted" style="margin-bottom:14px">
+    Everything above was read off documents. These two cannot be — our price to
+    the customer, and what our own crews cost.
+  </div>
+  <form method="post" action="/job/{{ job.job_number }}/costing" class="drawform">
+    <label class="fld"><span>What we charged</span>
+      <input type="text" name="contract_amount" inputmode="decimal"
+             value="{{ job.contract_amount if job.contract_amount is not none else '' }}"
+             placeholder="185,000.00" autocomplete="off"></label>
+    <label class="fld"><span>Our own labour <span class="hint" style="display:inline">— blank if fully subbed</span></span>
+      <input type="text" name="labour_cost" inputmode="decimal"
+             value="{{ job.labour_cost if job.labour_cost is not none else '' }}"
+             placeholder="0.00" autocomplete="off"></label>
+    <label class="fld wide"><span>Note</span>
+      <input type="text" name="costing_note" value="{{ job.costing_note }}"
+             placeholder="Anything the numbers above do not say"></label>
+    <div class="drawgo"><button class="btn" type="submit">Save</button></div>
+  </form>
+</div>
+{% endblock %}

@@ -20,8 +20,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app import (
-    accounting, auth, cashflow, cashflow_pdf, fmt, invoice_pdf, jobnimbus,
-    jobsummary, scheduler, subs, trust,
+    accounting, auth, cashflow, cashflow_pdf, costing, fmt, invoice_pdf,
+    jobnimbus, jobsummary, scheduler, subs, trust,
 )
 from app.config import settings
 from app.db import get_session, init_db, to_decimal
@@ -412,6 +412,48 @@ def job_detail(job_number: str, request: Request, session: Session = Depends(get
         },
         check_labels=CHECK_LABELS,
     ))
+
+
+@app.get("/job/{job_number}/costing", response_class=HTMLResponse)
+def job_costing(job_number: str, request: Request, session: Session = Depends(get_session)):
+    """What the job cost, and what it made."""
+    job = session.scalar(
+        select(Job).where(Job.job_number == normalize_job_number(job_number))
+    )
+    if job is None:
+        return _redirect("/jobs", err=f"No job {job_number}.")
+
+    return templates.TemplateResponse(request, "costing.html", _ctx(
+        request, session,
+        job=job,
+        c=costing.build(job),
+        subs=subs.positions(job),
+    ))
+
+
+@app.post("/job/{job_number}/costing")
+def save_costing(
+    job_number: str,
+    contract_amount: str = Form(""),
+    labour_cost: str = Form(""),
+    costing_note: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    """The two figures nobody can read off a document, plus a note."""
+    job = session.scalar(
+        select(Job).where(Job.job_number == normalize_job_number(job_number))
+    )
+    if job is None:
+        return _redirect("/jobs", err=f"No job {job_number}.")
+
+    # Blank clears the figure rather than setting it to zero. Zero labour on a
+    # fully subbed job is a real answer; blank means nobody has said yet, and
+    # the report reports that difference.
+    job.contract_amount = to_decimal(contract_amount) if contract_amount.strip() else None
+    job.labour_cost = to_decimal(labour_cost) if labour_cost.strip() else None
+    job.costing_note = costing_note.strip()
+    session.commit()
+    return _redirect(f"/job/{job.job_number}/costing", ok="Costing updated.")
 
 
 @app.get("/inbox", response_class=HTMLResponse)

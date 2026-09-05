@@ -9,6 +9,7 @@
     <p class="sub">{{ job.name or "No job name set" }}</p>
   </div>
   <div style="display:flex;gap:9px;flex-wrap:wrap">
+    <a class="btn ghost" href="/job/{{ job.job_number }}/costing">Job costing</a>
     <a class="btn ghost" href="/upload?job={{ job.job_number }}">Add invoice</a>
     <a class="btn" href="/upload?job={{ job.job_number }}&amp;master=1">Add a quote</a>
   </div>

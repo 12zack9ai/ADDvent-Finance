@@ -1487,3 +1487,74 @@ def test_the_nav_shows_how_many_people_are_waiting(client):
     client.post("/job/260000/check-request", follow_redirects=False,
                 data={"vendor": "Reilly Roofing LLC", "amount": "30000"})
     assert "Checks (1)" in client.get("/jobs").text
+
+
+# --- the job costing report through the web app ---------------------------
+
+def test_the_costing_report_pulls_invoices_and_subs_together(client, tmp_path):
+    from app.models import CheckRequest
+    _sub_job()
+
+    upload(client, _pdf(tmp_path, "q.pdf", "cost-q"), QUOTE_PAYLOAD, job_number="260000")
+    upload(client, _pdf(tmp_path, "i.pdf", "cost-i"), INVOICE_PAYLOAD, job_number="260000")
+
+    session = SessionLocal()
+    invoice = session.query(Invoice).one()
+    invoice.approval_status = "paid"
+    session.commit()
+    session.close()
+
+    client.post("/job/260000/check-request", follow_redirects=False,
+                data={"vendor": "Reilly Roofing LLC", "amount": "30000"})
+    session = SessionLocal()
+    req_id = session.query(CheckRequest).one().id
+    session.close()
+    client.post(f"/check/{req_id}/decide", follow_redirects=False,
+                data={"decision": "approve", "actor": "Zack"})
+
+    page = client.get("/job/260000/costing")
+    assert page.status_code == 200
+    assert "$6,154.00" in page.text        # the vendor invoice
+    assert "$30,000.00" in page.text       # the sub draw
+    assert "$36,154.00" in page.text       # added up
+    # No price entered, so no margin is claimed.
+    assert "what we charged the customer has not been entered" in page.text
+
+
+def test_entering_the_price_produces_the_margin(client):
+    _sub_job()
+    resp = client.post("/job/260000/costing", follow_redirects=False, data={
+        "contract_amount": "185,000.00", "labour_cost": "0",
+        "costing_note": "Fully subbed",
+    })
+    assert resp.status_code == 303
+
+    page = client.get("/job/260000/costing")
+    assert "$185,000.00" in page.text
+    assert "Fully subbed" in page.text
+
+    session = SessionLocal()
+    job = session.query(Job).filter_by(job_number="260000").one()
+    assert job.contract_amount == D("185000.00")
+    assert job.labour_cost == D("0")
+    session.close()
+
+
+def test_clearing_the_labour_figure_is_not_the_same_as_zero(client):
+    _sub_job()
+    client.post("/job/260000/costing", follow_redirects=False,
+                data={"contract_amount": "100000", "labour_cost": "5000"})
+    client.post("/job/260000/costing", follow_redirects=False,
+                data={"contract_amount": "100000", "labour_cost": ""})
+
+    session = SessionLocal()
+    job = session.query(Job).filter_by(job_number="260000").one()
+    assert job.labour_cost is None
+    session.close()
+
+    assert "our own labour has not been entered" in client.get("/job/260000/costing").text
+
+
+def test_the_job_page_links_to_the_costing_report(client):
+    _sub_job()
+    assert "/job/260000/costing" in client.get("/job/260000").text
