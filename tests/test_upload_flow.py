@@ -1558,3 +1558,71 @@ def test_clearing_the_labour_figure_is_not_the_same_as_zero(client):
 def test_the_job_page_links_to_the_costing_report(client):
     _sub_job()
     assert "/job/260000/costing" in client.get("/job/260000").text
+
+
+# --- the front door shows all four programmes ------------------------------
+
+def test_the_home_page_offers_all_four_programmes(client):
+    body = client.get("/").text
+    assert "Four programmes" in body
+    for heading in ("Invoice checking", "Subcontractor checks",
+                    "13-week cash flow", "Job costing"):
+        assert heading in body
+    for href in ('href="/incoming"', 'href="/checks"',
+                 'href="/cashflow"', 'href="/jobs"'):
+        assert href in body
+
+
+def test_the_checks_card_leads_with_the_longest_wait(client):
+    """A sub who has been waiting five weeks is the reason to open this card.
+    "3 requests" is not."""
+    _sub_job()
+    client.post("/job/260000/check-request", follow_redirects=False, data={
+        "vendor": "Reilly Roofing LLC", "amount": "30000",
+        "requested_on": "2026-07-01"})
+
+    body = client.get("/").text
+    assert "longest wait" in body
+    assert "Reilly Roofing LLC" in body
+    assert "$30,000.00" in body
+
+
+def test_the_checks_card_is_quiet_when_nobody_is_waiting(client):
+    assert "Nobody is waiting." in client.get("/").text
+
+
+def test_the_costing_card_counts_the_jobs_with_no_price_entered(client):
+    """Saying how many cannot show a margin is more useful than averaging the
+    ones that can."""
+    _sub_job("260000")
+    _sub_job("260001", vendor="Bravo Electric")
+    client.post("/job/260000/costing", follow_redirects=False,
+                data={"contract_amount": "185000", "labour_cost": "0"})
+
+    body = client.get("/").text
+    assert "$185,000.00" in body
+    assert "1 job with no price entered" in body
+
+
+def test_the_costing_card_does_not_show_a_margin_on_a_fraction_of_the_cost(client, tmp_path):
+    """The front door must not carry the overstatement the costing report
+    itself exists to prevent."""
+    from app.models import CheckRequest
+    _sub_job()
+    upload(client, _pdf(tmp_path, "i.pdf", "front-i"), INVOICE_PAYLOAD, job_number="260000")
+    client.post("/job/260000/check-request", follow_redirects=False,
+                data={"vendor": "Reilly Roofing LLC", "amount": "60000"})
+    client.post("/job/260000/costing", follow_redirects=False,
+                data={"contract_amount": "185000", "labour_cost": "0"})
+
+    body = client.get("/").text
+    assert "still waiting on a decision" in body
+    assert "the first figure is the optimistic one" in body
+    assert "if everything clears" in body
+    # $185,000 less $6,154 of invoice and $60,000 of sub draw.
+    assert "$118,846.00" in body
+
+
+def test_the_costing_card_says_so_when_nothing_is_priced(client):
+    _sub_job()
+    assert "No job has a price entered yet" in client.get("/").text

@@ -306,10 +306,12 @@ def healthz() -> dict:
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request, session: Session = Depends(get_session)):
-    """The front door: which of the two programmes do you want.
+    """The front door: which of the four programmes do you want.
 
     Each card carries the one number that says whether it needs attention
-    today, so the choice is informed rather than blind.
+    today, so the choice is informed rather than blind. The number on a card
+    is deliberately the one that would make somebody open it - the oldest sub
+    still waiting, not how many subs there are.
     """
     jobs = session.scalar(select(func.count(Job.id))) or 0
     invoices = session.scalar(select(func.count(Invoice.id))) or 0
@@ -330,6 +332,46 @@ def home(request: Request, session: Session = Depends(get_session)):
     latest = session.scalar(select(CashReport).order_by(CashReport.created_at.desc()))
     latest_forecast = _report_forecast(latest) if latest is not None else None
 
+    # Subcontractor checks. The card leads with the longest wait rather than a
+    # count, because a sub who has been waiting five weeks is the reason to
+    # open this and "3 requests" is not.
+    check_jobs = session.scalars(
+        select(Job)
+        .join(CheckRequest, CheckRequest.job_id == Job.id)
+        .where(CheckRequest.status == CHECK_REQUESTED)
+        .distinct()
+        .options(
+            selectinload(Job.check_requests),
+            selectinload(Job.quotes),
+            selectinload(Job.change_orders),
+        )
+    ).all()
+    check_rows = subs.queue(check_jobs)
+    checks_paid = session.scalar(
+        select(func.sum(CheckRequest.amount))
+        .where(CheckRequest.status == CHECK_PAID)
+    )
+
+    # Job costing. Only jobs somebody has priced can show a margin, and saying
+    # how many cannot is more useful than averaging the ones that can.
+    costed = session.scalars(
+        select(Job)
+        .where(Job.contract_amount.is_not(None))
+        .options(
+            selectinload(Job.invoices),
+            selectinload(Job.check_requests),
+        )
+    ).all()
+    reports = [costing.build(job) for job in costed]
+    costed_revenue = sum((r.revenue for r in reports), ZERO)
+    costed_margin = sum((r.margin for r in reports), ZERO)
+    # Money on those jobs that nobody has decided yet. Without this the card
+    # shows a margin computed on a fraction of the cost, which is the exact
+    # overstatement the costing report itself exists to prevent - and it would
+    # be the largest number on the front door.
+    costed_pending = sum((r.pending for r in reports), ZERO)
+    costed_worst = sum((r.worst_case_margin for r in reports), ZERO)
+
     return templates.TemplateResponse(request, "home.html", _ctx(
         request, session,
         jobs_count=jobs,
@@ -340,6 +382,15 @@ def home(request: Request, session: Session = Depends(get_session)):
         newest=newest,
         latest_report=latest,
         latest_forecast=latest_forecast,
+        check_rows=check_rows,
+        checks_total=subs.total_waiting(check_rows),
+        checks_paid=Decimal(checks_paid) if checks_paid else ZERO,
+        costed_count=len(reports),
+        uncosted_count=jobs - len(reports),
+        costed_revenue=costed_revenue,
+        costed_margin=costed_margin,
+        costed_pending=costed_pending,
+        costed_worst=costed_worst,
     ))
 
 

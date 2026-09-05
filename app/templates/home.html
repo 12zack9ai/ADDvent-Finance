@@ -5,7 +5,7 @@
 <div class="pagehead">
   <div>
     <h1>Finance</h1>
-    <p class="sub">Two programmes. Both run on the same documents.</p>
+    <p class="sub">Four programmes. All of them run on the same documents.</p>
   </div>
 </div>
 
@@ -43,15 +43,46 @@
     <div class="prog-go">See what has come in &rarr;</div>
   </a>
 
+  <a class="prog" href="/checks">
+    <div class="prog-head">
+      <h2>Subcontractor checks</h2>
+      <span class="prog-tag">Live</span>
+    </div>
+    <p class="prog-what">
+      Who is waiting to be paid, longest wait first. Each request is checked
+      against what that sub was awarded, so the one that takes them past their
+      contract is caught before the check goes out — not six draws later.
+    </p>
+    {% if check_rows %}
+    <div class="prog-stats">
+      <div class="{{ 'is-bad' if check_rows[0].days > 30 }}">
+        <strong>{{ check_rows[0].days }}</strong><span>day{{ "" if check_rows[0].days == 1 else "s" }} longest wait</span></div>
+      <div><strong>{{ check_rows|length }}</strong><span>waiting</span></div>
+      <div><strong>{{ checks_total | money }}</strong><span>requested</span></div>
+    </div>
+    <div class="prog-note">
+      Oldest: <strong>{{ check_rows[0].request.vendor }}</strong>
+      on job {{ check_rows[0].job.job_number }}
+      {%- if check_rows[0].over_contract %} — already past their contract{% endif %}
+    </div>
+    {% else %}
+    <div class="prog-empty">
+      Nobody is waiting.{% if checks_paid %} {{ checks_paid | money }} paid out so far.{% endif %}
+    </div>
+    {% endif %}
+    <div class="prog-go">See who is waiting &rarr;</div>
+  </a>
+
   <a class="prog" href="/cashflow">
     <div class="prog-head">
-      <h2>Cash flow</h2>
+      <h2>13-week cash flow</h2>
       <span class="prog-tag">Live</span>
     </div>
     <p class="prog-what">
       What has to go out, what is expected in, and what the bank balance does
-      across the forecast window — day by day, with the low point called out.
-      Built from A/P and A/R aging until QuickBooks is connected.
+      across thirteen weeks — with the low point called out. Progress billings
+      and retainage are phased by hand, because nothing else knows when a draw
+      goes out.
     </p>
     {% if latest_forecast %}
     <div class="prog-stats">
@@ -70,6 +101,45 @@
     <div class="prog-go">Open cash flow &rarr;</div>
   </a>
 
+  <a class="prog" href="/jobs">
+    <div class="prog-head">
+      <h2>Job costing</h2>
+      <span class="prog-tag">Live</span>
+    </div>
+    <p class="prog-what">
+      Every vendor invoice and every subcontractor draw on a job, added up
+      against what we charged. Receipts and card purchases are not captured
+      yet, so each report says what it is leaving out rather than presenting a
+      margin as final.
+    </p>
+    {% if costed_count %}
+    <div class="prog-stats">
+      <div><strong>{{ costed_revenue | money }}</strong><span>charged</span></div>
+      <div class="{{ 'is-bad' if costed_margin < 0 }}">
+        <strong>{{ costed_margin | money }}</strong>
+        <span>margin on agreed cost</span></div>
+      <div class="{{ 'is-bad' if costed_worst < 0 }}">
+        <strong>{{ costed_worst | money if costed_pending else costed_margin | money }}</strong>
+        <span>{% if costed_pending %}if everything clears{% else %}nothing outstanding{% endif %}</span></div>
+    </div>
+    {% if costed_pending %}
+    <div class="prog-note">
+      {{ costed_pending | money }} of cost on {{ "this job" if costed_count == 1 else "these jobs" }} is still waiting on a decision, so the first figure is the optimistic one.
+    </div>
+    {% endif %}
+    {% if uncosted_count %}
+    <div class="prog-note">
+      {{ uncosted_count }} job{{ "" if uncosted_count == 1 else "s" }} with no price entered, so no margin on {{ "it" if uncosted_count == 1 else "them" }} yet.
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="prog-empty">
+      No job has a price entered yet. Open a job and use <em>Job costing</em>.
+    </div>
+    {% endif %}
+    <div class="prog-go">Pick a job &rarr;</div>
+  </a>
+
 </div>
 
 <div class="panel quick">
@@ -77,6 +147,7 @@
   <div class="quick-row">
     <a class="btn" href="/incoming">Review invoices that just came in{% if waiting %} ({{ waiting }}){% endif %}</a>
     <a class="btn ghost" href="/upload">Upload a quote or invoice</a>
+    <a class="btn ghost" href="/checks">Check requests{% if check_rows %} ({{ check_rows|length }}){% endif %}</a>
     <a class="btn ghost" href="/cashflow">Generate a cash flow report</a>
     <a class="btn ghost" href="/jobs">All jobs</a>
     <a class="btn ghost" href="/inbox">Inbox{% if inbox_count %} ({{ inbox_count }}){% endif %}</a>
