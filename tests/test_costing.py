@@ -170,7 +170,7 @@ def test_a_report_with_no_price_entered_refuses_to_show_a_margin():
     c = costing.build(job(invoices=[invoice("10000.00")], labour="0"))
     assert not c.has_revenue
     assert c.margin_pct is None
-    assert "what we charged" in " ".join(c.gaps)
+    assert "what we billed the customer is not known" in " ".join(c.gaps)
 
 
 def test_blank_labour_is_not_the_same_as_zero_labour():
@@ -178,12 +178,12 @@ def test_blank_labour_is_not_the_same_as_zero_labour():
     said, and the report has to know the difference."""
     unstated = costing.build(job(invoices=[invoice("10000.00")], charged="20000.00"))
     assert not unstated.labour_given
-    assert "our own labour has not been entered" in " ".join(unstated.gaps)
+    assert "hours and cost have not been entered" in " ".join(unstated.gaps)
 
     stated = costing.build(job(invoices=[invoice("10000.00")],
                                charged="20000.00", labour="0"))
     assert stated.labour_given
-    assert "our own labour has not been entered" not in " ".join(stated.gaps)
+    assert "hours and cost have not been entered" not in " ".join(stated.gaps)
 
 
 def test_labour_is_part_of_the_cost_when_it_is_given():
@@ -223,3 +223,67 @@ def test_a_job_that_lost_money_says_so():
     ))
     assert c.margin == D("-30000.00")
     assert c.margin_pct == D("-30.0")
+
+
+# --- what QuickBooks owns, and what only a person can answer ---------------
+
+def test_collected_is_reported_and_is_not_the_same_as_billed():
+    """Zack: "job costing should also be able to pull total billed and
+    collected out of QuickBooks." Two different numbers - billing a roof and
+    being paid for it are weeks apart."""
+    j = job(invoices=[invoice("10000.00")], charged="50000.00", labour="0")
+    j.collected_amount = D("32000.00")
+    c = costing.build(j)
+
+    assert c.billed == D("50000.00")
+    assert c.collected == D("32000.00")
+    assert c.outstanding == D("18000.00")
+    assert c.collected_known
+
+
+def test_not_knowing_what_was_collected_is_said_rather_than_shown_as_zero():
+    c = costing.build(job(invoices=[invoice("10000.00")], charged="50000.00", labour="0"))
+    assert not c.collected_known
+    assert c.collected == D("0")
+    assert "collected is not known yet" in " ".join(c.gaps)
+
+
+def test_a_hand_typed_billing_figure_says_it_was_hand_typed():
+    """It will be stale the moment somebody bills again, and a number nobody
+    can trace is worse than no number."""
+    j = job(invoices=[invoice("10000.00")], charged="50000.00", labour="0")
+    j.billing_source = "manual"
+    c = costing.build(j)
+    assert not c.billing_synced
+    assert "typed in by hand" in " ".join(c.gaps)
+
+    j.billing_source = "quickbooks"
+    assert costing.build(j).billing_synced
+    assert "typed in by hand" not in " ".join(costing.build(j).gaps)
+
+
+def test_the_crews_rate_is_derived_so_a_foreman_can_check_it():
+    j = job(invoices=[invoice("10000.00")], charged="50000.00", labour="41500.00")
+    j.labour_hours = D("1000")
+    c = costing.build(j)
+
+    assert c.labour_hours == D("1000")
+    assert c.labour_rate == D("41.50")
+
+
+def test_a_crew_cost_with_no_hours_behind_it_is_flagged():
+    """Not wrong, but nobody can check it, and this report exists to be
+    checkable."""
+    c = costing.build(job(invoices=[invoice("10000.00")],
+                          charged="50000.00", labour="41500.00"))
+    assert c.labour_rate is None
+    assert "nobody can check the rate" in " ".join(c.gaps)
+
+
+def test_a_fully_subbed_job_needs_no_crew_figure_at_all():
+    """Zack: "when it isn't fully subbed out." On one that was, blank is the
+    correct and complete answer."""
+    c = costing.build(job(invoices=[invoice("10000.00")],
+                          charged="50000.00", labour="0"))
+    assert c.labour_given and c.labour == D("0")
+    assert "hours and cost have not been entered" not in " ".join(c.gaps)

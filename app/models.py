@@ -59,6 +59,11 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# Where a job's billed and collected figures came from.
+BILLING_QUICKBOOKS = "quickbooks"
+BILLING_MANUAL = "manual"
+
+
 class Job(Base):
     __tablename__ = "job"
 
@@ -76,8 +81,29 @@ class Job(Base):
     # read off a document that arrives here - the first is our price to the
     # association, the second is payroll - so both are typed in on the costing
     # report. They are the only two numbers on it that a person supplies.
+    # What we billed the association, and what has actually come in against
+    # it. Zack: *"job costing should also be able to pull total billed and
+    # collected out of QuickBooks. Not needed for manual entry."* Both belong
+    # to QuickBooks, which is the book of record for money and already holds
+    # every customer invoice and every payment against the Customer:Job. Until
+    # the connector exists they can be typed, and `billing_source` says which
+    # happened - a number nobody can trace is worse than no number.
+    #
+    # contract_amount keeps its name because renaming a live column is not
+    # something the additive migration can do. Read `billed`.
     contract_amount: Mapped[Optional[Decimal]] = mapped_column(Money, nullable=True)
+    collected_amount: Mapped[Optional[Decimal]] = mapped_column(Money, nullable=True)
+    billing_source: Mapped[str] = mapped_column(String(32), default="", server_default="")
+    billing_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    # The one thing QuickBooks cannot answer: which of our men were on this
+    # roof and for how long. Zack: *"only manual entry is our men. Labor our
+    # hours cost if the guys who actually worked. When it isn't fully subbed
+    # out."* Hours and cost both, because a cost with no hours behind it
+    # cannot be checked by anybody, and blank stays a real answer on a job
+    # that was fully subbed.
     labour_cost: Mapped[Optional[Decimal]] = mapped_column(Money, nullable=True)
+    labour_hours: Mapped[Optional[Decimal]] = mapped_column(Money, nullable=True)
     costing_note: Mapped[str] = mapped_column(Text, default="")
 
     quote_chase_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -87,6 +113,35 @@ class Job(Base):
     # timestamp instead, so a person can chase again tomorrow but not twice in
     # an afternoon.
     quote_chase_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+    @property
+    def billed(self) -> Optional[Decimal]:
+        """What the customer has been invoiced for this job."""
+        return self.contract_amount
+
+    @property
+    def collected(self) -> Optional[Decimal]:
+        return self.collected_amount
+
+    @property
+    def outstanding(self) -> Optional[Decimal]:
+        """Billed but not yet in the bank. None unless both figures are known."""
+        if self.contract_amount is None or self.collected_amount is None:
+            return None
+        return self.contract_amount - self.collected_amount
+
+    @property
+    def billing_is_synced(self) -> bool:
+        """Did these figures come from the book of record, or from a person?"""
+        return self.billing_source == BILLING_QUICKBOOKS
+
+    @property
+    def labour_rate(self) -> Optional[Decimal]:
+        """Cost per hour, when both halves are known. Worth showing: it is the
+        one number on the page a foreman can sanity-check at a glance."""
+        if not self.labour_cost or not self.labour_hours or self.labour_hours <= 0:
+            return None
+        return (self.labour_cost / self.labour_hours).quantize(Decimal("0.01"))
 
     quotes: Mapped[list["Quote"]] = relationship(back_populates="job", cascade="all, delete-orphan")
     invoices: Mapped[list["Invoice"]] = relationship(back_populates="job", cascade="all, delete-orphan")

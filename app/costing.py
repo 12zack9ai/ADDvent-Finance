@@ -18,11 +18,23 @@ the queue that week, which is the exact way a job looks profitable right up
 until the last invoices clear. So both are reported: what is agreed, and what
 is still on the table, separately and in the same place.
 
-**Two numbers a person supplies**, because they cannot be read off anything
-that arrives here: what we charged the customer, and what our own crews cost.
-The second is deliberately optional - Zack's point is that a fully subbed-out
-job needs no labour figure at all, and on those jobs this report is complete
-without anyone doing anything.
+**One number a person supplies**, and only one: our own crews. Zack:
+*"job costing should also be able to pull total billed and collected out of
+QuickBooks. Not needed for manual entry. Only manual entry is our men. Labor
+our hours cost if the guys who actually worked. When it isn't fully subbed
+out."*
+
+That is the right division. QuickBooks is the book of record for money and
+already holds every customer invoice and every payment against the
+Customer:Job, so asking a person to retype what we billed is asking them to
+copy a number out of one system into another and be blamed when the two
+disagree. Which of our men were on the roof and for how long is the one thing
+it cannot answer, because nobody has ever told it - and on a fully subbed job
+there is no answer to give, so blank stays a real answer.
+
+Until the connector exists the billing figures can still be typed, and the
+report says which of the two happened. A number nobody can trace is worse than
+no number.
 
 Pure Python over rows already loaded. Decimal throughout.
 """
@@ -71,9 +83,13 @@ class Bucket:
 class Costing:
     job: Job
     buckets: list[Bucket] = field(default_factory=list)
-    revenue: Decimal = ZERO
+    revenue: Decimal = ZERO           # billed to the customer
+    collected: Decimal = ZERO         # of that, what has actually arrived
+    collected_known: bool = False
+    billing_synced: bool = False      # came from QuickBooks, not a person
     labour: Decimal = ZERO
     labour_given: bool = False
+    labour_hours: Optional[Decimal] = None
     purchases_captured: bool = False
 
     def bucket(self, key: str) -> Optional[Bucket]:
@@ -96,6 +112,21 @@ class Costing:
     @property
     def has_revenue(self) -> bool:
         return self.revenue > ZERO
+
+    @property
+    def billed(self) -> Decimal:
+        return self.revenue
+
+    @property
+    def outstanding(self) -> Decimal:
+        """Billed and not yet in the bank."""
+        return self.revenue - self.collected
+
+    @property
+    def labour_rate(self) -> Optional[Decimal]:
+        if not self.labour or not self.labour_hours or self.labour_hours <= ZERO:
+            return None
+        return (self.labour / self.labour_hours).quantize(Decimal("0.01"))
 
     @property
     def margin(self) -> Decimal:
@@ -126,7 +157,19 @@ class Costing:
     def gaps(self) -> list[str]:
         missing: list[str] = []
         if not self.has_revenue:
-            missing.append("what we charged the customer has not been entered")
+            missing.append(
+                "what we billed the customer is not known yet — it comes from "
+                "QuickBooks, which is not connected"
+            )
+        elif not self.billing_synced:
+            missing.append(
+                "what we billed was typed in by hand rather than read from "
+                "QuickBooks, so it is only as current as the day somebody typed it"
+            )
+        if not self.collected_known:
+            missing.append(
+                "how much of it has actually been collected is not known yet"
+            )
         if not self.purchases_captured:
             missing.append(
                 "receipts and card purchases are not captured yet, so anything "
@@ -134,8 +177,13 @@ class Costing:
             )
         if not self.labour_given:
             missing.append(
-                "our own labour has not been entered — leave it out on a job "
-                "that was fully subbed"
+                "our own crew's hours and cost have not been entered — leave "
+                "them out on a job that was fully subbed"
+            )
+        elif self.labour_hours is None:
+            missing.append(
+                "our crew's cost was entered without the hours behind it, so "
+                "nobody can check the rate"
             )
         if self.pending > ZERO:
             missing.append(
@@ -197,5 +245,9 @@ def build(job: Job) -> Costing:
 
     report.labour = job.labour_cost or ZERO
     report.labour_given = job.labour_cost is not None
+    report.labour_hours = job.labour_hours
     report.revenue = job.contract_amount or ZERO
+    report.collected = job.collected_amount or ZERO
+    report.collected_known = job.collected_amount is not None
+    report.billing_synced = job.billing_is_synced
     return report

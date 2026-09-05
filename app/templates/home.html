@@ -93,10 +93,10 @@
 
   <a class="prog" href="/jobs">
     <div class="prog-head"><h2>Job costing</h2></div>
-    <p class="prog-what">What each job cost, against what we charged.</p>
+    <p class="prog-what">What each job cost, against what we billed.</p>
     {% if costed_count %}
       <div class="prog-stats">
-        <div><strong>{{ costed_revenue | money }}</strong><span>charged</span></div>
+        <div><strong>{{ costed_revenue | money }}</strong><span>billed</span></div>
         <div class="{{ 'is-bad' if costed_margin < 0 }}">
           <strong>{{ costed_margin | money }}</strong><span>margin</span></div>
         <div><strong>{{ costed_count }}</strong><span>job{{ "" if costed_count == 1 else "s" }} priced</span></div>

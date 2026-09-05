@@ -117,6 +117,31 @@ cp .env.example .env          # add ANTHROPIC_API_KEY
 With `APP_PASSWORD` unset there is no login, which is fine on localhost and
 **not** fine anywhere else.
 
+## Job costing
+
+Three sources, and only one of them is a person.
+
+| | Where it comes from |
+|---|---|
+| Material, subcontract and check costs | Already here — read off the documents this system files |
+| **Billed** and **collected** | **QuickBooks.** It is the book of record for money and already holds every customer invoice and every payment against the `Customer:Job`. |
+| **Our own crew's hours and cost** | **A person.** The one thing QuickBooks cannot answer, because nobody has ever told it which of our men were on which roof. |
+
+Zack: *"job costing should also be able to pull total billed and collected out
+of QuickBooks. Not needed for manual entry. Only manual entry is our men. Labor
+our hours cost if the guys who actually worked. When it isn't fully subbed
+out."*
+
+Until the connector exists the billing figures can be typed, and the report
+says which of the two happened — a hand-typed figure is only as current as the
+day somebody typed it, and a number nobody can trace is worse than no number.
+`app.accounting.QuickBooksJobBilling` is where the live version plugs in, and
+carries what it will query.
+
+Hours **and** cost, because a cost with no hours behind it cannot be checked by
+anybody. Blank stays a real answer: on a fully subbed job there is no crew
+figure to give, and the report is complete without one.
+
 ## Sample data
 
 `SEED_SAMPLES=true` fills every part of the site with eight sample jobs, so a

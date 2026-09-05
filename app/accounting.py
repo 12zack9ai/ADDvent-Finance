@@ -28,6 +28,7 @@ import io
 import re
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+from dataclasses import dataclass
 from typing import Iterable, Optional, Protocol
 
 from sqlalchemy import select
@@ -361,6 +362,47 @@ class QuickBooksSource:
 
     def opening_balance(self) -> Decimal:
         raise NotImplementedError("QuickBooks is not connected yet.")
+
+
+@dataclass(frozen=True)
+class JobBilling:
+    """What a job has been billed, and what has come in against it."""
+
+    billed: Decimal = ZERO
+    collected: Decimal = ZERO
+
+    @property
+    def outstanding(self) -> Decimal:
+        return self.billed - self.collected
+
+
+class QuickBooksJobBilling:
+    """Billed and collected per job, from QuickBooks. Not implemented yet.
+
+    Where this plugs in when the connector exists, and what it will ask for,
+    written down now so the shape is not guessed at later:
+
+      * A job is a **sub-customer** in QuickBooks - the `Customer:Job`
+        hierarchy - so `Job.qb_customer_list_id` is the join, not the job
+        number. Matching on our six-digit number would depend on somebody
+        having typed it into the job name.
+      * **Billed** is the sum of `InvoiceQuery` for that Customer:Job.
+      * **Collected** is `ReceivePaymentQuery` applied to those invoices, not
+        the invoices' own paid flags - a partial payment is the normal case on
+        a progress-billed roof and the flag cannot express one.
+
+    Deliberately raises rather than returning zeroes. A costing report that
+    silently reported $0 billed on a job that has been invoiced twice would be
+    worse than one that says it does not know.
+    """
+
+    name = "QuickBooks (live)"
+
+    def for_job(self, job) -> JobBilling:
+        raise NotImplementedError(
+            "QuickBooks is not connected yet, so billed and collected cannot "
+            "be read. Enter them on the job costing page in the meantime."
+        )
 
 
 def _as_date(value) -> Optional[date]:

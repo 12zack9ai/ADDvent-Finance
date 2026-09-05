@@ -36,6 +36,7 @@ from app.matching import norm_vendor, vendor_matches
 from app.models import (
     CashReport,
     APPROVAL_APPROVED,
+    BILLING_MANUAL,
     APPROVAL_HELD,
     APPROVAL_PAID,
     APPROVAL_PENDING,
@@ -531,11 +532,14 @@ def job_costing(job_number: str, request: Request, session: Session = Depends(ge
 def save_costing(
     job_number: str,
     contract_amount: str = Form(""),
+    collected_amount: str = Form(""),
     labour_cost: str = Form(""),
+    labour_hours: str = Form(""),
     costing_note: str = Form(""),
     session: Session = Depends(get_session),
 ):
-    """The two figures nobody can read off a document, plus a note."""
+    """Our crew's hours and cost - and, until QuickBooks is connected, the
+    billed and collected figures that will come from there instead."""
     job = session.scalar(
         select(Job).where(Job.job_number == normalize_job_number(job_number))
     )
@@ -546,8 +550,20 @@ def save_costing(
     # fully subbed job is a real answer; blank means nobody has said yet, and
     # the report reports that difference.
     job.contract_amount = to_decimal(contract_amount) if contract_amount.strip() else None
+    job.collected_amount = to_decimal(collected_amount) if collected_amount.strip() else None
     job.labour_cost = to_decimal(labour_cost) if labour_cost.strip() else None
+    job.labour_hours = to_decimal(labour_hours) if labour_hours.strip() else None
     job.costing_note = costing_note.strip()
+
+    # Typed, not synced. Recorded so the report can say where the figure came
+    # from - once the connector is writing these, a hand-typed one that is
+    # three weeks stale must not be mistaken for the live number.
+    if job.contract_amount is None and job.collected_amount is None:
+        job.billing_source = ""
+    elif not job.billing_is_synced:
+        job.billing_source = BILLING_MANUAL
+        job.billing_synced_at = utcnow()
+
     session.commit()
     return _redirect(f"/job/{job.job_number}/costing", ok="Costing updated.")
 

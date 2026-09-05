@@ -1633,7 +1633,7 @@ def test_the_costing_report_pulls_invoices_subs_and_permits_together(client, tmp
     assert "$6,604.00" in page.text        # added up
     assert "Permits, deposits and other checks" in page.text
     # No price entered, so no margin is claimed.
-    assert "what we charged the customer has not been entered" in page.text
+    assert "what we billed the customer is not known yet" in page.text
 
 
 def test_entering_the_price_produces_the_margin(client):
@@ -1667,7 +1667,7 @@ def test_clearing_the_labour_figure_is_not_the_same_as_zero(client):
     assert job.labour_cost is None
     session.close()
 
-    assert "our own labour has not been entered" in client.get("/job/260000/costing").text
+    assert "hours and cost have not been entered" in client.get("/job/260000/costing").text
 
 
 def test_the_job_page_links_to_the_costing_report(client):

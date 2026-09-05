@@ -284,7 +284,9 @@ VANGUARD = "Vanguard Sheet Metal Inc."
 def job_269001(s: Seed) -> Job:
     """The healthy job, with every verdict on it."""
     job = s.job("269001", "Daul Gardens — Building 4 reroof",
-                contract_amount=D("268000.00"), labour_cost=D("41500.00"),
+                contract_amount=D("268000.00"), collected_amount=D("96400.00"),
+                billing_source="manual", billing_synced_at=at(3),
+                labour_cost=D("41500.00"), labour_hours=D("980"),
                 costing_note="Crew of four, three weeks. Sample data.")
 
     s.quote(job, ABC, "Q-118420", 34, [
@@ -365,7 +367,9 @@ def job_269001(s: Seed) -> Job:
 def job_269002(s: Seed) -> Job:
     """One supplier, two live quotes — material and skylights."""
     job = s.job("269002", "Winding Ridge Court — roof and skylights",
-                contract_amount=D("52000.00"), labour_cost=D("12400.00"))
+                contract_amount=D("52000.00"), collected_amount=D("38250.00"),
+                billing_source="manual", billing_synced_at=at(3),
+                labour_cost=D("12400.00"), labour_hours=D("310"))
 
     s.quote(job, ABC, "Q-118655", 30, [
         ("SHG-TL-CH", "Timberline HDZ shingles, Charcoal", D("84"), "SQ", D("121.40")),
@@ -403,7 +407,9 @@ def job_269002(s: Seed) -> Job:
 def job_269003(s: Seed) -> Job:
     """The corrected invoice that never cancelled the one it corrected."""
     job = s.job("269003", "Oakland Commons — Buildings 1 to 3",
-                contract_amount=D("34500.00"), labour_cost=D("6800.00"))
+                contract_amount=D("34500.00"), collected_amount=D("22780.00"),
+                billing_source="manual", billing_synced_at=at(3),
+                labour_cost=D("6800.00"), labour_hours=D("164"))
 
     s.quote(job, BEACON, "Q-BE-4471", 33, [
         ("SHG-OC-DW", "Owens Corning Duration, Driftwood", D("120"), "SQ", D("116.75")),
@@ -454,7 +460,9 @@ def job_269004(s: Seed) -> Job:
 def job_269005(s: Seed) -> Job:
     """A revised quote standing the old one down, and two change orders."""
     job = s.job("269005", "Cedar Ridge Village — roof replacement",
-                contract_amount=D("31500.00"), labour_cost=D("9200.00"))
+                contract_amount=D("31500.00"),
+                billing_source="manual", billing_synced_at=at(3),
+                labour_cost=D("9200.00"), labour_hours=D("228"))
 
     original = [
         ("SHG-LM-BS", "Landmark Pro shingles, Burnt Sienna", D("96"), "SQ", D("132.00")),
@@ -494,8 +502,9 @@ def job_269005(s: Seed) -> Job:
 def job_269006(s: Seed) -> Job:
     """A sub whose next invoice goes past the award, and the oldest check."""
     job = s.job("269006", "Maple Court Condominiums — siding and roof",
-                contract_amount=D("132000.00"),
-                costing_note="Fully subbed — no own labour on this one.")
+                contract_amount=D("132000.00"), collected_amount=D("74900.00"),
+                billing_source="manual", billing_synced_at=at(3),
+                costing_note="Fully subbed — no own crew on this one.")
 
     s.quote(job, VANGUARD, "SC-2026-22", 62, [
         ("", "Siding removal and disposal, Buildings A to C", D("1"), "LS", D("21000.00")),

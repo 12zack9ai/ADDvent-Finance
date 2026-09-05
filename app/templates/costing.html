@@ -13,10 +13,20 @@
 
 <div class="scorecard">
   <div class="score">
-    <span class="score-k">Charged</span>
-    <span class="score-v">{% if c.has_revenue %}{{ c.revenue | money }}{% else %}—{% endif %}</span>
-    <span class="score-n">{% if c.has_revenue %}what the customer was billed
-      {% else %}not entered yet{% endif %}</span>
+    <span class="score-k">Billed</span>
+    <span class="score-v">{% if c.has_revenue %}{{ c.billed | money }}{% else %}—{% endif %}</span>
+    <span class="score-n">
+      {% if not c.has_revenue %}comes from QuickBooks — not connected yet
+      {% elif c.billing_synced %}from QuickBooks
+      {% else %}typed by hand{% endif %}</span>
+  </div>
+  <div class="score">
+    <span class="score-k">Collected</span>
+    <span class="score-v">{% if c.collected_known %}{{ c.collected | money }}{% else %}—{% endif %}</span>
+    <span class="score-n">
+      {% if not c.collected_known %}not known yet
+      {% elif c.outstanding > 0 %}{{ c.outstanding | money }} still out
+      {% else %}paid in full{% endif %}</span>
   </div>
   <div class="score">
     <span class="score-k">Cost</span>
@@ -28,8 +38,8 @@
     <span class="score-k">Margin</span>
     <span class="score-v">{% if c.has_revenue %}{{ c.margin | money }}{% else %}—{% endif %}</span>
     <span class="score-n">
-      {% if not c.has_revenue %}enter what we charged
-      {% elif c.margin_pct is not none %}{{ c.margin_pct }}% of what we charged{% endif %}</span>
+      {% if not c.has_revenue %}needs what we billed
+      {% elif c.margin_pct is not none %}{{ c.margin_pct }}% of what we billed{% endif %}</span>
   </div>
   {% if c.pending %}
   <div class="score">
@@ -71,9 +81,14 @@
       {% endfor %}
       <tr>
         <td style="padding-left:20px">
-          <strong>Our own labour</strong>
+          <strong>Our own crew</strong>
           {% if not c.labour_given %}
             <div class="muted">Not entered. Leave it out on a job that was fully subbed.</div>
+          {% elif c.labour_hours %}
+            <div class="muted">{{ c.labour_hours | qty }} hours{% if c.labour_rate %}
+              · {{ c.labour_rate | money }}/hr{% endif %}</div>
+          {% else %}
+            <div class="muted">No hours behind this figure, so the rate cannot be checked.</div>
           {% endif %}
         </td>
         <td class="r" style="font-weight:700">{% if c.labour_given %}{{ c.labour | money }}{% else %}—{% endif %}</td>
@@ -112,23 +127,47 @@
 {% endif %}
 
 <div class="panel">
-  <details class="add" {{ "open" if not c.has_revenue }}>
-    <summary>What we charged, and our own labour</summary>
+  <details class="add" {{ "open" if not c.labour_given }}>
+    <summary>Our crew on this job</summary>
     <div class="muted" style="margin-bottom:14px">
-      Everything above was read off documents. These two cannot be.
+      The one thing here nobody else can answer. Everything above was read off
+      documents, and what we billed and collected comes out of QuickBooks —
+      which of our men were on this roof, and for how long, has never been
+      written down anywhere. <strong>Leave it blank on a job that was fully
+      subbed out</strong>; blank and zero are different answers and the report
+      knows the difference.
     </div>
     <form method="post" action="/job/{{ job.job_number }}/costing" class="drawform">
-    <label class="fld"><span>What we charged</span>
-      <input type="text" name="contract_amount" inputmode="decimal"
-             value="{{ job.contract_amount if job.contract_amount is not none else '' }}"
-             placeholder="185,000.00" autocomplete="off"></label>
-    <label class="fld"><span>Our own labour <span class="hint" style="display:inline">— blank if fully subbed</span></span>
+    <label class="fld"><span>Hours worked</span>
+      <input type="text" name="labour_hours" inputmode="decimal"
+             value="{{ job.labour_hours | qty if job.labour_hours is not none else '' }}"
+             placeholder="480" autocomplete="off"></label>
+    <label class="fld"><span>What those hours cost
+        <span class="hint" style="display:inline">— wages and burden</span></span>
       <input type="text" name="labour_cost" inputmode="decimal"
-             value="{{ job.labour_cost if job.labour_cost is not none else '' }}"
-             placeholder="0.00" autocomplete="off"></label>
+             value="{{ '%.2f' | format(job.labour_cost) if job.labour_cost is not none else '' }}"
+             placeholder="41,500.00" autocomplete="off"></label>
     <label class="fld wide"><span>Note</span>
       <input type="text" name="costing_note" value="{{ job.costing_note }}"
              placeholder="Anything the numbers above do not say"></label>
+
+    <div class="fld wide" style="border-top:1px solid var(--rule-lt);padding-top:14px">
+      <div class="muted" style="margin-bottom:10px">
+        <strong>Billed and collected — until QuickBooks is connected.</strong>
+        Both belong there: it holds every customer invoice and every payment
+        against this job already. Typing them here is a stand-in, and the
+        report says so rather than passing a hand-typed figure off as the
+        live one.
+      </div>
+    </div>
+    <label class="fld"><span>Billed to the customer</span>
+      <input type="text" name="contract_amount" inputmode="decimal"
+             value="{{ '%.2f' | format(job.contract_amount) if job.contract_amount is not none else '' }}"
+             placeholder="185,000.00" autocomplete="off"></label>
+    <label class="fld"><span>Collected so far</span>
+      <input type="text" name="collected_amount" inputmode="decimal"
+             value="{{ '%.2f' | format(job.collected_amount) if job.collected_amount is not none else '' }}"
+             placeholder="96,400.00" autocomplete="off"></label>
       <div class="drawgo"><button class="btn" type="submit">Save</button></div>
     </form>
   </details>
