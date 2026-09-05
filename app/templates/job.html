@@ -288,25 +288,6 @@
   </div>
   {% endfor %}
 
-<div class="panel tight">
-  <details class="add" >
-    <summary>Mark a quote as a subcontract</summary>
-    <div class="muted" style="margin-bottom:12px">
-      That vendor's invoices then get the contract ceiling on top of the
-      ordinary line check — a contract caps what they can bill in total, a
-      material quote never does.
-    </div>
-    {% for m in masters %}
-    <form method="post" action="/job/{{ job.job_number }}/subcontract" class="checkform"
-          style="justify-content:flex-start;margin-bottom:8px">
-      <input type="hidden" name="quote_id" value="{{ m.id }}">
-      <input type="hidden" name="is_subcontract" value="1">
-      <span>{{ m.vendor or "Unknown" }} · {{ m.total | money }}</span>
-      <button class="btn ghost sm" type="submit">This is a subcontract</button>
-    </form>
-    {% endfor %}
-  </details>
-</div>
 {% endif %}
 
 {% if superseded %}

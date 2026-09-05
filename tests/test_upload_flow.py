@@ -1467,10 +1467,11 @@ def test_a_subs_invoice_is_priced_against_their_contract(client, tmp_path):
     upload(client, _pdf(tmp_path, "q.pdf", "subq"), QUOTE_PAYLOAD, job_number="260000")
 
     session = SessionLocal()
-    quote_id = session.query(Quote).one().id
+    quote = session.query(Quote).one()
+    quote.is_subcontract = True
+    quote_id = quote.id
+    session.commit()
     session.close()
-    client.post("/job/260000/subcontract", follow_redirects=False,
-                data={"quote_id": quote_id, "is_subcontract": "1"})
 
     upload(client, _pdf(tmp_path, "i.pdf", "subi"), INVOICE_PAYLOAD, job_number="260000")
 

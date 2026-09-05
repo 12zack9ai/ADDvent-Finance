@@ -1107,36 +1107,6 @@ def new_check_request(
     return _redirect("/checks", ok=f"Check request recorded for {payee.strip()}.")
 
 
-@app.post("/job/{job_number}/subcontract")
-def mark_subcontract(
-    job_number: str,
-    quote_id: int = Form(...),
-    is_subcontract: str = Form(""),
-    session: Session = Depends(get_session),
-):
-    """Say that a quote on this job is a subcontract, not a material list."""
-    job = session.scalar(
-        select(Job).where(Job.job_number == normalize_job_number(job_number))
-    )
-    if job is None:
-        return _redirect("/jobs", err=f"No job {job_number}.")
-
-    quote = session.get(Quote, quote_id)
-    if quote is None or quote.job_id != job.id:
-        return _redirect(f"/job/{job.job_number}", err="No such quote on this job.")
-
-    quote.is_subcontract = bool(is_subcontract)
-    # Its lines were being used to price material invoices, or are about to be.
-    recompare_job(session, job)
-    session.commit()
-
-    what = "a subcontract" if quote.is_subcontract else "a material quote"
-    return _redirect(
-        f"/job/{job.job_number}",
-        ok=f"{quote.vendor or 'That quote'} is now recorded as {what}.",
-    )
-
-
 @app.post("/check/{check_id}/decide")
 def decide_check_request(
     check_id: int,
