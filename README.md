@@ -127,9 +127,10 @@ corrected, an invoice with no quote to price it against, a revised quote
 standing the old one down, a subcontractor whose next invoice goes past the
 award, a check queue in every waiting band, and two bills that are not ours.
 
-They live in the **269xxx job-number band, reserved for samples**. Real jobs run
-up from 260000, so nothing here can collide with one, and they come back out in
-one command:
+They live in the **269xxx job-number band, reserved for samples**. This year's
+real jobs run up from 260000 and earlier years carry their own prefix (250148 is
+the 149th job of 2025), so nothing here can collide with a real one. They come
+back out in one command:
 
 ```bash
 .venv/bin/python scripts/seed_samples.py --remove
