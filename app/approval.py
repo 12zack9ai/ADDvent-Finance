@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Optional
 
-from app import trust
+from app import subs, trust
 from app.config import settings
 from app.matching import vendor_matches
 from app.models import (
@@ -78,6 +78,7 @@ class Routing:
     available_change_orders: list[ChangeOrder] = field(default_factory=list)
     proposed_change_orders: list[ChangeOrder] = field(default_factory=list)
     trust_flags: list = field(default_factory=list)
+    contract: object = None          # subs.ContractCheck, when the vendor is a sub
 
     @property
     def can_approve(self) -> bool:
@@ -87,6 +88,11 @@ class Routing:
     @property
     def needs_owner(self) -> bool:
         return self.tier == TIER_OWNER
+
+    @property
+    def over_contract(self) -> bool:
+        """A subcontractor billed past their award. Approvable, knowingly."""
+        return bool(self.contract is not None and self.contract.over_contract)
 
     @property
     def untrusted(self) -> bool:
@@ -184,6 +190,21 @@ def route(invoice: Invoice) -> Routing:
             routing.reasons.append(flag.message)
     if routing.blockers:
         routing.tier = TIER_OWNER
+
+    # --- a subcontract is a ceiling, a quote is not ------------------------
+    #
+    # The line comparison above is identical for a sub and a supplier. This is
+    # the one question only a subcontract asks: a quote prices material and
+    # does not cap how much of it a roof needs, while a contract is a fixed
+    # award that every invoice eats into. Six invoices can each be correct and
+    # the seventh still take the sub past what they were awarded.
+    routing.contract = subs.contract_check(invoice.job, invoice)
+    if routing.contract is not None:
+        if routing.contract.over_contract:
+            routing.blockers.append(routing.contract.message)
+            routing.tier = TIER_OWNER
+        else:
+            routing.reasons.append(routing.contract.message)
 
     # --- blocker: was it actually received? --------------------------------
     if settings.require_receipt:

@@ -1,10 +1,25 @@
 # Programme 3 — Subcontractor check requests
 
-**Status: core built, 5 Sep 2026.** The contract, check requests, the cumulative
-check and the waiting queue are live. What is NOT built is subcontracts and
-check requests arriving by email — today a contract is marked from a quote
-already on the job, and requests are entered by hand. Question 2 below is still
-the open fork and still gates that.
+**Status: built and then corrected, 5 Sep 2026.**
+
+The first version conflated two things Zack keeps separate: *"It has to be two
+things. The one part should be exactly like the vendor invoicing. And the second
+part should be strictly for checks. Not all checks are for subs — there's
+multiple reasons for check request, permits yes for jobs but not for subs."*
+
+So there are two programmes, not one:
+
+- **Subcontractor invoices** — an ordinary Invoice, through the ordinary
+  pipeline, matched line by line against the subcontract. The only addition is
+  the ceiling check, since a contract caps what a sub can bill in total and a
+  material quote never does.
+- **Check requests** — any payment request: a permit, a deposit, a fee, a
+  reimbursement. No contract, no draw arithmetic. **Always a job**, though —
+  *"Everything will have a job. Job numbers are how we do everything."*
+
+Still NOT built: subcontracts and sub invoices arriving by email with a document
+type of their own. A contract is marked from a quote already on the job for now.
+Question 2 below remains the open fork.
 
 ---
 

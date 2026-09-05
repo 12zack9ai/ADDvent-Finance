@@ -1,60 +1,47 @@
-"""Subcontractors: where each one stands, and who has been waiting longest.
+"""Subcontractors: their contract, and how much of it they have billed.
 
-The material side asks "did this vendor charge what they quoted?", line by
-line, one invoice at a time. None of that applies here. A subcontractor's
-check request is a claim on a number already agreed - *we are 30% done,
-release 30%* - so there is no price to check. The question is cumulative:
+A subcontractor's invoice is an ordinary invoice. It arrives the same way, it
+is read the same way, and it is compared line by line against their
+subcontract exactly as a supplier's invoice is compared against a quote -
+Zack: *"the subcontractor invoice should work exactly like the vendor
+invoicing."* None of that needed rebuilding; the vendor pipeline already does
+it, and the vendor name is what keeps a delivery ticket away from a labour
+contract.
 
-    everything approved so far  +  this request   <=   the contract?
+What this module adds is the one question a subcontract asks and a quote does
+not: **a contract is a ceiling on everything that sub will ever bill.**
 
-Any single request can look perfectly reasonable and the seventh still takes
-the sub past what they were awarded. Only the running total sees that, which
-is why the position below is computed across every request rather than per
-document.
+A quote prices material and does not cap how much of it a roof needs - 250
+squares at the quoted price is an ordinary job. A subcontract is the opposite:
+it is a fixed award, and every invoice against it eats into a finite number.
+Six invoices at $20,000 each fit inside a $120,000 contract and every one of
+them is individually correct. The seventh is the first thing anyone could
+object to, and only the running total sees it.
 
 **Overages are not errors.** Subs do get more than they quoted, for extras, and
 a system that treated that as a fault would be wrong about the business. So an
-overage is reported, and approving one is allowed - it just has to be done
-knowingly, by somebody who says why.
+overage is reported and can be approved - it just has to be done knowingly, by
+somebody who says what the extra work was.
 
-Pure Python over rows already loaded. Decimal throughout, no model calls, no
-queries of its own.
+Pure Python over rows already loaded. Decimal throughout.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
 from decimal import Decimal
-from typing import Iterable, Optional
+from typing import Optional
 
 from app.matching import norm_vendor, vendor_matches
 from app.models import (
-    CHECK_APPROVED,
-    CHECK_PAID,
-    CHECK_REQUESTED,
-    CheckRequest,
+    APPROVAL_APPROVED,
+    APPROVAL_PAID,
+    APPROVAL_REJECTED,
+    Invoice,
     Job,
     Quote,
 )
 
 ZERO = Decimal("0")
-
-# How long a sub has been waiting, in the words a person would use. The bands
-# are what a conversation about paying people actually sounds like - "anything
-# over two weeks", "the ones from last month" - not evenly spaced buckets.
-AGE_BANDS = (
-    (0, 7, "This week"),
-    (8, 14, "Over a week"),
-    (15, 30, "Over two weeks"),
-    (31, 10_000, "Over a month"),
-)
-
-
-def band_for(days: int) -> str:
-    for low, high, label in AGE_BANDS:
-        if low <= days <= high:
-            return label
-    return AGE_BANDS[-1][2]
 
 
 @dataclass
@@ -64,11 +51,11 @@ class Position:
     vendor: str
     contract: Decimal = ZERO
     change_orders: Decimal = ZERO
-    approved: Decimal = ZERO        # signed off, including already paid
+    billed: Decimal = ZERO          # approved or paid: money we owe them
     paid: Decimal = ZERO
-    waiting: Decimal = ZERO         # requested, nobody has decided yet
+    pending: Decimal = ZERO         # invoiced, nobody has decided yet
     subcontract: Optional[Quote] = None
-    requests: list[CheckRequest] = field(default_factory=list)
+    invoices: list[Invoice] = field(default_factory=list)
 
     @property
     def has_contract(self) -> bool:
@@ -81,94 +68,45 @@ class Position:
 
     @property
     def remaining(self) -> Decimal:
-        """Left on the contract after what has been approved."""
-        return self.awarded - self.approved
+        return self.awarded - self.billed
 
     @property
     def overage(self) -> Decimal:
         """Approved beyond the award. Real, and not necessarily wrong."""
-        return max(self.approved - self.awarded, ZERO)
+        return max(self.billed - self.awarded, ZERO)
 
     @property
     def committed(self) -> Decimal:
-        """Approved plus still waiting - what this sub will have drawn if
-        everything on the table is paid."""
-        return self.approved + self.waiting
+        """Approved plus still under review."""
+        return self.billed + self.pending
 
     @property
     def would_exceed(self) -> Decimal:
-        """How far past the award the open requests would take them."""
         return max(self.committed - self.awarded, ZERO)
 
     @property
     def percent_drawn(self) -> Optional[int]:
         if self.awarded <= ZERO:
             return None
-        return int((self.approved / self.awarded * 100).quantize(Decimal("1")))
+        return int((self.billed / self.awarded * 100).quantize(Decimal("1")))
+
+    def would_exceed_with(self, invoice: Invoice) -> Decimal:
+        """How far past the award approving this one invoice would take them.
+
+        Against what is already APPROVED, not against everything under review:
+        two invoices in the queue are two claims, and counting each against the
+        other would condemn both on the strength of money nobody has agreed to.
+        """
+        after = self.billed + (invoice.total or ZERO)
+        return max(after - self.awarded, ZERO)
 
     @property
-    def open_requests(self) -> list[CheckRequest]:
-        return [r for r in self.requests if r.is_open]
-
-    def oldest_wait(self, today: Optional[date] = None) -> int:
-        return max((r.days_waiting(today) for r in self.open_requests), default=0)
-
-
-def positions(job: Job) -> list[Position]:
-    """Every subcontractor on a job, largest contract first.
-
-    Grouped by `vendor_matches`, the same answer the rest of the app gives, so
-    a sub who signs their contract one way and their requisitions another is
-    one sub rather than two half-visible ones.
-    """
-    found: list[Position] = []
-
-    def bucket(vendor: str) -> Position:
-        for position in found:
-            if _same(position.vendor, vendor):
-                return position
-        position = Position(vendor=(vendor or "").strip() or "Unknown subcontractor")
-        found.append(position)
-        return position
-
-    for contract in job.subcontracts:
-        position = bucket(contract.vendor)
-        position.subcontract = position.subcontract or contract
-        position.contract += contract.total or ZERO
-
-    for change_order in job.change_orders:
-        if not change_order.is_live:
-            continue
-        # Only extras belonging to a sub already on this job. A change order
-        # for the roofing supplier has nothing to do with what a sub may draw.
-        for position in found:
-            if _same(position.vendor, change_order.vendor):
-                position.change_orders += change_order.amount or ZERO
-                break
-
-    for request in job.check_requests:
-        position = bucket(request.vendor)
-        position.requests.append(request)
-        amount = request.amount or ZERO
-        if request.status == CHECK_REQUESTED:
-            position.waiting += amount
-        elif request.status in (CHECK_APPROVED, CHECK_PAID):
-            position.approved += amount
-            if request.status == CHECK_PAID:
-                position.paid += amount
-
-    for position in found:
-        position.requests.sort(key=lambda r: (r.waiting_since, r.id))
-    found.sort(key=lambda p: (-p.awarded, -p.committed, p.vendor.lower()))
-    return found
-
-
-def position_for(job: Job, vendor: str) -> Position:
-    """One sub's position, or an empty one if they are not on this job yet."""
-    for position in positions(job):
-        if _same(position.vendor, vendor):
-            return position
-    return Position(vendor=(vendor or "").strip() or "Unknown subcontractor")
+    def open_invoices(self) -> list[Invoice]:
+        return [
+            i for i in self.invoices
+            if i.approval_status not in (APPROVAL_APPROVED, APPROVAL_PAID,
+                                         APPROVAL_REJECTED)
+        ]
 
 
 def _same(a: str, b: str) -> bool:
@@ -178,121 +116,133 @@ def _same(a: str, b: str) -> bool:
     return vendor_matches(a, b)
 
 
-# --- approving one -------------------------------------------------------
+def positions(job: Job) -> list[Position]:
+    """Every subcontractor on a job, largest contract first.
+
+    Only vendors who actually hold a subcontract. A supply house with a
+    material quote is not a subcontractor and does not belong on this list,
+    even though their invoices go through the identical pipeline.
+    """
+    found: list[Position] = []
+
+    for contract in job.subcontracts:
+        existing = next((p for p in found if _same(p.vendor, contract.vendor)), None)
+        if existing is None:
+            existing = Position(vendor=(contract.vendor or "").strip()
+                                or "Unknown subcontractor")
+            found.append(existing)
+        existing.subcontract = existing.subcontract or contract
+        existing.contract += contract.total or ZERO
+
+    if not found:
+        return []
+
+    for change_order in job.change_orders:
+        if not change_order.is_live:
+            continue
+        for position in found:
+            if _same(position.vendor, change_order.vendor):
+                position.change_orders += change_order.amount or ZERO
+                break
+
+    for invoice in job.invoices:
+        if invoice.approval_status == APPROVAL_REJECTED:
+            continue
+        position = next((p for p in found if _same(p.vendor, invoice.vendor)), None)
+        if position is None:
+            continue                      # a material supplier, not a sub
+        position.invoices.append(invoice)
+        amount = invoice.total or ZERO
+        if invoice.approval_status in (APPROVAL_APPROVED, APPROVAL_PAID):
+            position.billed += amount
+            if invoice.approval_status == APPROVAL_PAID:
+                position.paid += amount
+        else:
+            position.pending += amount
+
+    for position in found:
+        # Defensive on both dates: created_at is unset until a flush, and this
+        # is a display ordering. Crashing a costing report over a sort key
+        # would be an absurd way to lose a page.
+        position.invoices.sort(key=_when)
+    found.sort(key=lambda p: (-p.awarded, p.vendor.lower()))
+    return found
+
+
+def position_for(job: Job, vendor: str) -> Optional[Position]:
+    """One sub's position, or None if this vendor holds no subcontract here."""
+    return next((p for p in positions(job) if _same(p.vendor, vendor)), None)
+
+
+def is_subcontractor(job: Job, vendor: str) -> bool:
+    return position_for(job, vendor) is not None
+
+
+# --- the ceiling check ----------------------------------------------------
 
 @dataclass
-class Verdict:
-    """What approving this request would do, before anybody does it."""
+class ContractCheck:
+    """What approving this invoice would do to the sub's running total."""
 
     position: Position
-    request: CheckRequest
+    invoice: Invoice
+    billed_after: Decimal = ZERO
     exceeds_by: Decimal = ZERO
-    reasons: list[str] = field(default_factory=list)
-    blockers: list[str] = field(default_factory=list)
-
-    @property
-    def can_approve(self) -> bool:
-        return not self.blockers
 
     @property
     def over_contract(self) -> bool:
         return self.exceeds_by > ZERO
 
-
-def check(job: Job, request: CheckRequest) -> Verdict:
-    """The one question worth asking about a check request.
-
-    Not "is this priced correctly" - there are no prices. It is: with this one
-    approved, has this sub now been approved for more than they were awarded?
-    """
-    position = position_for(job, request.vendor)
-    verdict = Verdict(position=position, request=request)
-
-    if not position.has_contract:
-        verdict.blockers.append(
-            f"No subcontract on file for {request.vendor or 'this subcontractor'} "
-            f"on job {job.job_number}, so there is nothing to check this against. "
-            f"File their contract first."
+    @property
+    def message(self) -> str:
+        if self.over_contract:
+            return (
+                f"This takes {self.position.vendor} to {_fmt(self.billed_after)} "
+                f"against a {_fmt(self.position.awarded)} contract — "
+                f"{_fmt(self.exceeds_by)} past it. That happens; extras get "
+                f"agreed on site and papered later. Say what the extra work was "
+                f"before approving it."
+            )
+        return (
+            f"{_fmt(self.position.billed)} of {_fmt(self.position.awarded)} "
+            f"billed so far; this leaves "
+            f"{_fmt(self.position.awarded - self.billed_after)} on the contract."
         )
-        return verdict
 
-    would_be = position.approved + (request.amount or ZERO)
-    verdict.exceeds_by = max(would_be - position.awarded, ZERO)
 
-    verdict.reasons.append(
-        f"Approved to date {_fmt(position.approved)} of {_fmt(position.awarded)}"
-        + (f" (contract {_fmt(position.contract)} plus {_fmt(position.change_orders)} "
-           f"in extras)" if position.change_orders else "")
-        + "."
+def contract_check(job: Job, invoice: Invoice) -> Optional[ContractCheck]:
+    """The extra question a subcontract asks. None for a material supplier.
+
+    Counts what has already been APPROVED plus this invoice - not everything
+    sitting in the queue - because two invoices under review are two claims,
+    and refusing them both on the strength of each other would be wrong.
+    """
+    position = position_for(job, invoice.vendor)
+    if position is None or not position.has_contract:
+        return None
+
+    already = position.billed
+    if invoice.approval_status in (APPROVAL_APPROVED, APPROVAL_PAID):
+        already -= invoice.total or ZERO
+
+    after = already + (invoice.total or ZERO)
+    return ContractCheck(
+        position=position,
+        invoice=invoice,
+        billed_after=after,
+        exceeds_by=max(after - position.awarded, ZERO),
     )
 
-    if verdict.exceeds_by > ZERO:
-        verdict.blockers.append(
-            f"This would take {request.vendor} to {_fmt(would_be)}, which is "
-            f"{_fmt(verdict.exceeds_by)} past their {_fmt(position.awarded)}. "
-            f"That happens - extras get agreed on site and papered later - but "
-            f"somebody has to say so before the check goes out."
-        )
-    else:
-        verdict.reasons.append(
-            f"Leaves {_fmt(position.awarded - would_be)} on the contract."
-        )
-    return verdict
+
+def _when(invoice: Invoice):
+    from datetime import date as _date
+    if invoice.invoice_date:
+        return (invoice.invoice_date, invoice.id or 0)
+    created = getattr(invoice, "created_at", None)
+    return (created.date() if created else _date.min, invoice.id or 0)
 
 
 def _fmt(value: Optional[Decimal]) -> str:
     if value is None:
         return "$0.00"
     return f"${value.quantize(Decimal('0.01')):,}"
-
-
-# --- the queue -----------------------------------------------------------
-
-@dataclass
-class Waiting:
-    """One open request, ready to be listed by how long it has been sitting."""
-
-    request: CheckRequest
-    job: Job
-    days: int
-    position: Position
-
-    @property
-    def band(self) -> str:
-        return band_for(self.days)
-
-    @property
-    def over_contract(self) -> bool:
-        return self.position.would_exceed > ZERO
-
-
-def queue(jobs: Iterable[Job], today: Optional[date] = None) -> list[Waiting]:
-    """Every open check request, longest wait first.
-
-    Longest wait first and nothing else. Not by amount, not by job, not by
-    whether anything is flagged - those orderings all have the same failure,
-    which is that the request nobody has looked at stays the request nobody
-    has looked at. The person this list is for is being telephoned by a
-    subcontractor who wants to know where their money is, and the only
-    ordering that answers that is oldest first.
-    """
-    on = today or date.today()
-    rows: list[Waiting] = []
-    for job in jobs:
-        by_vendor = {norm_vendor(p.vendor): p for p in positions(job)}
-        for request in job.check_requests:
-            if not request.is_open:
-                continue
-            position = by_vendor.get(norm_vendor(request.vendor)) or Position(
-                vendor=request.vendor
-            )
-            rows.append(Waiting(
-                request=request, job=job,
-                days=request.days_waiting(on), position=position,
-            ))
-    rows.sort(key=lambda w: (-w.days, -(w.request.amount or ZERO)))
-    return rows
-
-
-def total_waiting(rows: Iterable[Waiting]) -> Decimal:
-    return sum(((w.request.amount or ZERO) for w in rows), ZERO)

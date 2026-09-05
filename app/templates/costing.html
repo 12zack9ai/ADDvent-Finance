@@ -98,15 +98,15 @@
   <h2>Subcontractors on this job</h2>
   <table class="grid">
     <thead><tr><th>Sub</th><th class="r">Contract</th><th class="r">Approved</th>
-      <th class="r">Paid</th><th class="r">Waiting</th></tr></thead>
+      <th class="r">Paid</th><th class="r">Under review</th></tr></thead>
     <tbody>
       {% for p in subs %}
       <tr>
         <td><strong>{{ p.vendor }}</strong></td>
         <td class="r">{% if p.has_contract %}{{ p.awarded | money }}{% else %}<span class="muted">none on file</span>{% endif %}</td>
-        <td class="r">{{ p.approved | money }}</td>
+        <td class="r">{{ p.billed | money }}</td>
         <td class="r">{{ p.paid | money }}</td>
-        <td class="r">{% if p.waiting %}<span class="warn">{{ p.waiting | money }}</span>{% else %}—{% endif %}</td>
+        <td class="r">{% if p.pending %}<span class="warn">{{ p.pending | money }}</span>{% else %}—{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>

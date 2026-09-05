@@ -5,7 +5,7 @@
 <div class="pagehead">
   <div>
     <h1>Finance</h1>
-    <p class="sub">Four programmes. All of them run on the same documents.</p>
+    <p class="sub">Five programmes. All of them run on the same documents.</p>
   </div>
 </div>
 
@@ -43,15 +43,49 @@
     <div class="prog-go">See what has come in &rarr;</div>
   </a>
 
-  <a class="prog" href="/checks">
+  <a class="prog" href="/sub-invoices">
     <div class="prog-head">
-      <h2>Subcontractor checks</h2>
+      <h2>Subcontractor invoices</h2>
       <span class="prog-tag">Live</span>
     </div>
     <p class="prog-what">
-      Who is waiting to be paid, longest wait first. Each request is checked
-      against what that sub was awarded, so the one that takes them past their
-      contract is caught before the check goes out — not six draws later.
+      A sub's invoice is checked exactly like a supplier's — read, compared
+      against their contract, marked up. The one thing a contract adds is a
+      ceiling, so the invoice that takes them past their award is caught rather
+      than paid.
+    </p>
+    {% if sub_count %}
+    <div class="prog-stats">
+      <div><strong>{{ subs_awarded | money }}</strong><span>awarded</span></div>
+      <div><strong>{{ subs_billed | money }}</strong><span>billed</span></div>
+      <div class="{{ 'is-bad' if subs_over }}">
+        <strong>{{ subs_over_total | money }}</strong><span>over contract</span></div>
+    </div>
+    {% if subs_over %}
+    <div class="prog-note">
+      <strong>{{ subs_over[0].vendor }}</strong> is
+      {{ subs_over[0].overage | money }} past their award.
+    </div>
+    {% elif subs_pending %}
+    <div class="prog-note">
+      {{ subs_pending | money }} invoiced and waiting on a decision.
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="prog-empty">No subcontracts on file yet.</div>
+    {% endif %}
+    <div class="prog-go">See the subs &rarr;</div>
+  </a>
+
+  <a class="prog" href="/checks">
+    <div class="prog-head">
+      <h2>Check requests</h2>
+      <span class="prog-tag">Live</span>
+    </div>
+    <p class="prog-what">
+      Who needs a check cut, longest wait first — permits, deposits, fees,
+      reimbursements. Not everything that needs a check is an invoice, and a
+      permit lands in its job's costing like everything else.
     </p>
     {% if check_rows %}
     <div class="prog-stats">
@@ -61,9 +95,8 @@
       <div><strong>{{ checks_total | money }}</strong><span>requested</span></div>
     </div>
     <div class="prog-note">
-      Oldest: <strong>{{ check_rows[0].request.vendor }}</strong>
-      on job {{ check_rows[0].job.job_number }}
-      {%- if check_rows[0].over_contract %} — already past their contract{% endif %}
+      Oldest: <strong>{{ check_rows[0].request.payee }}</strong>
+      — {{ check_rows[0].request.purpose_label | lower }}, job {{ check_rows[0].job_number }}
     </div>
     {% else %}
     <div class="prog-empty">
@@ -147,6 +180,7 @@
   <div class="quick-row">
     <a class="btn" href="/incoming">Review invoices that just came in{% if waiting %} ({{ waiting }}){% endif %}</a>
     <a class="btn ghost" href="/upload">Upload a quote or invoice</a>
+    <a class="btn ghost" href="/sub-invoices">Subcontractor invoices</a>
     <a class="btn ghost" href="/checks">Check requests{% if check_rows %} ({{ check_rows|length }}){% endif %}</a>
     <a class="btn ghost" href="/cashflow">Generate a cash flow report</a>
     <a class="btn ghost" href="/jobs">All jobs</a>

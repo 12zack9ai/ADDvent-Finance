@@ -1,20 +1,18 @@
-"""Subcontractor check requests.
+"""Subcontractors: their contract, and how much of it they have billed.
 
-Two things are being tested, and they are the two things this programme exists
-for.
+A sub's invoice goes through the vendor pipeline unchanged - read, matched
+line by line against their subcontract, marked up, approved. What is tested
+here is the single thing a subcontract adds on top: it is a **ceiling**.
 
-**The cumulative check.** A sub bills against one agreed number, not a list of
-prices, so there is nothing to price-check. Any single request can look
-perfectly reasonable and the seventh still takes them past their contract. Only
-the running total sees that.
-
-**The queue order.** Longest wait first, and nothing else - because the person
-reading it is being telephoned by a subcontractor asking where their money is.
+A quote prices material and does not cap how much of it a roof needs. A
+contract is a fixed award. Six invoices at $20,000 each fit inside a $120,000
+contract and every one of them is individually correct; the seventh is the
+first thing anyone could object to, and only the running total sees it.
 """
 from __future__ import annotations
 
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal as D
 from pathlib import Path
 
@@ -24,17 +22,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app import subs  # noqa: E402
 from app.models import (  # noqa: E402
-    CHECK_APPROVED,
-    CHECK_PAID,
-    CHECK_REJECTED,
-    CHECK_REQUESTED,
+    APPROVAL_APPROVED,
+    APPROVAL_HELD,
+    APPROVAL_PAID,
+    APPROVAL_PENDING,
+    APPROVAL_REJECTED,
     ChangeOrder,
-    CheckRequest,
+    Invoice,
     Job,
     Quote,
 )
 
-TODAY = date(2026, 9, 5)
+ZERO = D("0")
 _ids = {"n": 0}
 
 
@@ -43,12 +42,12 @@ def _next() -> int:
     return _ids["n"]
 
 
-def job(contracts=(), requests=(), change_orders=(), quotes=()):
+def job(contracts=(), invoices=(), change_orders=(), quotes=()):
     j = Job(job_number="260000", name="Daul Gardens")
     j.quotes = list(contracts) + list(quotes)
-    j.check_requests = list(requests)
+    j.invoices = list(invoices)
     j.change_orders = list(change_orders)
-    j.invoices = []
+    j.check_requests = []
     return j
 
 
@@ -68,16 +67,15 @@ def material(total="17182.90", vendor="New Castle Building Products"):
     return q
 
 
-def request(amount="30000.00", vendor="Reilly Roofing LLC", status=CHECK_REQUESTED,
-            days_ago=3, reference=None):
-    r = CheckRequest(
-        job_id=1, vendor=vendor, amount=D(amount), status=status,
-        reference=reference or f"Req {_next()}",
-        requested_on=TODAY - timedelta(days=days_ago),
-    )
-    r.id = _next()
-    r.received_at = datetime(2026, 9, 5, tzinfo=timezone.utc) - timedelta(days=days_ago)
-    return r
+def invoice(total="30000.00", vendor="Reilly Roofing LLC",
+            status=APPROVAL_APPROVED, on=None):
+    inv = Invoice(job_id=1, document_id=_next(), vendor=vendor,
+                  invoice_number=f"REQ-{_next()}", total=D(total),
+                  approval_status=status, invoice_date=on or date(2026, 9, 1))
+    inv.id = _next()
+    inv.created_at = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    inv.lines = []
+    return inv
 
 
 def co(amount, vendor="Reilly Roofing LLC"):
@@ -87,200 +85,158 @@ def co(amount, vendor="Reilly Roofing LLC"):
 
 # --- where a sub stands ---------------------------------------------------
 
-def test_a_subs_position_is_the_running_total_not_the_latest_request():
-    j = job(
-        contracts=[contract("120000.00")],
-        requests=[
-            request("30000.00", status=CHECK_PAID),
-            request("30000.00", status=CHECK_APPROVED),
-            request("30000.00", status=CHECK_REQUESTED),
-        ],
-    )
+def test_a_subs_position_is_the_running_total_of_their_invoices():
+    j = job(contracts=[contract("120000.00")], invoices=[
+        invoice("30000.00", status=APPROVAL_PAID),
+        invoice("30000.00", status=APPROVAL_APPROVED),
+        invoice("30000.00", status=APPROVAL_PENDING),
+    ])
     p = subs.positions(j)[0]
 
     assert p.contract == D("120000.00")
-    assert p.approved == D("60000.00")     # paid and approved both count
+    assert p.billed == D("60000.00")      # approved and paid both count
     assert p.paid == D("30000.00")
-    assert p.waiting == D("30000.00")
+    assert p.pending == D("30000.00")     # under review, not yet owed
     assert p.remaining == D("60000.00")
     assert p.committed == D("90000.00")
     assert p.percent_drawn == 50
 
 
-def test_a_refused_request_counts_for_nothing():
+def test_a_rejected_invoice_counts_for_nothing():
     j = job(contracts=[contract("120000.00")],
-            requests=[request("30000.00", status=CHECK_REJECTED)])
+            invoices=[invoice("30000.00", status=APPROVAL_REJECTED)])
     p = subs.positions(j)[0]
-    assert p.approved == ZERO_D and p.waiting == ZERO_D
-
-
-ZERO_D = D("0")
+    assert p.billed == ZERO and p.pending == ZERO
+    assert p.invoices == []
 
 
 def test_extras_raise_what_a_sub_may_draw():
     j = job(contracts=[contract("120000.00")], change_orders=[co("18000.00")],
-            requests=[request("130000.00", status=CHECK_APPROVED)])
+            invoices=[invoice("130000.00")])
     p = subs.positions(j)[0]
 
     assert p.awarded == D("138000.00")
-    assert p.overage == ZERO_D
+    assert p.overage == ZERO
     assert p.remaining == D("8000.00")
 
 
 def test_a_change_order_for_a_material_vendor_does_not_raise_a_subs_ceiling():
-    """A change order from the roofing supplier has nothing to do with what a
-    labour sub may draw."""
     j = job(contracts=[contract("120000.00")],
             change_orders=[co("18000.00", vendor="New Castle Building Products")])
     p = subs.positions(j)[0]
-    assert p.change_orders == ZERO_D
+    assert p.change_orders == ZERO
     assert p.awarded == D("120000.00")
 
 
-def test_material_quotes_are_not_subcontracts():
-    j = job(contracts=[contract("120000.00")], quotes=[material()])
+def test_only_vendors_holding_a_subcontract_are_subcontractors():
+    """A supply house with a material quote is not a sub, even though their
+    invoices go through the identical pipeline."""
+    j = job(contracts=[contract("120000.00")], quotes=[material()],
+            invoices=[invoice("6154.00", vendor="New Castle Building Products")])
     positions = subs.positions(j)
+
     assert len(positions) == 1
     assert positions[0].vendor == "Reilly Roofing LLC"
+    assert positions[0].invoices == []          # the material invoice is not theirs
+    assert not subs.is_subcontractor(j, "New Castle Building Products")
+    assert subs.is_subcontractor(j, "Reilly Roofing LLC")
+
+
+def test_a_job_with_no_subcontracts_has_no_subcontractors():
+    assert subs.positions(job(quotes=[material()], invoices=[invoice()])) == []
 
 
 def test_a_sub_who_signs_two_ways_is_one_sub():
     j = job(contracts=[contract("120000.00", vendor="Reilly Roofing LLC")],
-            requests=[request("30000.00", vendor="REILLY ROOFING")])
+            invoices=[invoice("30000.00", vendor="REILLY ROOFING")])
     positions = subs.positions(j)
     assert len(positions) == 1
-    assert positions[0].waiting == D("30000.00")
+    assert positions[0].billed == D("30000.00")
 
 
-# --- the check that matters -----------------------------------------------
+# --- the ceiling ----------------------------------------------------------
 
-def test_the_seventh_request_is_the_one_that_gets_caught():
-    """Six at $20,000 fit inside a $120,000 contract. Each looked fine. The
-    seventh is the first thing anyone could have objected to, and only the
-    running total sees it."""
-    approved = [request("20000.00", status=CHECK_APPROVED) for _ in range(6)]
-    seventh = request("20000.00")
-    j = job(contracts=[contract("120000.00")], requests=approved + [seventh])
+def test_the_seventh_invoice_is_the_one_that_gets_caught():
+    """Six at $20,000 fit inside a $120,000 contract. Each was individually
+    correct. Only the running total sees the seventh."""
+    approved = [invoice("20000.00") for _ in range(6)]
+    seventh = invoice("20000.00", status=APPROVAL_PENDING)
+    j = job(contracts=[contract("120000.00")], invoices=approved + [seventh])
 
-    verdict = subs.check(j, seventh)
-    assert not verdict.can_approve
-    assert verdict.over_contract
-    assert verdict.exceeds_by == D("20000.00")
-
-
-def test_a_request_inside_the_contract_is_approvable_and_says_what_is_left():
-    r = request("30000.00")
-    j = job(contracts=[contract("120000.00")],
-            requests=[request("30000.00", status=CHECK_APPROVED), r])
-
-    verdict = subs.check(j, r)
-    assert verdict.can_approve
-    assert not verdict.over_contract
-    assert any("Leaves $60,000.00" in reason for reason in verdict.reasons)
+    check = subs.contract_check(j, seventh)
+    assert check is not None
+    assert check.over_contract
+    assert check.exceeds_by == D("20000.00")
+    assert "past it" in check.message
 
 
-def test_a_request_landing_exactly_on_the_contract_is_fine():
-    r = request("60000.00")
-    j = job(contracts=[contract("120000.00")],
-            requests=[request("60000.00", status=CHECK_APPROVED), r])
-    assert subs.check(j, r).can_approve
+def test_an_invoice_inside_the_contract_says_what_is_left():
+    later = invoice("30000.00", status=APPROVAL_PENDING)
+    j = job(contracts=[contract("120000.00")], invoices=[invoice("30000.00"), later])
+
+    check = subs.contract_check(j, later)
+    assert not check.over_contract
+    assert "$60,000.00 on the contract" in check.message
 
 
-def test_extras_are_what_make_an_overage_approvable():
-    r = request("20000.00")
-    approved = [request("20000.00", status=CHECK_APPROVED) for _ in range(6)]
+def test_an_invoice_landing_exactly_on_the_contract_is_fine():
+    last = invoice("60000.00", status=APPROVAL_PENDING)
+    j = job(contracts=[contract("120000.00")], invoices=[invoice("60000.00"), last])
+    assert not subs.contract_check(j, last).over_contract
+
+
+def test_extras_are_what_make_an_overage_acceptable():
+    seventh = invoice("20000.00", status=APPROVAL_PENDING)
+    approved = [invoice("20000.00") for _ in range(6)]
     j = job(contracts=[contract("120000.00")], change_orders=[co("25000.00")],
-            requests=approved + [r])
-
-    assert subs.check(j, r).can_approve
-
-
-def test_no_contract_on_file_blocks_for_a_different_reason():
-    """Not an overage - there is simply nothing to check against, and that
-    cannot be waved through the way an overage can."""
-    r = request("30000.00")
-    j = job(requests=[r])
-
-    verdict = subs.check(j, r)
-    assert not verdict.can_approve
-    assert not verdict.over_contract
-    assert "No subcontract on file" in verdict.blockers[0]
+            invoices=approved + [seventh])
+    assert not subs.contract_check(j, seventh).over_contract
 
 
-# --- the queue ------------------------------------------------------------
+def test_two_invoices_under_review_are_not_refused_on_each_others_account():
+    """Two claims are two claims. Counting one against the other would refuse
+    both on the strength of money nobody has agreed to yet."""
+    a = invoice("70000.00", status=APPROVAL_PENDING)
+    b = invoice("70000.00", status=APPROVAL_PENDING)
+    j = job(contracts=[contract("120000.00")], invoices=[a, b])
 
-def test_the_queue_is_ordered_by_how_long_people_have_waited():
-    a = request("10000.00", vendor="Alpha Siding", days_ago=2)
-    b = request("90000.00", vendor="Bravo Electric", days_ago=40)
-    c = request("50000.00", vendor="Charlie Gutters", days_ago=12)
-    j = job(contracts=[contract("500000.00", vendor="Alpha Siding")],
-            requests=[a, b, c])
-
-    rows = subs.queue([j], TODAY)
-    assert [w.request.vendor for w in rows] == [
-        "Bravo Electric", "Charlie Gutters", "Alpha Siding",
-    ]
-    assert [w.days for w in rows] == [40, 12, 2]
+    assert not subs.contract_check(j, a).over_contract
+    assert not subs.contract_check(j, b).over_contract
 
 
-def test_the_biggest_cheque_does_not_jump_the_queue():
-    """Sorting by amount has the same failure as sorting by anything else: the
-    request nobody has looked at stays the request nobody has looked at."""
-    small_old = request("500.00", vendor="Alpha Siding", days_ago=30)
-    huge_new = request("250000.00", vendor="Bravo Electric", days_ago=1)
-    rows = subs.queue([job(requests=[small_old, huge_new])], TODAY)
-    assert rows[0].request.vendor == "Alpha Siding"
+def test_re_checking_an_already_approved_invoice_does_not_count_it_twice():
+    approved = invoice("130000.00", status=APPROVAL_APPROVED)
+    j = job(contracts=[contract("120000.00")], invoices=[approved])
+
+    check = subs.contract_check(j, approved)
+    assert check.billed_after == D("130000.00")
+    assert check.exceeds_by == D("10000.00")
 
 
-def test_only_open_requests_are_in_the_queue():
-    j = job(requests=[
-        request("10000.00", status=CHECK_APPROVED, days_ago=90),
-        request("10000.00", status=CHECK_PAID, days_ago=80),
-        request("10000.00", status=CHECK_REJECTED, days_ago=70),
-        request("10000.00", status=CHECK_REQUESTED, days_ago=1),
+def test_a_material_supplier_gets_no_ceiling_check_at_all():
+    """A quote prices material; it does not cap how much of it the roof needs."""
+    material_invoice = invoice("250000.00", vendor="New Castle Building Products")
+    j = job(contracts=[contract("120000.00")], quotes=[material()],
+            invoices=[material_invoice])
+    assert subs.contract_check(j, material_invoice) is None
+
+
+def test_a_sub_with_no_contract_value_gets_no_ceiling_check():
+    j = job(contracts=[contract("0")], invoices=[invoice("30000.00")])
+    assert subs.contract_check(j, j.invoices[0]) is None
+
+
+def test_the_invoice_that_would_go_past_the_award_is_identifiable():
+    """So a list of a sub's invoices can say which one is the problem, rather
+    than only showing a total that has already gone wrong."""
+    j = job(contracts=[contract("120000.00")], invoices=[
+        invoice("36000.00", status=APPROVAL_PAID),
+        invoice("30000.00", status=APPROVAL_APPROVED),
+        invoice("60000.00", status=APPROVAL_PENDING),
     ])
-    rows = subs.queue([j], TODAY)
-    assert len(rows) == 1
-    assert rows[0].days == 1
+    p = subs.positions(j)[0]
+    paid, approved, waiting = p.invoices
 
-
-def test_the_queue_carries_each_subs_position_with_it():
-    """So the list can say 'and this one is already past their contract'
-    without the reader opening the job."""
-    over = request("100000.00", days_ago=5)
-    j = job(contracts=[contract("120000.00")],
-            requests=[request("60000.00", status=CHECK_APPROVED), over])
-
-    row = subs.queue([j], TODAY)[0]
-    assert row.over_contract
-    assert row.position.would_exceed == D("40000.00")
-
-
-def test_a_request_with_no_date_of_its_own_ages_from_when_it_arrived():
-    r = CheckRequest(job_id=1, vendor="Alpha Siding", amount=D("1000.00"),
-                     status=CHECK_REQUESTED, requested_on=None)
-    r.id = 1
-    r.received_at = datetime(2026, 8, 26, tzinfo=timezone.utc)
-    rows = subs.queue([job(requests=[r])], TODAY)
-    assert rows[0].days == 10
-
-
-def test_a_request_dated_in_the_future_does_not_age_backwards():
-    r = request("1000.00", days_ago=-5)
-    assert subs.queue([job(requests=[r])], TODAY)[0].days == 0
-
-
-@pytest.mark.parametrize("days,band", [
-    (0, "This week"), (7, "This week"),
-    (8, "Over a week"), (14, "Over a week"),
-    (15, "Over two weeks"), (30, "Over two weeks"),
-    (31, "Over a month"), (400, "Over a month"),
-])
-def test_the_bands_read_like_a_conversation_about_paying_people(days, band):
-    assert subs.band_for(days) == band
-
-
-def test_the_total_waiting_is_what_would_go_out_if_everything_were_approved():
-    j = job(requests=[request("10000.00"), request("25000.00")])
-    rows = subs.queue([j], TODAY)
-    assert subs.total_waiting(rows) == D("35000.00")
+    assert p.would_exceed_with(waiting) == D("6000.00")
+    assert p.would_exceed_with(paid) == ZERO
+    assert p.would_exceed_with(approved) == ZERO

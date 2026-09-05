@@ -20,8 +20,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app import (
-    accounting, auth, cashflow, cashflow_pdf, costing, fmt, invoice_pdf,
-    jobnimbus, jobsummary, scheduler, subs, trust,
+    accounting, auth, cashflow, cashflow_pdf, checks, costing, fmt,
+    invoice_pdf, jobnimbus, jobsummary, scheduler, subs, trust,
 )
 from app.config import settings
 from app.db import get_session, init_db, to_decimal
@@ -46,6 +46,9 @@ from app.models import (
     CHECK_REJECTED,
     CHECK_REQUESTED,
     CHECK_LABELS,
+    CHECK_OTHER,
+    CHECK_PURPOSES,
+    CHECK_PURPOSE_LABELS,
     CheckRequest,
     CO_APPROVED,
     CO_PROPOSED,
@@ -332,25 +335,34 @@ def home(request: Request, session: Session = Depends(get_session)):
     latest = session.scalar(select(CashReport).order_by(CashReport.created_at.desc()))
     latest_forecast = _report_forecast(latest) if latest is not None else None
 
-    # Subcontractor checks. The card leads with the longest wait rather than a
-    # count, because a sub who has been waiting five weeks is the reason to
-    # open this and "3 requests" is not.
-    check_jobs = session.scalars(
-        select(Job)
-        .join(CheckRequest, CheckRequest.job_id == Job.id)
+    # Checks. The card leads with the longest wait rather than a count, because
+    # somebody who has been waiting five weeks is the reason to open this and
+    # "3 requests" is not.
+    check_rows = checks.queue(session.scalars(
+        select(CheckRequest)
         .where(CheckRequest.status == CHECK_REQUESTED)
-        .distinct()
-        .options(
-            selectinload(Job.check_requests),
-            selectinload(Job.quotes),
-            selectinload(Job.change_orders),
-        )
-    ).all()
-    check_rows = subs.queue(check_jobs)
+        .options(selectinload(CheckRequest.job))
+    ).all())
     checks_paid = session.scalar(
         select(func.sum(CheckRequest.amount))
         .where(CheckRequest.status == CHECK_PAID)
     )
+
+    # Subcontractor invoices. Anyone past their award is the headline; failing
+    # that, what is sitting under review.
+    sub_jobs = session.scalars(
+        select(Job)
+        .join(Quote, Quote.job_id == Job.id)
+        .where(Quote.is_subcontract == True, Quote.is_master == True)  # noqa: E712
+        .distinct()
+        .options(
+            selectinload(Job.quotes),
+            selectinload(Job.invoices),
+            selectinload(Job.change_orders),
+        )
+    ).all()
+    sub_positions = [p for job in sub_jobs for p in subs.positions(job)]
+    subs_over = [p for p in sub_positions if p.overage > ZERO]
 
     # Job costing. Only jobs somebody has priced can show a margin, and saying
     # how many cannot is more useful than averaging the ones that can.
@@ -383,7 +395,13 @@ def home(request: Request, session: Session = Depends(get_session)):
         latest_report=latest,
         latest_forecast=latest_forecast,
         check_rows=check_rows,
-        checks_total=subs.total_waiting(check_rows),
+        checks_total=checks.total_waiting(check_rows),
+        sub_count=len(sub_positions),
+        subs_awarded=sum((p.awarded for p in sub_positions), ZERO),
+        subs_billed=sum((p.billed for p in sub_positions), ZERO),
+        subs_pending=sum((p.pending for p in sub_positions), ZERO),
+        subs_over=subs_over,
+        subs_over_total=sum((p.overage for p in subs_over), ZERO),
         checks_paid=Decimal(checks_paid) if checks_paid else ZERO,
         costed_count=len(reports),
         uncosted_count=jobs - len(reports),
@@ -458,10 +476,6 @@ def job_detail(job_number: str, request: Request, session: Session = Depends(get
         can_send_mail=settings.can_send_mail(),
         jobnimbus_on=jobnimbus.configured(),
         subs=subs.positions(job),
-        check_verdict={
-            r.id: subs.check(job, r) for r in job.check_requests if r.is_open
-        },
-        check_labels=CHECK_LABELS,
     ))
 
 
@@ -969,28 +983,107 @@ def clear_trust_flags(
 
 # --- subcontractors: check requests ---------------------------------------
 
-@app.get("/checks", response_class=HTMLResponse)
-def check_queue(request: Request, session: Session = Depends(get_session)):
-    """Who is waiting to be paid, longest first."""
+@app.get("/sub-invoices", response_class=HTMLResponse)
+def sub_invoice_queue(request: Request, session: Session = Depends(get_session)):
+    """Subcontractor invoices, and where each sub stands against their contract.
+
+    The invoices themselves went through the ordinary pipeline - read, matched
+    against the subcontract line by line, marked up. This page is the sub view
+    of them: grouped by who, with the running total against the award, because
+    a contract is a ceiling and an invoice list is not.
+    """
     jobs = session.scalars(
         select(Job)
-        .join(CheckRequest, CheckRequest.job_id == Job.id)
-        .where(CheckRequest.status == CHECK_REQUESTED)
+        .join(Quote, Quote.job_id == Job.id)
+        .where(Quote.is_subcontract == True, Quote.is_master == True)  # noqa: E712
         .distinct()
         .options(
-            selectinload(Job.check_requests),
             selectinload(Job.quotes),
+            selectinload(Job.invoices),
             selectinload(Job.change_orders),
         )
     ).all()
 
-    rows = subs.queue(jobs)
+    rows = []
+    for job in jobs:
+        for position in subs.positions(job):
+            rows.append((job, position))
+    # Anyone past their award first, then whoever has the most under review.
+    rows.sort(key=lambda r: (-r[1].overage, -r[1].pending, r[1].vendor.lower()))
+
+    return templates.TemplateResponse(request, "sub_invoices.html", _ctx(
+        request, session,
+        rows=rows,
+        awarded=sum((p.awarded for _, p in rows), ZERO),
+        billed=sum((p.billed for _, p in rows), ZERO),
+        pending=sum((p.pending for _, p in rows), ZERO),
+        over=sum((p.overage for _, p in rows), ZERO),
+        would_exceed=sum((p.would_exceed for _, p in rows), ZERO),
+    ))
+
+
+@app.get("/checks", response_class=HTMLResponse)
+def check_queue(request: Request, session: Session = Depends(get_session)):
+    """Who needs a check cut, longest wait first. Not only subcontractors."""
+    requests = session.scalars(
+        select(CheckRequest)
+        .where(CheckRequest.status == CHECK_REQUESTED)
+        .options(selectinload(CheckRequest.job))
+    ).all()
+
+    rows = checks.queue(requests)
     return templates.TemplateResponse(request, "checks.html", _ctx(
         request, session,
         rows=rows,
-        total=subs.total_waiting(rows),
-        bands=[label for _, _, label in subs.AGE_BANDS],
+        total=checks.total_waiting(rows),
+        purposes=CHECK_PURPOSES,
     ))
+
+
+@app.post("/checks/new")
+def new_check_request(
+    payee: str = Form(""),
+    amount: str = Form(""),
+    purpose: str = Form(CHECK_OTHER),
+    job_number: str = Form(""),
+    reference: str = Form(""),
+    description: str = Form(""),
+    requested_on: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    """Ask for a check. A permit, a deposit, a sub draw, anything."""
+    value = to_decimal(amount)
+    if value is None or value <= 0:
+        return _redirect("/checks", err="A check request needs an amount.")
+    if not payee.strip():
+        return _redirect("/checks", err="Say who the check is made out to.")
+
+    if not job_number.strip():
+        return _redirect("/checks", err="Every check needs a job number.")
+    job = session.scalar(
+        select(Job).where(Job.job_number == normalize_job_number(job_number))
+    )
+    if job is None:
+        return _redirect("/checks", err=f"No job {job_number}.")
+
+    on = None
+    if requested_on.strip():
+        try:
+            on = date.fromisoformat(requested_on.strip())
+        except ValueError:
+            return _redirect("/checks", err="The request date was not a date.")
+
+    session.add(CheckRequest(
+        job_id=job.id,
+        vendor=payee.strip(),
+        amount=value,
+        purpose=purpose if purpose in CHECK_PURPOSE_LABELS else CHECK_OTHER,
+        reference=reference.strip(),
+        description=description.strip(),
+        requested_on=on,
+    ))
+    session.commit()
+    return _redirect("/checks", ok=f"Check request recorded for {payee.strip()}.")
 
 
 @app.post("/job/{job_number}/subcontract")
@@ -1023,112 +1116,48 @@ def mark_subcontract(
     )
 
 
-@app.post("/job/{job_number}/check-request")
-def add_check_request(
-    job_number: str,
-    vendor: str = Form(""),
-    amount: str = Form(""),
-    reference: str = Form(""),
-    description: str = Form(""),
-    requested_on: str = Form(""),
-    session: Session = Depends(get_session),
-):
-    """Record a subcontractor's request to be paid."""
-    job = session.scalar(
-        select(Job).where(Job.job_number == normalize_job_number(job_number))
-    )
-    if job is None:
-        return _redirect("/jobs", err=f"No job {job_number}.")
-
-    value = to_decimal(amount)
-    if value is None or value <= 0:
-        return _redirect(f"/job/{job.job_number}#subs",
-                         err="A check request needs an amount.")
-    if not vendor.strip():
-        return _redirect(f"/job/{job.job_number}#subs",
-                         err="Say which subcontractor is asking.")
-
-    on = None
-    if requested_on.strip():
-        try:
-            on = date.fromisoformat(requested_on.strip())
-        except ValueError:
-            return _redirect(f"/job/{job.job_number}#subs",
-                             err="The request date was not a date.")
-
-    contract = next(
-        (q for q in job.subcontracts if vendor_matches(q.vendor, vendor)), None
-    )
-    session.add(CheckRequest(
-        job_id=job.id,
-        subcontract_id=contract.id if contract else None,
-        vendor=vendor.strip(),
-        amount=value,
-        reference=reference.strip(),
-        description=description.strip(),
-        requested_on=on,
-    ))
-    session.commit()
-    return _redirect(f"/job/{job.job_number}#subs",
-                     ok=f"Check request recorded for {vendor.strip()}.")
-
-
 @app.post("/check/{check_id}/decide")
 def decide_check_request(
     check_id: int,
     decision: str = Form(...),
     actor: str = Form(""),
     note: str = Form(""),
-    over_contract_note: str = Form(""),
     session: Session = Depends(get_session),
 ):
-    """Approve, refuse, or mark paid one check request."""
+    """Approve, refuse, or mark paid one check request.
+
+    No contract arithmetic here. A permit fee is not a draw against anything,
+    and a subcontractor's draw is an invoice, checked in the invoice pipeline.
+    """
     check_request = session.get(CheckRequest, check_id)
     if check_request is None:
         return _redirect("/checks", err="No such check request.")
 
-    job = check_request.job
     who = _actor(actor)
-    back = f"/job/{job.job_number}#subs"
-
     if decision == "approve":
-        verdict = subs.check(job, check_request)
-        if not verdict.can_approve:
-            # An overage can be approved knowingly. Anything else - no contract
-            # on file - cannot be waved through, because there is nothing to
-            # wave it through against.
-            if not verdict.over_contract:
-                return _redirect(back, err=" ".join(verdict.blockers))
-            if not over_contract_note.strip():
-                return _redirect(back, err=(
-                    "This takes them past their contract. Say what the extra "
-                    "work was before approving it."
-                ))
-            check_request.over_contract_note = over_contract_note.strip()
         check_request.status = CHECK_APPROVED
-        message = f"Check approved for {check_request.vendor}."
+        message = f"Check approved for {check_request.payee}."
     elif decision == "reject":
         check_request.status = CHECK_REJECTED
-        message = f"Request from {check_request.vendor} refused."
+        message = f"Request from {check_request.payee} refused."
     elif decision == "paid":
         if check_request.status != CHECK_APPROVED:
-            return _redirect(back, err="Only an approved request can be marked paid.")
+            return _redirect("/checks", err="Only an approved request can be marked paid.")
         check_request.status = CHECK_PAID
         check_request.paid_at = utcnow()
-        message = f"Marked paid: {check_request.vendor}."
+        message = f"Marked paid: {check_request.payee}."
     elif decision == "reopen":
         check_request.status = CHECK_REQUESTED
         check_request.paid_at = None
-        check_request.over_contract_note = ""
         message = "Request reopened."
     else:
-        return _redirect(back, err="Unknown decision.")
+        return _redirect("/checks", err="Unknown decision.")
 
     check_request.decided_by = who
     check_request.decided_at = utcnow()
     check_request.decided_note = note.strip()
     session.commit()
-    return _redirect(back, ok=message)
+    return _redirect("/checks", ok=message)
 
 
 @app.get("/approvals", response_class=HTMLResponse)

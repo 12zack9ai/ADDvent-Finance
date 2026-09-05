@@ -140,10 +140,7 @@ class Job(Base):
         """
         from app.matching import vendor_matches
 
-        matching = [
-            q for q in self.masters
-            if not q.is_subcontract and vendor_matches(q.vendor, vendor)
-        ]
+        matching = [q for q in self.masters if vendor_matches(q.vendor, vendor)]
         return sorted(
             matching,
             key=lambda q: (q.quote_date or date.min, q.id),
@@ -195,27 +192,56 @@ CHECK_OPEN = (CHECK_REQUESTED,)
 CHECK_COUNTS_AGAINST_CONTRACT = (CHECK_APPROVED, CHECK_PAID)
 
 
+# What a check is being cut for. Deliberately not a subcontractor-only list:
+# Zack, correcting an earlier version of this - "not all checks are for subs
+# and whatever, like there's multiple reasons for check request, permits yes
+# for jobs but not for subs."
+CHECK_PERMIT = "permit"
+CHECK_DEPOSIT = "deposit"
+CHECK_SUBCONTRACTOR = "subcontractor"
+CHECK_FEE = "fee"
+CHECK_REIMBURSEMENT = "reimbursement"
+CHECK_OTHER = "other"
+
+CHECK_PURPOSES = (
+    (CHECK_PERMIT, "Permit"),
+    (CHECK_DEPOSIT, "Deposit"),
+    (CHECK_SUBCONTRACTOR, "Subcontractor"),
+    (CHECK_FEE, "Fee"),
+    (CHECK_REIMBURSEMENT, "Reimbursement"),
+    (CHECK_OTHER, "Other"),
+)
+CHECK_PURPOSE_LABELS = dict(CHECK_PURPOSES)
+
+
 class CheckRequest(Base):
-    """A subcontractor asking to be paid part of their contract.
+    """Somebody needs a check cut.
 
-    Not an invoice, and the difference is the whole reason this table exists.
-    An invoice is a list of priced items and the question is whether each price
-    matches a quote. A check request is a claim on a number already agreed -
-    "we are 30% done, release 30%" - and the question is cumulative: does
-    everything this sub has been paid, plus this, still fit inside what they
-    were awarded?
+    A payment request, and deliberately nothing narrower. A permit fee, a
+    deposit on an order, a reimbursement, a subcontractor draw - the queue
+    exists because all of them share one question, which is who is waiting and
+    how long they have been waiting.
 
-    Any single request can look perfectly reasonable and the seventh one still
-    takes the sub past their contract. Only the running total sees that.
+    What it is NOT is a subcontractor's invoice. That is an ordinary Invoice,
+    matched against their subcontract exactly the way a supplier's invoice is
+    matched against a quote, and it lives in the invoice pipeline with
+    everything else. An earlier version of this table conflated the two, which
+    made permits impossible to record and made every check request pretend to
+    be a draw against a contract.
+
+    Every check belongs to a job, the same as everything else here. That is
+    what puts a permit fee into that job's costing instead of into a general
+    ledger nobody reconciles.
     """
 
     __tablename__ = "check_request"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Always a job. Zack: "Everything will have a job. Job numbers are how we
+    # do everything." A permit is a permit FOR something, and the job number is
+    # what makes it land in that job's costing rather than in a general ledger
+    # nobody reconciles.
     job_id: Mapped[int] = mapped_column(ForeignKey("job.id"), index=True)
-    # The subcontract this draws against. Nullable, because a request can
-    # arrive before anyone has filed the contract - which is exactly when it
-    # most needs to be visible rather than rejected at the door.
     subcontract_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("quote.id"), nullable=True, index=True
     )
@@ -223,6 +249,11 @@ class CheckRequest(Base):
         ForeignKey("document.id"), nullable=True
     )
 
+    purpose: Mapped[str] = mapped_column(
+        String(24), default=CHECK_OTHER, server_default=CHECK_OTHER, index=True
+    )
+    # Who the check is made out to. Named `vendor` because the column already
+    # existed; it holds a payee, which may be a town clerk as easily as a sub.
     vendor: Mapped[str] = mapped_column(String(255), default="", index=True)
     reference: Mapped[str] = mapped_column(String(128), default="")
     description: Mapped[str] = mapped_column(Text, default="")
@@ -247,6 +278,14 @@ class CheckRequest(Base):
 
     job: Mapped["Job"] = relationship(back_populates="check_requests")
     subcontract: Mapped[Optional["Quote"]] = relationship()
+
+    @property
+    def payee(self) -> str:
+        return self.vendor
+
+    @property
+    def purpose_label(self) -> str:
+        return CHECK_PURPOSE_LABELS.get(self.purpose, self.purpose)
     document: Mapped[Optional["Document"]] = relationship()
 
     @property
@@ -378,13 +417,17 @@ class Quote(Base):
     # A subcontract rather than a material price list.
     #
     # The same object because it arrives the same way and needs the same
-    # things - a job, a vendor, a document, screening. What differs is
-    # entirely downstream: a material quote is a list of prices to check
-    # invoice lines against, while a subcontract is one agreed number that
-    # gets drawn down in progress payments. So a subcontract is deliberately
-    # kept OUT of line matching (see Job.masters_for_vendor): pricing a
-    # delivery ticket against a labour contract would compare nothing to
-    # nothing and report it as agreement.
+    # things - a job, a vendor, a document, screening - and because a
+    # subcontractor's invoice is checked against it exactly the way a
+    # supplier's invoice is checked against a quote. Zack: "the subcontractor
+    # invoice should work exactly like the vendor invoicing."
+    #
+    # The vendor name is what keeps the two apart. A supply house's invoice
+    # can only match a quote from that supply house, so a delivery ticket
+    # never lands against a labour contract. What the flag changes is the
+    # question asked ON TOP of the line comparison: a sub is also checked
+    # cumulatively, because their contract is a ceiling on everything they
+    # will ever bill, and a quote is not.
     is_subcontract: Mapped[bool] = mapped_column(
         default=False, server_default="0", index=True,
     )

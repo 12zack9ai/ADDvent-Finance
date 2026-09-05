@@ -5,25 +5,17 @@
 <div class="pagehead">
   <div>
     <h1>Check requests</h1>
-    <p class="sub">Subcontractors waiting to be paid — longest wait first.</p>
+    <p class="sub">Who needs a check cut — longest wait first.</p>
   </div>
-  <div><a class="btn ghost" href="/jobs">Jobs</a></div>
+  <div><a class="btn ghost" href="/sub-invoices">Subcontractor invoices</a></div>
 </div>
 
-{% if not rows %}
-  <div class="panel">
-    <div class="empty">
-      <div class="big">Nobody is waiting.</div>
-      Check requests appear here as soon as they are recorded on a job.
-    </div>
-  </div>
-{% else %}
-
+{% if rows %}
 <div class="scorecard">
   <div class="score{{ ' bad' if rows[0].days > 30 }}">
     <span class="score-k">Longest wait</span>
     <span class="score-v">{{ rows[0].days }} day{{ "" if rows[0].days == 1 else "s" }}</span>
-    <span class="score-n">{{ rows[0].request.vendor }} on job {{ rows[0].job.job_number }}</span>
+    <span class="score-n">{{ rows[0].request.payee }} · job {{ rows[0].job_number }}</span>
   </div>
   <div class="score">
     <span class="score-k">Waiting</span>
@@ -42,12 +34,11 @@
     <thead>
       <tr>
         <th style="padding-left:20px">Waiting</th>
-        <th>Subcontractor</th>
+        <th>Pay to</th>
+        <th>For</th>
         <th>Job</th>
-        <th>Requested</th>
         <th class="r">Amount</th>
-        <th class="r">Against contract</th>
-        <th class="r" style="padding-right:20px"></th>
+        <th class="r" style="padding-right:20px">Decision</th>
       </tr>
     </thead>
     <tbody>
@@ -55,38 +46,30 @@
       {% for w in rows %}
         {% if w.band != ns.band %}
           {% set ns.band = w.band %}
-          <tr class="bandrow"><td colspan="7" style="padding-left:20px">{{ w.band }}</td></tr>
+          <tr class="bandrow"><td colspan="6" style="padding-left:20px">{{ w.band }}</td></tr>
         {% endif %}
         <tr>
           <td style="padding-left:20px">
             <strong class="{{ 'neg' if w.days > 14 }}">{{ w.days }}</strong>
             <span class="muted">day{{ "" if w.days == 1 else "s" }}</span>
+            <div class="muted">{{ w.request.waiting_since }}</div>
           </td>
           <td>
-            <strong>{{ w.request.vendor or "Unknown" }}</strong>
-            {% if w.request.reference %}
-              <div class="muted mono">{{ w.request.reference }}</div>
-            {% endif %}
+            <strong>{{ w.request.payee or "Unknown" }}</strong>
+            {% if w.request.reference %}<div class="muted mono">{{ w.request.reference }}</div>{% endif %}
           </td>
           <td>
-            <a href="/job/{{ w.job.job_number }}#subs">{{ w.job.job_number }}</a>
-            {% if w.job.name %}<div class="muted">{{ w.job.name }}</div>{% endif %}
+            <span class="chip c-info">{{ w.request.purpose_label }}</span>
+            {% if w.request.description %}<div class="muted">{{ w.request.description }}</div>{% endif %}
           </td>
-          <td class="muted">{{ w.request.waiting_since }}</td>
+          <td><a href="/job/{{ w.job_number }}">{{ w.job_number }}</a></td>
           <td class="r" style="font-weight:700">{{ w.request.amount | money }}</td>
-          <td class="r">
-            {% if not w.position.has_contract %}
-              <span class="chip c-warn">no contract on file</span>
-            {% elif w.over_contract %}
-              <span class="chip c-over">{{ w.position.would_exceed | money }} over</span>
-            {% else %}
-              <span class="muted">
-                {{ w.position.approved | money }} of {{ w.position.awarded | money }}
-              </span>
-            {% endif %}
-          </td>
           <td class="r" style="padding-right:20px">
-            <a class="btn ghost sm" href="/job/{{ w.job.job_number }}#subs">Review</a>
+            <form method="post" action="/check/{{ w.request.id }}/decide" class="checkform">
+              <input type="text" name="actor" placeholder="Your name" required>
+              <button class="btn sm" name="decision" value="approve" type="submit">Approve</button>
+              <button class="btn ghost sm" name="decision" value="reject" type="submit">Refuse</button>
+            </form>
           </td>
         </tr>
       {% endfor %}
@@ -99,5 +82,44 @@
   amount or by job has the same failure — the request nobody has looked at stays
   the request nobody has looked at.
 </p>
+{% else %}
+  <div class="panel">
+    <div class="empty">
+      <div class="big">Nobody is waiting on a check.</div>
+      Record one below — a permit, a deposit, a reimbursement, anything that
+      needs a check cut.
+    </div>
+  </div>
 {% endif %}
+
+<div class="panel">
+  <h2 style="margin-bottom:3px">Request a check</h2>
+  <div class="muted" style="margin-bottom:14px">
+    Not only for subcontractors — permits, deposits and fees belong here too.
+    A subcontractor's <em>invoice</em> is not one of these; it goes through
+    <a href="/upload">Upload</a> like any other invoice and gets checked against
+    their contract.
+  </div>
+  <form method="post" action="/checks/new" class="drawform">
+    <label class="fld"><span>Pay to</span>
+      <input type="text" name="payee" required placeholder="Township of Oakland"
+             autocomplete="off"></label>
+    <label class="fld"><span>Amount</span>
+      <input type="text" name="amount" required placeholder="450.00" autocomplete="off"></label>
+    <label class="fld"><span>What for</span>
+      <select name="purpose">
+        {% for value, label in purposes %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+      </select></label>
+    <label class="fld"><span>Job number</span>
+      <input type="text" name="job_number" required placeholder="260000"
+             autocomplete="off"></label>
+    <label class="fld"><span>Reference</span>
+      <input type="text" name="reference" placeholder="Permit 2026-1184" autocomplete="off"></label>
+    <label class="fld"><span>Dated</span>
+      <input type="date" name="requested_on"></label>
+    <label class="fld wide"><span>What it is for</span>
+      <input type="text" name="description" placeholder="Roofing permit, 63 Winding Ridge"></label>
+    <div class="drawgo"><button class="btn" type="submit">Record check request</button></div>
+  </form>
+</div>
 {% endblock %}

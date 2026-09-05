@@ -32,6 +32,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Optional
 
+from app import subs
+from app.matching import vendor_matches
 from app.models import (
     APPROVAL_APPROVED,
     APPROVAL_PAID,
@@ -146,28 +148,42 @@ def build(job: Job) -> Costing:
     """Add the job up: material, subcontract, purchases, labour, revenue."""
     report = Costing(job=job)
 
+    # Split by who sent it, not by what kind of document it is. Both are
+    # invoices and both went through the same pipeline; a vendor holding a
+    # subcontract on this job is a subcontractor, and everybody else is a
+    # supplier.
     material = Bucket("material", "Material and vendor invoices")
+    sub = Bucket("subcontract", "Subcontractors")
+    sub_vendors = [p.vendor for p in subs.positions(job)]
+
     for invoice in job.invoices:
         if invoice.approval_status == APPROVAL_REJECTED:
             continue
+        bucket = sub if any(
+            vendor_matches(v, invoice.vendor) for v in sub_vendors
+        ) else material
         amount = invoice.total or ZERO
-        material.count += 1
+        bucket.count += 1
         if invoice.approval_status in (APPROVAL_APPROVED, APPROVAL_PAID):
-            material.agreed += amount
+            bucket.agreed += amount
         else:
-            material.pending += amount
-    report.buckets.append(material)
+            bucket.pending += amount
 
-    sub = Bucket("subcontract", "Subcontractors")
+    report.buckets.append(material)
+    report.buckets.append(sub)
+
+    # Checks that are not invoices at all: permits, deposits, fees. Real cost
+    # on the job, and invisible everywhere else in this system.
+    written = Bucket("checks", "Permits, deposits and other checks")
     for request in job.check_requests:
         amount = request.amount or ZERO
         if request.status in (CHECK_APPROVED, CHECK_PAID):
-            sub.agreed += amount
-            sub.count += 1
+            written.agreed += amount
+            written.count += 1
         elif request.status == CHECK_REQUESTED:
-            sub.pending += amount
-            sub.count += 1
-    report.buckets.append(sub)
+            written.pending += amount
+            written.count += 1
+    report.buckets.append(written)
 
     # Card swipes, counter purchases, fuel. Nothing captures these yet, so the
     # bucket exists and is empty and says so - which is the honest shape. A

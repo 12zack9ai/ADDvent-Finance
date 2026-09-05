@@ -31,6 +31,7 @@ from app.models import (  # noqa: E402
     CheckRequest,
     Invoice,
     Job,
+    Quote,
 )
 
 _ids = {"n": 0}
@@ -41,27 +42,38 @@ def _next() -> int:
     return _ids["n"]
 
 
-def job(invoices=(), checks=(), charged=None, labour=None):
+def job(invoices=(), checks=(), charged=None, labour=None, contracts=()):
     j = Job(job_number="260000", name="Daul Gardens")
     j.invoices = list(invoices)
     j.check_requests = list(checks)
-    j.quotes = []
+    j.quotes = list(contracts)
     j.change_orders = []
     j.contract_amount = D(charged) if charged is not None else None
     j.labour_cost = D(labour) if labour is not None else None
     return j
 
 
-def invoice(total="10000.00", status=APPROVAL_APPROVED):
-    inv = Invoice(job_id=1, document_id=_next(), vendor="New Castle",
+def invoice(total="10000.00", status=APPROVAL_APPROVED, vendor="New Castle"):
+    inv = Invoice(job_id=1, document_id=_next(), vendor=vendor,
                   invoice_number=f"INV-{_next()}", total=D(total),
                   approval_status=status)
     inv.id = _next()
+    inv.created_at = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    inv.lines = []
     return inv
 
 
-def check(amount="30000.00", status=CHECK_APPROVED):
-    r = CheckRequest(job_id=1, vendor="Reilly Roofing", amount=D(amount), status=status)
+def subcontract(total="120000.00", vendor="Reilly Roofing"):
+    q = Quote(job_id=1, document_id=_next(), vendor=vendor, is_master=True,
+              is_subcontract=True, total=D(total))
+    q.id = _next()
+    q.lines = []
+    return q
+
+
+def check(amount="450.00", status=CHECK_APPROVED):
+    r = CheckRequest(job_id=1, vendor="Township of Oakland", amount=D(amount),
+                     status=status, purpose="permit")
     r.id = _next()
     r.received_at = datetime(2026, 9, 1, tzinfo=timezone.utc)
     return r
@@ -72,8 +84,9 @@ def check(amount="30000.00", status=CHECK_APPROVED):
 def test_a_fully_subbed_job_needs_nothing_typed_but_the_price():
     """Zack's case: fully subbed means no labour figure, and the report is
     complete without anyone doing anything."""
-    j = job(invoices=[invoice("12000.00", APPROVAL_PAID)],
-            checks=[check("90000.00", CHECK_PAID)],
+    j = job(contracts=[subcontract()],
+            invoices=[invoice("12000.00", APPROVAL_PAID),
+                      invoice("90000.00", APPROVAL_PAID, vendor="Reilly Roofing")],
             charged="150000.00", labour="0")
     c = costing.build(j)
 
@@ -83,14 +96,28 @@ def test_a_fully_subbed_job_needs_nothing_typed_but_the_price():
     assert c.margin_pct == D("32.0")
 
 
-def test_material_and_subcontract_are_counted_separately():
+def test_material_and_subcontract_are_split_by_who_sent_it():
+    """Both are invoices through the same pipeline. What separates them is
+    whether that vendor holds a subcontract on this job."""
     c = costing.build(job(
-        invoices=[invoice("6000.00"), invoice("4000.00", APPROVAL_PAID)],
-        checks=[check("30000.00"), check("20000.00", CHECK_PAID)],
+        contracts=[subcontract()],
+        invoices=[
+            invoice("6000.00"), invoice("4000.00", APPROVAL_PAID),
+            invoice("30000.00", vendor="Reilly Roofing"),
+            invoice("20000.00", APPROVAL_PAID, vendor="REILLY ROOFING LLC"),
+        ],
     ))
     assert c.bucket("material").agreed == D("10000.00")
     assert c.bucket("material").count == 2
     assert c.bucket("subcontract").agreed == D("50000.00")
+    assert c.bucket("subcontract").count == 2
+
+
+def test_a_permit_is_a_cost_that_appears_nowhere_else():
+    """No invoice, no quote, no contract - and real money out on the job."""
+    c = costing.build(job(checks=[check("450.00", CHECK_APPROVED)]))
+    assert c.bucket("checks").agreed == D("450.00")
+    assert c.cost == D("450.00")
 
 
 def test_a_rejected_invoice_is_not_a_cost():
@@ -104,11 +131,11 @@ def test_a_rejected_invoice_is_not_a_cost():
 
 def test_a_refused_check_request_is_not_a_cost():
     c = costing.build(job(checks=[
-        check("30000.00", CHECK_APPROVED),
-        check("15000.00", CHECK_REJECTED),
+        check("450.00", CHECK_APPROVED),
+        check("300.00", CHECK_REJECTED),
     ]))
-    assert c.bucket("subcontract").agreed == D("30000.00")
-    assert c.bucket("subcontract").pending == D("0")
+    assert c.bucket("checks").agreed == D("450.00")
+    assert c.bucket("checks").pending == D("0")
 
 
 # --- what is agreed versus what is claimed --------------------------------
@@ -129,7 +156,7 @@ def test_a_live_job_shows_both_numbers_rather_than_looking_profitable():
     c = costing.build(job(
         invoices=[invoice("20000.00", APPROVAL_PAID),
                   invoice("40000.00", APPROVAL_PENDING)],
-        checks=[check("25000.00", CHECK_REQUESTED)],
+        checks=[check("25000.00", CHECK_REQUESTED)],  # a big deposit, undecided
         charged="100000.00", labour="0",
     ))
     assert c.margin == D("80000.00")            # on what is agreed

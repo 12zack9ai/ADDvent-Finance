@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Subcontractor invoices · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>Subcontractor invoices</h1>
+    <p class="sub">Each sub's invoices against what they were awarded.</p>
+  </div>
+  <div><a class="btn ghost" href="/checks">Check requests</a></div>
+</div>
+
+{% if not rows %}
+  <div class="panel">
+    <div class="empty">
+      <div class="big">No subcontracts on file.</div>
+      A sub's contract arrives like any other quote — upload it or forward it in
+      with the job number, then mark it as a subcontract on the job page.
+      <div style="margin-top:14px">
+        <a class="btn" href="/upload">Upload a contract</a>
+      </div>
+    </div>
+  </div>
+{% else %}
+
+<div class="scorecard">
+  <div class="score">
+    <span class="score-k">Awarded</span>
+    <span class="score-v">{{ awarded | money }}</span>
+    <span class="score-n">{{ rows|length }} subcontract{{ "" if rows|length == 1 else "s" }}, incl. extras</span>
+  </div>
+  <div class="score">
+    <span class="score-k">Billed</span>
+    <span class="score-v">{{ billed | money }}</span>
+    <span class="score-n">approved or paid</span>
+  </div>
+  <div class="score">
+    <span class="score-k">Under review</span>
+    <span class="score-v">{{ pending | money }}</span>
+    <span class="score-n">invoiced, nobody has decided</span>
+  </div>
+  <div class="score{{ ' bad' if over > 0 or would_exceed > 0 }}">
+    <span class="score-k">Over contract</span>
+    <span class="score-v">{{ over | money }}</span>
+    <span class="score-n">
+      {% if over > 0 %}approved past the award
+      {% elif would_exceed > 0 %}none approved — but {{ would_exceed | money }} under
+        review would go past it
+      {% else %}nobody is past their award{% endif %}</span>
+  </div>
+</div>
+
+{% for job, p in rows %}
+<div class="panel">
+  <div class="sub-head">
+    <div>
+      <strong style="font-size:1.05rem">{{ p.vendor }}</strong>
+      <a href="/job/{{ job.job_number }}" class="muted">job {{ job.job_number }}</a>
+      {% if p.overage %}
+        <span class="chip c-over">{{ p.overage | money }} over contract</span>
+      {% endif %}
+    </div>
+    {% if p.percent_drawn is not none %}
+      <div class="muted">{{ p.percent_drawn }}% drawn</div>
+    {% endif %}
+  </div>
+
+  <div class="substrip">
+    <div><span class="sk">Contract</span>
+      <span class="sv">{{ p.awarded | money }}</span>
+      <span class="sn">{% if p.change_orders %}incl. {{ p.change_orders | money }} extras{% else %}as awarded{% endif %}</span></div>
+    <div><span class="sk">Billed</span>
+      <span class="sv">{{ p.billed | money }}</span>
+      <span class="sn">{{ p.paid | money }} of it paid</span></div>
+    <div><span class="sk">Remaining</span>
+      <span class="sv">{{ p.remaining | money }}</span>
+      <span class="sn">left on the contract</span></div>
+    <div><span class="sk">Under review</span>
+      <span class="sv">{{ p.pending | money }}</span>
+      <span class="sn">{% if p.open_invoices %}{{ p.open_invoices|length }} invoice{{ "" if p.open_invoices|length == 1 else "s" }} waiting{% else %}nothing outstanding{% endif %}</span></div>
+  </div>
+
+  {% if p.invoices %}
+  <table class="grid" style="margin-top:14px">
+    <thead><tr><th>Invoice</th><th>Date</th><th class="r">Amount</th>
+      <th class="r">Vs. contract</th><th class="r">Status</th></tr></thead>
+    <tbody>
+      {% for inv in p.invoices %}
+      <tr>
+        <td><a href="/invoice/{{ inv.id }}" style="font-weight:700">
+          {{ inv.invoice_number or ("Invoice #" ~ inv.id) }}</a></td>
+        <td class="muted">{{ inv.invoice_date or "—" }}</td>
+        <td class="r" style="font-weight:700">{{ inv.total | money }}</td>
+        <td class="r">
+          {% set past = p.would_exceed_with(inv) if inv in p.open_invoices else 0 %}
+          {% if past %}
+            <span class="chip c-over">{{ past | money }} past the award</span>
+          {% elif inv.overbilled_amount and inv.overbilled_amount > 0 %}
+            <span class="chip c-over">+{{ inv.overbilled_amount | money }} over quoted price</span>
+          {% elif not inv.quote_id %}
+            <span class="chip c-none">no contract matched</span>
+          {% else %}
+            <span class="chip c-ok">within the contract</span>
+          {% endif %}
+        </td>
+        <td class="r">
+          <span class="status s-{{ inv.approval_status }}">
+            {{ {"pending_review": "Review", "held": "Held", "approved": "Approved",
+                "paid": "Paid", "rejected": "Rejected"}.get(inv.approval_status,
+                inv.approval_status) }}</span>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="muted" style="margin-top:12px">
+      No invoices from them yet on this job.
+    </div>
+  {% endif %}
+</div>
+{% endfor %}
+
+<p class="muted" style="font-size:.9rem">
+  A subcontractor's invoice is checked exactly like a supplier's — read,
+  compared line by line against their contract, marked up. The one thing a
+  contract adds is a ceiling: a quote prices material and does not cap how much
+  of it a roof needs, but a contract is a fixed award, and every invoice against
+  it eats into a finite number.
+</p>
+{% endif %}
+{% endblock %}
