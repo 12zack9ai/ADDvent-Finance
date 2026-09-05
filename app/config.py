@@ -68,6 +68,13 @@ class Settings:
     # Off unless explicitly set; see scripts/load_samples.py.
     load_samples: bool = _bool("LOAD_SAMPLES", False)
 
+    # Fills every programme - jobs, quotes, invoices, subcontracts, checks,
+    # change orders, a flagged bill and a forecast - with the sample set in
+    # scripts/seed_samples.py, so a fresh deploy shows what the app looks like
+    # in use. Reserved to job numbers 269xxx and removable in one command:
+    #   python scripts/seed_samples.py --remove
+    seed_samples: bool = _bool("SEED_SAMPLES", False)
+
     # --- PDF rendering -----------------------------------------------------
     # Path to a Chromium/Chrome binary used to render the marked-up PDF.
     chrome_binary: str = os.getenv("CHROME_BINARY", "")

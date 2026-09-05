@@ -59,3 +59,25 @@ def test_negatives_put_the_sign_before_the_currency_symbol(raw, expected):
     """"$-25,352.38" reads as a typo and is easy to skim past. On a cash flow
     forecast the negative weeks are the entire point of the document."""
     assert fmt.money(Decimal(raw)) == expected
+
+
+# --- what the PDF font can write -------------------------------------------
+
+def test_typography_is_mapped_to_something_the_pdf_font_has():
+    assert fmt.pdf_safe("Daul Gardens — Building 4") == "Daul Gardens - Building 4"
+    assert fmt.pdf_safe("Zack’s quote") == "Zack's quote"
+    assert fmt.pdf_safe("“as quoted”") == '"as quoted"'
+    assert fmt.pdf_safe(fmt.DASH) == "-"
+
+
+def test_anything_else_outside_latin_1_degrades_instead_of_raising():
+    """A blemish in one word beats a download nobody can produce."""
+    out = fmt.pdf_safe("Ridge vent 中文")
+    assert out.startswith("Ridge vent ")
+    out.encode("latin-1")          # the whole point: this must not raise
+
+
+def test_ordinary_text_is_left_exactly_alone():
+    assert fmt.pdf_safe("GAF TIMBERLINE HDZ 3 BN/SQ @ $121.40") == \
+        "GAF TIMBERLINE HDZ 3 BN/SQ @ $121.40"
+    assert fmt.pdf_safe(None) == ""

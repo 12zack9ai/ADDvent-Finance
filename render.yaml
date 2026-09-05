@@ -76,5 +76,12 @@ services:
       - key: ASK_FOR_JOB_NUMBER
         value: "false"
 
+      # Sample data: eight jobs in the reserved 269xxx band that fill every
+      # part of the site, so there is something to look at before the real
+      # documents start arriving. Set to "false" - or run
+      # `python scripts/seed_samples.py --remove` - to clear them out.
+      - key: SEED_SAMPLES
+        value: "true"
+
       # Render's Python image has no Chromium, so the marked-up PDF is produced
       # by the browser's own Print / Save as PDF. Same stylesheet, same output.

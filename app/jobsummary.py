@@ -419,9 +419,32 @@ def _compare(earlier: Invoice, later: Invoice) -> Optional[Overlap]:
         return None
     if shared_value < smaller * OVERLAP_FRACTION:
         return None
+    if not _rebills_everything(earlier, later):
+        return None
 
     return Overlap(earlier, later, shared_value, shared_lines, days,
                    identical_total=False)
+
+
+def _rebills_everything(a: Invoice, b: Invoice) -> bool:
+    """Does one of these invoices re-bill every item on the other?
+
+    The test that tells a correction from a staged delivery, and it is needed
+    because value alone cannot. A roof quoted at 186 squares arrives in two
+    deliveries of 93; both invoices are mostly shingle, so most of the smaller
+    one by value is "on" the larger one and the value rule above fires on a
+    completely ordinary pair of delivery tickets.
+
+    What a correction or a resend does that a second delivery does not is
+    bill the whole of the earlier invoice again. The second delivery always
+    carries something the first one did not - that is why there was a second
+    delivery.
+    """
+    a_keys = {_line_key(line) for line in a.lines} - {""}
+    b_keys = {_line_key(line) for line in b.lines} - {""}
+    if not a_keys or not b_keys:
+        return False
+    return a_keys <= b_keys or b_keys <= a_keys
 
 
 def _line_key(line) -> str:

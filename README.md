@@ -110,12 +110,33 @@ The short version:
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 cp .env.example .env          # add ANTHROPIC_API_KEY
-.venv/bin/python scripts/seed_demo.py --reset    # optional demo data
+.venv/bin/python scripts/seed_samples.py          # optional sample data
 .venv/bin/uvicorn app.main:app --port 8000
 ```
 
 With `APP_PASSWORD` unset there is no login, which is fine on localhost and
 **not** fine anywhere else.
+
+## Sample data
+
+`SEED_SAMPLES=true` fills every part of the site with eight sample jobs, so a
+fresh install shows what it looks like in use rather than an empty shell.
+Between them they cover a healthy job with every verdict on it, two live quotes
+from one supplier, a corrected invoice that never cancelled the one it
+corrected, an invoice with no quote to price it against, a revised quote
+standing the old one down, a subcontractor whose next invoice goes past the
+award, a check queue in every waiting band, and two bills that are not ours.
+
+They live in the **269xxx job-number band, reserved for samples**. Real jobs run
+up from 260000, so nothing here can collide with one, and they come back out in
+one command:
+
+```bash
+.venv/bin/python scripts/seed_samples.py --remove
+```
+
+Nothing else is touched. Add them by hand with `scripts/seed_samples.py`, or
+leave `SEED_SAMPLES` set and the app writes them once on first start.
 
 ## Tests
 
@@ -142,7 +163,7 @@ They need no API key and no network — the engine is pure arithmetic by design.
 | `scripts/test_mail.py` | Checks the mailbox connection without filing anything. |
 | `app/templates/markup.html` | The marked-up invoice — used for both the screen view and the PDF, so they cannot drift. |
 | `app/auth.py` | Shared-password login. |
-| `scripts/seed_demo.py` | Realistic demo job, no API key needed. |
+| `scripts/seed_samples.py` | Eight sample jobs filling every programme, no API key needed. `--remove` takes them all back out. |
 | `tests/test_matching.py` | Comparison-engine tests. |
 | `tests/test_approval.py` | Three-way match and approval routing tests. |
 

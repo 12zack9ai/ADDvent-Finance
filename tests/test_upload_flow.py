@@ -511,6 +511,9 @@ def test_a_fake_invoice_is_blocked_and_can_only_be_cleared_by_a_person(client, t
     assert page.status_code == 200
     assert "check where this came from" in page.text
     assert "check the sender" in client.get("/incoming").text
+    # And on the job page, which is the one a project manager opens. Without
+    # this the bill sits in that table looking like any other pending invoice.
+    assert "Check the sender" in client.get("/job/260000").text
 
     # Approval is refused while the provenance question is open.
     resp = client.post(

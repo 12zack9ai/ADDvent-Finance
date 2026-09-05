@@ -629,6 +629,12 @@
             {% endif %}
           </td>
           <td class="r">
+            {# A bill from somewhere unexpected reads as an ordinary pending
+               invoice everywhere else on this row. It is not one, and this is
+               the page a project manager actually opens. #}
+            {% if trust_blockers(inv.document) %}
+              <div><span class="chip c-over">Check the sender</span></div>
+            {% endif %}
             {% if inv.approval_status == "approved" %}<span class="chip c-ok">Approved</span>
             {% elif inv.approval_status == "paid" %}<span class="chip c-none">Paid</span>
             {% elif inv.approval_status == "held" %}<span class="chip c-over">Held</span>

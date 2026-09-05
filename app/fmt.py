@@ -11,6 +11,36 @@ from typing import Optional
 
 DASH = "—"
 
+# The two PDF renderers use fpdf2's built-in Helvetica, which can only write
+# Latin-1. Anything outside it raises rather than degrading, so a single em
+# dash in a job name - or the DASH above, which stands in for every blank
+# number on the page - took the whole download out with a 500. The text is
+# mapped down to characters the font has instead.
+_PDF_MAP = {
+    ord("\u2014"): "-", ord("\u2013"): "-", ord("\u2212"): "-",
+    ord("\u2018"): "'", ord("\u2019"): "'", ord("\u201a"): ",",
+    ord("\u201c"): '"', ord("\u201d"): '"', ord("\u201e"): '"',
+    ord("\u2026"): "...", ord("\u2022"): "-", ord("\u00a0"): " ",
+    ord("\u2032"): "'", ord("\u2033"): '"', ord("\u2044"): "/",
+    ord("\u20ac"): "EUR", ord("\u2122"): "(TM)", ord("\u00ae"): "(R)",
+    ord("\u2264"): "<=", ord("\u2265"): ">=", ord("\u00d7"): "x",
+}
+
+
+def pdf_safe(text) -> str:
+    """Text fpdf2's core fonts can actually write.
+
+    Substitutes the typography that turns up in vendor documents and in our
+    own copy, then replaces anything still outside Latin-1 rather than
+    raising. A question mark in one word of a description is a blemish; a
+    failed download is a person unable to send the marked-up invoice back to
+    the vendor, which is the entire point of the document.
+    """
+    if text is None:
+        return ""
+    out = str(text).translate(_PDF_MAP)
+    return out.encode("latin-1", "replace").decode("latin-1")
+
 
 def fmt(value: Optional[Decimal], places: int) -> str:
     """Money, with the sign where a reader expects it.

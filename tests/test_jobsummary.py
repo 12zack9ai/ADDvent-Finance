@@ -313,6 +313,66 @@ def test_a_partial_overlap_below_the_threshold_stays_quiet():
     assert s.overlaps == []
 
 
+def test_two_deliveries_of_the_same_shingle_are_not_a_duplicate():
+    """186 squares quoted, delivered as two loads of 93. Both invoices are
+    mostly shingle, so by value alone most of the smaller one reappears on the
+    larger - and this is the most ordinary thing that happens on a big roof."""
+    first = invoice("13024.00", on=date(2026, 9, 10), lines=[
+        line("SHG-TL-WW", "11290.00"), line("UND-SYN-10", "925.00"),
+    ])
+    second = invoice("16439.00", on=date(2026, 9, 18), lines=[
+        line("SHG-TL-WW", "11290.00"), line("IWS-225", "1888.00"),
+        line("DE-10-WHT", "1542.00"),
+    ])
+    s = jobsummary.build(job(quotes=[quote()], invoices=[first, second]))
+    assert s.overlaps == []
+
+
+def test_a_progress_billing_split_across_two_draws_is_not_a_duplicate():
+    """A sub bills 60% of a line one month and the last 40% the next. The
+    shared line is most of the smaller draw, and nothing is wrong."""
+    draw2 = invoice("36600.00", on=date(2026, 9, 5), lines=[
+        line("", "9000.00", desc="Dry-in: underlayment and ice & water"),
+        line("", "27600.00", desc="Shingle installation"),
+    ])
+    draw3 = invoice("23300.00", on=date(2026, 9, 25), lines=[
+        line("", "18400.00", desc="Shingle installation"),
+        line("", "4900.00", desc="Flashing, vents and detail work"),
+    ])
+    s = jobsummary.build(job(quotes=[quote()], invoices=[draw2, draw3]))
+    assert s.overlaps == []
+
+
+def test_but_a_reissue_that_bills_every_item_again_is_still_caught():
+    """The guard above must not cost us the case it was written around: the
+    corrected invoice re-bills the whole of the original."""
+    wrong = invoice("8903.00", on=date(2026, 9, 10), lines=[
+        line("SHG-OC-DW", "7005.00"), line("UND-DK-10", "616.00"),
+        line("IWS-OC-200", "729.00"),
+    ])
+    fixed = invoice("8944.00", on=date(2026, 9, 19), lines=[
+        line("SHG-OC-DW", "7005.00"), line("UND-DK-10", "616.00"),
+        line("IWS-OC-200", "768.00"),
+    ])
+    s = jobsummary.build(job(quotes=[quote()], invoices=[wrong, fixed]))
+    assert len(s.overlaps) == 1
+    assert not s.overlaps[0].identical_total
+
+
+def test_a_resend_under_a_new_number_is_caught_however_the_lines_read():
+    """Identical totals are their own evidence and are not asked to prove
+    anything about line items."""
+    a = invoice("6154.00", number="INV-551900", on=date(2026, 9, 10), lines=[
+        line("GAFT3PG", "6154.00"),
+    ])
+    b = invoice("6154.00", number="551900-R", on=date(2026, 9, 14), lines=[
+        line("GAFT3PG", "6154.00"), line("FREIGHT", "0.00"),
+    ])
+    s = jobsummary.build(job(quotes=[quote()], invoices=[a, b]))
+    assert len(s.overlaps) == 1
+    assert s.overlaps[0].identical_total
+
+
 def test_invoices_months_apart_are_a_re_order_not_a_correction():
     a = invoice("6154.00", on=date(2026, 3, 1))
     b = invoice("6154.00", on=date(2026, 9, 10))

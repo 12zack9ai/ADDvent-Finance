@@ -60,6 +60,15 @@ class _Doc(FPDF):
         self.set_text_color(*MUTE)
         self.cell(0, 4, f"Page {self.page_no()} of {{nb}}", align="R")
 
+    # Every string on the page goes through fmt.pdf_safe on the way to the
+    # font: see the note there. Overriding here rather than at each call site
+    # means a new heading or column added later cannot forget to do it.
+    def cell(self, w=None, h=None, text="", *args, **kwargs):
+        return super().cell(w, h, fmt.pdf_safe(text), *args, **kwargs)
+
+    def multi_cell(self, w=None, h=None, text="", *args, **kwargs):
+        return super().multi_cell(w, h, fmt.pdf_safe(text), *args, **kwargs)
+
 
 def _price_text(line: Any) -> str:
     price = fmt.money4(line.unit_price)

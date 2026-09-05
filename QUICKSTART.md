@@ -50,7 +50,7 @@ ANTHROPIC_API_KEY=sk-ant-your-key-here
 Then:
 
 ```bash
-.venv/bin/python scripts/seed_demo.py --reset     # optional sample job
+.venv/bin/python scripts/seed_samples.py          # optional sample data
 .venv/bin/uvicorn app.main:app --port 8000
 ```
 
@@ -72,7 +72,7 @@ notepad .env
 Put your key on the `ANTHROPIC_API_KEY=` line, save, close Notepad. Then:
 
 ```powershell
-.venv\Scripts\python scripts\seed_demo.py --reset
+.venv\Scripts\python scripts\seed_samples.py
 .venv\Scripts\uvicorn app.main:app --port 8000
 ```
 

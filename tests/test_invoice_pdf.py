@@ -127,3 +127,36 @@ def test_no_quote_on_file_is_stated_plainly(tmp_path):
     body = text_of(out)
     assert "No master quote" in body
     assert "no quote yet" in body
+
+
+# --- characters the font cannot write --------------------------------------
+
+def test_an_em_dash_in_a_job_name_does_not_kill_the_download(tmp_path):
+    """fpdf2's built-in Helvetica is Latin-1 only, and raises on anything
+    outside it. A job called "Daul Gardens — Building 4" is what a person
+    types, and it took the whole PDF out with a 500."""
+    inv = SimpleNamespace(
+        invoice_number="INV-1", invoice_date="2026-09-01", due_date=None,
+        vendor="Reilly Roofing — Bergen", po_reference="", ship_to="",
+        page_info="", subtotal=Decimal("100.00"), tax=None, freight=None,
+        total=Decimal("100.00"), overbilled_amount=Decimal("0"),
+        underbilled_amount=Decimal("0"), lines_over=0, lines_under=0,
+        lines_match=1, lines_unmatched=0,
+        document=SimpleNamespace(filename="inv.pdf"),
+    )
+    job = SimpleNamespace(job_number="269001", name="Daul Gardens — Building 4 reroof")
+    quote = SimpleNamespace(quote_number="Q—1", id=1)
+    out = invoice_pdf.build(inv, job, quote, [line()], tmp_path / "dash.pdf")
+
+    assert out.exists() and out.stat().st_size > 1000
+    body = text_of(out)
+    assert "Reilly Roofing - Bergen" in body        # substituted, not dropped
+
+
+def test_a_blank_number_prints_rather_than_raising(tmp_path):
+    """fmt.DASH is itself an em dash, and it stands in for every missing
+    number on the page - so an unquoted line was enough on its own."""
+    out = build(tmp_path, [line(quote_unit_price=None, verdict="not_on_quote",
+                                unit_variance=None, extended_variance=None,
+                                quote_line=None)])
+    assert out.exists() and out.stat().st_size > 1000

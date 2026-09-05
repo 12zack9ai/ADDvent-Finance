@@ -126,6 +126,7 @@ templates.env.globals["site_name"] = settings.site_name
 # Provenance flags, so any list of invoices can show that one of them came
 # from somewhere unexpected without every route having to look it up.
 templates.env.globals["trust_flags"] = trust.flags_for
+templates.env.globals["trust_blockers"] = lambda doc: trust.blocking(trust.flags_for(doc))
 
 
 def _configure_logging() -> None:
@@ -162,6 +163,9 @@ async def _startup() -> None:
         # seconds, and blocking here would fail the host's health check.
         asyncio.get_running_loop().run_in_executor(None, _load_samples_once)
 
+    if settings.seed_samples:
+        asyncio.get_running_loop().run_in_executor(None, _seed_samples_once)
+
 
 def _load_samples_once() -> None:
     from scripts.load_samples import load
@@ -171,6 +175,22 @@ def _load_samples_once() -> None:
         log.warning("SAMPLES: %s", load())
     except Exception as exc:                          # noqa: BLE001
         log.warning("SAMPLES: failed - %s", exc)
+
+
+def _seed_samples_once() -> None:
+    """Write the demo dataset, once. Skips silently if it is already there."""
+    from scripts.seed_samples import already_seeded, seed
+    from app.db import SessionLocal
+
+    log = logging.getLogger("finance")
+    try:
+        with SessionLocal() as session:
+            if already_seeded(session):
+                log.warning("SEED: sample jobs already present")
+                return
+            log.warning("SEED: %s", seed(session))
+    except Exception as exc:                          # noqa: BLE001
+        log.warning("SEED: failed - %s", exc)
 
 
 @app.on_event("shutdown")
