@@ -5,7 +5,7 @@
 <div class="pagehead">
   <div>
     <h1>Check requests</h1>
-    <p class="sub">Who needs a check cut — longest wait first.</p>
+    <p class="sub">Who needs a check cut — longest wait first. Subcontractor invoices are in here too.</p>
   </div>
   <div><a class="btn ghost" href="/sub-invoices">Subcontractor invoices</a></div>
 </div>
@@ -15,17 +15,22 @@
   <div class="score{{ ' bad' if rows[0].days > 30 }}">
     <span class="score-k">Longest wait</span>
     <span class="score-v">{{ rows[0].days }} day{{ "" if rows[0].days == 1 else "s" }}</span>
-    <span class="score-n">{{ rows[0].request.payee }} · job {{ rows[0].job_number }}</span>
+    <span class="score-n">{{ rows[0].payee }} · job {{ rows[0].job_number }}</span>
   </div>
   <div class="score">
     <span class="score-k">Waiting</span>
     <span class="score-v">{{ rows|length }}</span>
-    <span class="score-n">request{{ "" if rows|length == 1 else "s" }} nobody has decided</span>
+    <span class="score-n">nobody has been paid yet</span>
   </div>
   <div class="score">
-    <span class="score-k">Total requested</span>
+    <span class="score-k">Total owed</span>
     <span class="score-v">{{ total | money }}</span>
-    <span class="score-n">if every one of these is approved</span>
+    <span class="score-n">if every one of these is paid</span>
+  </div>
+  <div class="score">
+    <span class="score-k">Ready to pay</span>
+    <span class="score-v">{{ ready | money }}</span>
+    <span class="score-n">the rest is waiting on a decision</span>
   </div>
 </div>
 
@@ -52,24 +57,34 @@
           <td style="padding-left:20px">
             <strong class="{{ 'neg' if w.days > 14 }}">{{ w.days }}</strong>
             <span class="muted">day{{ "" if w.days == 1 else "s" }}</span>
-            <div class="muted">{{ w.request.waiting_since }}</div>
+            <div class="muted">{{ w.waiting_since }}</div>
           </td>
           <td>
-            <strong>{{ w.request.payee or "Unknown" }}</strong>
-            {% if w.request.reference %}<div class="muted mono">{{ w.request.reference }}</div>{% endif %}
+            <strong>{{ w.payee }}</strong>
+            {% if w.reference %}<div class="muted mono">{{ w.reference }}</div>{% endif %}
           </td>
           <td>
-            <span class="chip c-info">{{ w.request.purpose_label }}</span>
-            {% if w.request.description %}<div class="muted">{{ w.request.description }}</div>{% endif %}
+            <span class="chip c-info">{{ w.purpose_label }}</span>
+            {% if w.state %}
+              <div><span class="chip c-{{ {'ok': 'ok', 'bad': 'over'}.get(w.tone, 'none') }}">{{ w.state }}</span></div>
+            {% endif %}
+            {% if w.description %}<div class="muted">{{ w.description }}</div>{% endif %}
           </td>
           <td><a href="/job/{{ w.job_number }}">{{ w.job_number }}</a></td>
-          <td class="r" style="font-weight:700">{{ w.request.amount | money }}</td>
+          <td class="r" style="font-weight:700">{{ w.amount | money }}</td>
           <td class="r" style="padding-right:20px">
+            {% if w.decide_here %}
             <form method="post" action="/check/{{ w.request.id }}/decide" class="checkform">
               <input type="text" name="actor" placeholder="Your name" required>
               <button class="btn sm" name="decision" value="approve" type="submit">Approve</button>
               <button class="btn ghost sm" name="decision" value="reject" type="submit">Refuse</button>
             </form>
+            {% else %}
+              {# The decision on a sub's draw belongs on the invoice, where it
+                 is priced against their contract and stopped at the award.
+                 Two places to approve the same money can disagree. #}
+              <a class="btn ghost sm" href="/invoice/{{ w.invoice.id }}">Open the invoice</a>
+            {% endif %}
           </td>
         </tr>
       {% endfor %}
@@ -81,8 +96,8 @@
   <div class="panel">
     <div class="empty">
       <div class="big">Nobody is waiting on a check.</div>
-      Record one below — a permit, a deposit, a reimbursement, anything that
-      needs a check cut.
+      Subcontractor invoices appear here on their own as they arrive. Record
+      anything else below — a permit, a deposit, a reimbursement.
     </div>
   </div>
 {% endif %}
@@ -91,8 +106,10 @@
   <details class="add">
     <summary>Request a check</summary>
     <div class="muted" style="margin-bottom:14px">
-      A subcontractor's <em>invoice</em> is not one of these — that goes through
-      <a href="/upload">Upload</a> and gets checked against their contract.
+      A subcontractor's invoice is already in this queue — it arrives through
+      <a href="/upload?sub=1">Upload</a>, gets checked against their contract,
+      and appears above on its own. This form is for the rest: permits,
+      deposits, fees, reimbursements.
     </div>
     <form method="post" action="/checks/new" class="drawform">
     <label class="fld"><span>Pay to</span>

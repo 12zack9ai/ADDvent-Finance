@@ -134,6 +134,22 @@ def test_the_check_queue_covers_every_waiting_band(session):
     assert all(w.request.job_id for w in rows)              # every check has a job
 
 
+def test_the_subs_own_invoices_are_in_the_check_queue_too(session):
+    """A sub sending their draw is asking for a check, and nobody retypes it."""
+    jobs = seed_samples.sample_jobs(session)
+    rows = checks.queue(session.scalars(select(CheckRequest)).all(), jobs)
+
+    subs_waiting = [r for r in rows if r.invoice is not None]
+    assert {r.payee for r in subs_waiting} == {
+        "Reilly Roofing LLC", "Vanguard Sheet Metal Inc.",
+    }
+    # Every one of them points back at the invoice for the decision.
+    assert all(not r.decide_here for r in subs_waiting)
+    # And the money is bigger than the typed requests alone.
+    assert checks.total_waiting(rows) > checks.total_waiting(
+        [r for r in rows if r.request is not None])
+
+
 def test_the_two_bills_that_are_not_ours_are_both_blocked(session):
     job = job_of(session, "269008")
     flagged = {

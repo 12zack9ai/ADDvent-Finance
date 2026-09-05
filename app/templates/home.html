@@ -61,7 +61,7 @@
       </div>
       {% if check_rows[0].days > 14 %}
         <div class="prog-note">
-          {{ check_rows[0].request.payee }} has waited {{ check_rows[0].days }} days.
+          {{ check_rows[0].payee }} has waited {{ check_rows[0].days }} days.
         </div>
       {% endif %}
     {% else %}

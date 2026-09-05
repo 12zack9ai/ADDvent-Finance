@@ -272,10 +272,14 @@ def _ctx(request: Request, session: Session, **kw) -> dict:
         "unassigned_count": count,
         # On the nav, because a subcontractor waiting on a check is the one
         # thing here that somebody outside the building is actively chasing.
-        "checks_waiting": session.scalar(
-            select(func.count(CheckRequest.id))
-            .where(CheckRequest.status == CHECK_REQUESTED)
-        ) or 0,
+        #
+        # The whole queue rather than a count of rows, because a sub's invoice
+        # is one of these and no column says so - it takes matching the
+        # invoice's vendor against the subcontracts on that job. That is a few
+        # hundred rows a year, on every page; if it ever stops being cheap the
+        # fix is to cache it per request, not to let the badge disagree with
+        # the page it points at.
+        "checks_waiting": len(_check_queue(session)),
     }
     base.update(kw)
     return base
@@ -327,6 +331,26 @@ def healthz() -> dict:
     }
 
 
+def _subcontract_jobs(session: Session) -> list[Job]:
+    """Every job carrying a live subcontract, with what the sub views need.
+
+    Three pages ask this same question - the dashboard, the Subs page and the
+    check queue - and a sub's position is only correct with their quotes,
+    invoices and change orders all loaded, so it is asked in one place.
+    """
+    return session.scalars(
+        select(Job)
+        .join(Quote, Quote.job_id == Job.id)
+        .where(Quote.is_subcontract == True, Quote.is_master == True)  # noqa: E712
+        .distinct()
+        .options(
+            selectinload(Job.quotes),
+            selectinload(Job.invoices),
+            selectinload(Job.change_orders),
+        )
+    ).all()
+
+
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request, session: Session = Depends(get_session)):
     """The front door: which of the four programmes do you want.
@@ -358,11 +382,7 @@ def home(request: Request, session: Session = Depends(get_session)):
     # Checks. The card leads with the longest wait rather than a count, because
     # somebody who has been waiting five weeks is the reason to open this and
     # "3 requests" is not.
-    check_rows = checks.queue(session.scalars(
-        select(CheckRequest)
-        .where(CheckRequest.status == CHECK_REQUESTED)
-        .options(selectinload(CheckRequest.job))
-    ).all())
+    check_rows = _check_queue(session)
     checks_paid = session.scalar(
         select(func.sum(CheckRequest.amount))
         .where(CheckRequest.status == CHECK_PAID)
@@ -370,17 +390,7 @@ def home(request: Request, session: Session = Depends(get_session)):
 
     # Subcontractor invoices. Anyone past their award is the headline; failing
     # that, what is sitting under review.
-    sub_jobs = session.scalars(
-        select(Job)
-        .join(Quote, Quote.job_id == Job.id)
-        .where(Quote.is_subcontract == True, Quote.is_master == True)  # noqa: E712
-        .distinct()
-        .options(
-            selectinload(Job.quotes),
-            selectinload(Job.invoices),
-            selectinload(Job.change_orders),
-        )
-    ).all()
+    sub_jobs = _subcontract_jobs(session)
     sub_positions = [p for job in sub_jobs for p in subs.positions(job)]
     subs_over = [p for p in sub_positions if p.overage > ZERO]
 
@@ -1018,17 +1028,7 @@ def sub_invoice_queue(request: Request, session: Session = Depends(get_session))
     of them: grouped by who, with the running total against the award, because
     a contract is a ceiling and an invoice list is not.
     """
-    jobs = session.scalars(
-        select(Job)
-        .join(Quote, Quote.job_id == Job.id)
-        .where(Quote.is_subcontract == True, Quote.is_master == True)  # noqa: E712
-        .distinct()
-        .options(
-            selectinload(Job.quotes),
-            selectinload(Job.invoices),
-            selectinload(Job.change_orders),
-        )
-    ).all()
+    jobs = _subcontract_jobs(session)
 
     rows = []
     for job in jobs:
@@ -1048,20 +1048,30 @@ def sub_invoice_queue(request: Request, session: Session = Depends(get_session))
     ))
 
 
-@app.get("/checks", response_class=HTMLResponse)
-def check_queue(request: Request, session: Session = Depends(get_session)):
-    """Who needs a check cut, longest wait first. Not only subcontractors."""
+def _check_queue(session: Session) -> list:
+    """Everyone waiting on a check: typed requests, and subcontractor invoices.
+
+    A sub's invoice is a request for a check, so it is one of these without
+    anybody retyping it. It is read here, never written - see app/checks.py for
+    why a CheckRequest row is not created for it.
+    """
     requests = session.scalars(
         select(CheckRequest)
         .where(CheckRequest.status == CHECK_REQUESTED)
         .options(selectinload(CheckRequest.job))
     ).all()
+    return checks.queue(requests, _subcontract_jobs(session))
 
-    rows = checks.queue(requests)
+
+@app.get("/checks", response_class=HTMLResponse)
+def check_queue(request: Request, session: Session = Depends(get_session)):
+    """Who needs a check cut, longest wait first. Not only subcontractors."""
+    rows = _check_queue(session)
     return templates.TemplateResponse(request, "checks.html", _ctx(
         request, session,
         rows=rows,
         total=checks.total_waiting(rows),
+        ready=checks.total_ready(rows),
         purposes=CHECK_PURPOSES,
     ))
 
