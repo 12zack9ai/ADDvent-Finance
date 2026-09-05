@@ -558,6 +558,9 @@ def upload_form(request: Request, session: Session = Depends(get_session)):
         request, session,
         job=request.query_params.get("job", ""),
         force_master=request.query_params.get("master") == "1",
+        # Arrived from the subcontractor department, which is what says a
+        # quote landing here is a contract rather than a price list.
+        is_subcontract=request.query_params.get("sub") == "1",
     ))
 
 
@@ -567,6 +570,7 @@ async def upload_submit(
     job_number: str = Form(""),
     note: str = Form(""),
     force_master: str = Form(""),
+    is_subcontract: str = Form(""),
     session: Session = Depends(get_session),
 ):
     oks: list[str] = []
@@ -587,6 +591,7 @@ async def upload_submit(
                 source="upload", note=note,
                 job_number_override=job_number,
                 force_master=bool(force_master),
+                is_subcontract=bool(is_subcontract),
             )
             session.commit()
 

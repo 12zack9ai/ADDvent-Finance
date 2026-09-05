@@ -144,6 +144,7 @@ def create_quote(
     make_master: bool,
     reason: str = "",
     replaces: bool = False,
+    is_subcontract: bool = False,
 ) -> Quote:
     payload = result.payload
     quote = Quote(
@@ -160,6 +161,7 @@ def create_quote(
         tax=to_decimal(payload.get("tax")),
         freight=to_decimal(payload.get("freight")),
         total=to_decimal(payload.get("total")),
+        is_subcontract=is_subcontract,
     )
     session.add(quote)
     session.flush()
@@ -552,6 +554,7 @@ def ingest_file(
     message_id: str = "",
     job_number_override: str = "",
     force_master: bool = False,
+    is_subcontract: bool = False,
 ) -> Document:
     """Ingest one document end to end. Returns the Document with status set."""
     stored, digest = store_upload(src_path, filename)
@@ -658,6 +661,10 @@ def ingest_file(
             session, job, document, result,
             make_master=make_master, reason=reason,
             replaces=force_master or directive.is_master_update,
+            # Set by the department the document came in through, not read off
+            # the page: a subcontract and a material quote look alike, and the
+            # person filing it is the one who knows which they are holding.
+            is_subcontract=is_subcontract,
         )
         recompare_job(session, job)
         document.status = ST_READY

@@ -4,10 +4,15 @@
 {% block content %}
 <div class="pagehead">
   <div>
-    <h1>Upload a quote or invoice</h1>
+    <h1>{% if is_subcontract %}Upload a subcontract or a sub's invoice
+        {% else %}Upload a quote or invoice{% endif %}</h1>
     <p class="sub">
       PDF, PNG, or JPG. The system works out whether it's a quote or an invoice,
       reads the line items, and files it under the job number.
+      {% if is_subcontract %}
+        A subcontractor's invoice is read exactly like a supplier's — this page
+        only adds that their quote is a <strong>contract</strong>.
+      {% endif %}
     </p>
   </div>
 </div>
@@ -25,7 +30,7 @@
     <div>
       <label class="fld" for="job_number">Job number</label>
       <input type="text" id="job_number" name="job_number" value="{{ job or '' }}"
-             placeholder="e.g. 4417" autocomplete="off">
+             placeholder="e.g. 260014" autocomplete="off">
       <div class="muted" style="margin-top:5px">
         Leave blank to use the job number printed on the document. If neither has one,
         it waits in the Inbox for you to assign.
@@ -33,7 +38,7 @@
     </div>
     <div>
       <label class="fld" for="note">Note (optional)</label>
-      <input type="text" id="note" name="note" placeholder="e.g. master updated to job 4417"
+      <input type="text" id="note" name="note" placeholder="e.g. updated quote for job 260014"
              autocomplete="off">
       <div class="muted" style="margin-top:5px">
         Same wording you'd put in a forwarded email subject line.
@@ -51,6 +56,23 @@
           Replaces the current master and re-checks every invoice already on the job
           against the new pricing. The old quote is kept in the history.
           Only applies to quotes.
+        </span>
+      </span>
+    </label>
+  </div>
+
+  <div style="background:var(--accent-soft);border-radius:5px;padding:12px 14px;margin-bottom:16px">
+    <label style="display:flex;gap:9px;align-items:flex-start;cursor:pointer;font-size:13.5px">
+      <input type="checkbox" name="is_subcontract" value="1"
+             {% if is_subcontract %}checked{% endif %} style="width:auto;margin-top:2px">
+      <span>
+        <strong>This is from a subcontractor, not a supply house.</strong>
+        <span class="muted" style="display:block">
+          Their quote is a fixed award, so their invoices get a ceiling on top
+          of the ordinary line check — six draws can each be correct and the
+          seventh still take them past what they were awarded. A supply house's
+          quote prices material and caps nothing. Only applies to quotes; their
+          invoices are read the same way as everyone else's either way.
         </span>
       </span>
     </label>

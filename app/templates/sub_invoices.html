@@ -7,17 +7,21 @@
     <h1>Subcontractor invoices</h1>
     <p class="sub">Each sub's invoices against what they were awarded.</p>
   </div>
-  <div><a class="btn ghost" href="/checks">Check requests</a></div>
+  <div>
+    <a class="btn" href="/upload?sub=1">Upload</a>
+    <a class="btn ghost" href="/checks">Check requests</a>
+  </div>
 </div>
 
 {% if not rows %}
   <div class="panel">
     <div class="empty">
       <div class="big">No subcontracts on file.</div>
-      A sub's contract arrives like any other quote — upload it or forward it in
-      with the job number, then mark it as a subcontract on the job page.
+      A sub's contract comes in exactly like a supplier's quote — upload it
+      here against its job number, and their invoices are then read, priced
+      against it line by line, and stopped at the award.
       <div style="margin-top:14px">
-        <a class="btn" href="/upload">Upload a contract</a>
+        <a class="btn" href="/upload?sub=1">Upload a subcontract</a>
       </div>
     </div>
   </div>

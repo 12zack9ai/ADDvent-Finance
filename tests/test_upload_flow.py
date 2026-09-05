@@ -1488,6 +1488,41 @@ def test_a_subs_invoice_is_priced_against_their_contract(client, tmp_path):
     assert "INV-551900" in page.text
 
 
+def test_uploading_through_the_sub_department_files_a_contract(client, tmp_path):
+    """Zack: "the subcontractor invoicing department will [say so]... that
+    should be set up same way as vendor invoicing. Subcontractor quote is
+    attached to a job number."
+
+    So the same upload, the same job number, the same pipeline - the only
+    difference is which door it came in through, and that is what says this
+    vendor's quote is a fixed award rather than a price list."""
+    from app.models import Quote
+    upload(client, _pdf(tmp_path, "sc.pdf", "sc-q"), QUOTE_PAYLOAD,
+           job_number="260000", is_subcontract="1")
+
+    session = SessionLocal()
+    quote = session.query(Quote).one()
+    assert quote.is_subcontract
+    assert quote.is_master                      # live, exactly like any quote
+    assert quote.job.job_number == "260000"
+    session.close()
+
+    # And it shows up in the department that filed it.
+    assert "NEW CASTLE" in client.get("/sub-invoices").text.upper()
+
+
+def test_the_same_upload_without_the_flag_is_an_ordinary_price_list(client, tmp_path):
+    """The flag is the whole difference. Nothing about the document says it."""
+    from app.models import Quote
+    upload(client, _pdf(tmp_path, "mat.pdf", "mat-q"), QUOTE_PAYLOAD,
+           job_number="260000")
+
+    session = SessionLocal()
+    assert not session.query(Quote).one().is_subcontract
+    session.close()
+    assert "No subcontracts on file" in client.get("/sub-invoices").text
+
+
 def test_a_subs_invoice_past_the_contract_is_held(client, tmp_path):
     """The one thing a contract adds that a quote does not: a ceiling."""
     _sub_job(contract="5000.00")
