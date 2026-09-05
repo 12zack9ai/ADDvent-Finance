@@ -24,6 +24,12 @@ and `scripts/jobnimbus_probe.py` prints the keys a real response actually
 contains. One run against the real account with a real job number settles it,
 and the candidate lists get trimmed to what is actually there.
 
+The key is site-wide rather than per-user (confirmed against their other
+integration), which matters for one reason: a lookup that finds nothing means
+the job genuinely is not there, not that this key cannot see it. So "no job
+numbered 260000" is a fact worth logging and acting on, rather than an
+ambiguity to work around.
+
 Until an API key is configured this module is inert: `configured()` is False and
 nothing here makes a request.
 """
