@@ -79,6 +79,16 @@
               <button class="btn sm" name="decision" value="approve" type="submit">Approve</button>
               <button class="btn ghost sm" name="decision" value="reject" type="submit">Refuse</button>
             </form>
+            {% elif w.ready %}
+              {# Signed off, whichever way it came in. The one thing left to
+                 say about it is that the money went out, and this is where
+                 the person who cut the check is standing. #}
+              <form method="post" class="checkform"
+                    action="{% if w.request %}/check/{{ w.request.id }}/decide{% else %}/invoice/{{ w.invoice.id }}/decide{% endif %}">
+                <input type="hidden" name="next" value="/checks">
+                <input type="text" name="actor" placeholder="Your name" required>
+                <button class="btn sm" name="decision" value="paid" type="submit">Check cut</button>
+              </form>
             {% else %}
               {# The decision on a sub's draw belongs on the invoice, where it
                  is priced against their contract and stopped at the award.

@@ -24,6 +24,7 @@ from app.models import (  # noqa: E402
     APPROVAL_PAID,
     APPROVAL_PENDING,
     APPROVAL_REJECTED,
+    CHECK_APPROVED,
     CHECK_PAID,
     CHECK_PERMIT,
     CHECK_REQUESTED,
@@ -190,15 +191,36 @@ def test_only_the_typed_ones_are_decided_here():
 
 
 def test_total_owed_and_total_ready_are_different_questions():
-    j = job(quotes=[contract()], requests=[request("450.00")], invoices=[
+    j = job(quotes=[contract()], requests=[
+        request("450.00"),                                  # nobody decided
+        request("625.00", payee="Bergen County Clerk", status=CHECK_APPROVED),
+    ], invoices=[
         invoice("23300.00", status=APPROVAL_APPROVED),
         invoice("9000.00", status=APPROVAL_HELD),
     ])
     rows = checks.queue(j.check_requests, [j], today=TODAY)
 
-    assert checks.total_waiting(rows) == D("32750.00")
-    # The held one is not money anybody can cut a check for today.
-    assert checks.total_ready(rows) == D("23750.00")
+    assert checks.total_waiting(rows) == D("33375.00")
+    # Only what somebody has signed off. Not the held invoice, and not the
+    # permit nobody has looked at.
+    assert checks.total_ready(rows) == D("23925.00")
+
+
+def test_an_approved_request_stays_in_the_queue_until_the_check_goes_out():
+    """It used to drop out the moment it was approved, so the one list of who
+    is owed money quietly stopped including the people we had agreed to pay."""
+    j = job(requests=[request("625.00", days=17, status=CHECK_APPROVED)])
+    rows = checks.queue(j.check_requests, today=TODAY)
+
+    assert len(rows) == 1
+    assert rows[0].ready
+    assert rows[0].days == 17            # the clock did not stop at approval
+    assert not rows[0].decide_here       # nothing left to decide, only to pay
+
+
+def test_a_paid_request_is_gone():
+    j = job(requests=[request(status=CHECK_PAID)])
+    assert checks.queue(j.check_requests, today=TODAY) == []
 
 
 # --- and it is counted once -----------------------------------------------

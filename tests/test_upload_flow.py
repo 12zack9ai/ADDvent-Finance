@@ -1546,6 +1546,45 @@ def test_a_subs_invoice_past_the_contract_is_held(client, tmp_path):
     session.close()
 
 
+def test_a_subs_draw_is_marked_paid_from_the_check_queue(client, tmp_path):
+    """Zack: "it doesn't make sense to send the invoice to the email for
+    subcontractor invoicing then send the same invoice for a check request.
+    They need to work hand in hand. One invoice is technically a request for
+    both."
+
+    So the whole life of it - arrives, priced, approved, check cut - can be
+    finished without leaving the queue the office actually works down."""
+    _sub_job(contract="120000.00")
+    draw = {**INVOICE_PAYLOAD, "vendor": "Reilly Roofing LLC",
+            "document_number": "RR-1", "total": "30000.00"}
+    upload(client, _pdf(tmp_path, "d.pdf", "draw"), draw, job_number="260000")
+
+    session = SessionLocal()
+    invoice_id = session.query(Invoice).filter_by(invoice_number="RR-1").one().id
+    session.close()
+
+    # It is in the check queue the moment it arrives, without anybody
+    # retyping it as a request.
+    page = client.get("/checks")
+    assert "Reilly Roofing LLC" in page.text
+    assert "RR-1" in page.text
+
+    client.post(f"/invoice/{invoice_id}/decide", follow_redirects=False,
+                data={"decision": "approve", "actor": "Zack"})
+
+    resp = client.post(f"/invoice/{invoice_id}/decide", follow_redirects=False,
+                       data={"decision": "paid", "actor": "Zack", "next": "/checks"})
+    assert resp.status_code == 303
+    assert resp.headers["location"].startswith("/checks")   # kept their place
+
+    session = SessionLocal()
+    assert session.get(Invoice, invoice_id).approval_status == "paid"
+    session.close()
+
+    # Paid, so it is off the list. It was never a second row to close.
+    assert "RR-1" not in client.get("/checks").text
+
+
 def test_a_material_supplier_gets_no_ceiling(client, tmp_path):
     """A quote prices material and does not cap how much of it a roof needs."""
     upload(client, _pdf(tmp_path, "q.pdf", "nocap-q"), QUOTE_PAYLOAD, job_number="260000")

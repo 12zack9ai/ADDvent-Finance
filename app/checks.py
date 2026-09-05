@@ -47,6 +47,7 @@ from app.models import (
     APPROVAL_APPROVED,
     APPROVAL_HELD,
     APPROVAL_PENDING,
+    CHECK_APPROVED,
     CHECK_PURPOSE_LABELS,
     CHECK_REQUESTED,
     CHECK_SUBCONTRACTOR,
@@ -73,6 +74,12 @@ AGE_BANDS = (
 # queue that only showed the approved ones would answer "who is owed money"
 # with a number that quietly excludes everybody we are still arguing with.
 AWAITING_PAYMENT = (APPROVAL_APPROVED, APPROVAL_PENDING, APPROVAL_HELD)
+
+# And the same for a typed request. A permit somebody approved on Tuesday is
+# still a permit nobody has paid, and dropping it out of the queue the moment
+# it was approved meant the one list of who is owed money quietly stopped
+# including the people we had already agreed to pay.
+UNPAID = (CHECK_REQUESTED, CHECK_APPROVED)
 
 
 def band_for(days: int) -> str:
@@ -118,11 +125,13 @@ class Waiting:
     def decide_here(self) -> bool:
         """Is this queue where the decision gets made?
 
-        True for a typed check request - a permit fee has nowhere else to be
-        decided. False for an invoice, whose decision belongs on the invoice,
-        against the quote, with the contract ceiling applied.
+        True for a typed check request nobody has decided - a permit fee has
+        nowhere else to be decided. False for an invoice, whose decision
+        belongs on the invoice, against the quote, with the contract ceiling
+        applied. And false once a request is approved, because the only thing
+        left to say about it is that the check went out.
         """
-        return self.request is not None
+        return self.request is not None and not self.ready
 
 
 def _fmt(value: Decimal) -> str:
@@ -134,16 +143,23 @@ def _days(since: date, today: date) -> int:
 
 
 def _from_request(request: CheckRequest, today: date) -> Waiting:
+    approved = request.status == CHECK_APPROVED
     return Waiting(
         payee=request.payee or "Unknown",
         amount=request.amount or ZERO,
         job_number=request.job.job_number,
         purpose_label=request.purpose_label,
-        days=request.days_waiting(today),
+        # Deliberately not days_waiting, which stops counting the moment a
+        # request is approved. The clock a person cares about runs until the
+        # check is in the post, not until we agreed to write it.
+        days=_days(request.waiting_since, today),
         waiting_since=request.waiting_since,
         reference=request.reference,
         description=request.description,
         request=request,
+        state="Approved — ready to pay" if approved else "",
+        ready=approved,
+        tone="ok" if approved else "",
     )
 
 
@@ -216,9 +232,7 @@ def queue(
     their money is, and the only ordering that answers that is oldest first.
     """
     on = today or date.today()
-    rows = [
-        _from_request(r, on) for r in requests if r.status == CHECK_REQUESTED
-    ]
+    rows = [_from_request(r, on) for r in requests if r.status in UNPAID]
     rows.extend(sub_invoices_waiting(jobs, on))
     rows.sort(key=lambda w: (-w.days, -w.amount))
     return rows
@@ -229,10 +243,9 @@ def total_waiting(rows: Iterable[Waiting]) -> Decimal:
 
 
 def total_ready(rows: Iterable[Waiting]) -> Decimal:
-    """What could actually be paid today: typed requests, plus the sub
-    invoices somebody has already signed off. Deliberately separate from the
-    total - "$19,705 requested" and "$19,705 ready to go" are different
-    statements and only one of them is true."""
-    return sum(
-        (w.amount for w in rows if w.decide_here or w.ready), ZERO
-    )
+    """What could go out today: everything somebody has already signed off.
+
+    Deliberately separate from the total - "$134,605 owed" and "$83,605 ready
+    to pay" are different statements and only one of them is an instruction.
+    """
+    return sum((w.amount for w in rows if w.ready), ZERO)

@@ -906,6 +906,7 @@ def decide_invoice(
     decision: str = Form(...),
     actor: str = Form(""),
     note: str = Form(""),
+    next: str = Form(""),
     session: Session = Depends(get_session),
 ):
     """Approve, hold, reject, or mark paid. Every decision is recorded."""
@@ -967,7 +968,11 @@ def decide_invoice(
         variance_at_decision=invoice.overbilled_amount,
     ))
     session.commit()
-    return _redirect(f"/invoice/{invoice.id}", ok=message)
+    # Back where the decision was made. A sub's draw can be marked paid from
+    # the check queue, and bouncing the person who cut the check onto the
+    # invoice page loses their place in the list they were working down.
+    back = "/checks" if next == "/checks" else f"/invoice/{invoice.id}"
+    return _redirect(back, ok=message)
 
 
 @app.post("/invoice/{invoice_id}/trust")
