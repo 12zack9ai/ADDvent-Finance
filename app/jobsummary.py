@@ -141,6 +141,13 @@ class Summary:
     change_orders: Decimal = ZERO
     off_quote: Decimal = ZERO
     off_quote_lines: int = 0
+    # A different supplier entirely, with no quote of their own on this job.
+    # ABC quoted the roof; a couple of last-minute things got picked up at New
+    # Castle because that is where they were in stock. Nothing about that is
+    # wrong, and it is a different thing from an item the QUOTED supplier
+    # slipped onto their own invoice - which is what off_quote means.
+    unquoted_supplier: Decimal = ZERO
+    unquoted_vendors: list[str] = field(default_factory=list)
     found: Decimal = ZERO           # overbilling the line check caught
     still_held: Decimal = ZERO      # of that, on invoices nobody has approved
     approved_anyway: Decimal = ZERO  # of that, on invoices signed off regardless
@@ -190,6 +197,11 @@ class Summary:
 
         Off-quote material plus anything billed above its quoted price. These
         are the two ways a job can genuinely cost more than it should.
+
+        Spend with a supplier who has no quote here is NOT in this. A quote
+        from ABC does not price a last-minute pickup at New Castle, and never
+        was going to; treating it as unexplained would light the job up for
+        doing something ordinary.
         """
         return _cents(self.off_quote + self.found)
 
@@ -310,6 +322,17 @@ def build(job: Job) -> Summary:
             summary.approved_anyway += over
         else:
             summary.still_held += over
+
+        if invoice.quote_id is None:
+            # No quote from THIS supplier on this job. Every line reads as
+            # unmatched because there was nothing to match against, so counting
+            # them as off-quote items would be counting the absence of a quote
+            # as a discrepancy.
+            summary.unquoted_supplier += invoice.total or ZERO
+            name = (invoice.vendor or "").strip() or "Unknown vendor"
+            if not any(vendor_matches(v, name) for v in summary.unquoted_vendors):
+                summary.unquoted_vendors.append(name)
+            continue
 
         for line in invoice.lines:
             if line.verdict == VERDICT_NOT_ON_QUOTE:

@@ -37,6 +37,7 @@ from app.models import (  # noqa: E402
     Quote,
 )
 
+ZERO_D = D("0")
 _ids = {"n": 0}
 
 
@@ -64,6 +65,16 @@ def co(amount, vendor="New Castle Building Products", status=CO_APPROVED,
     # transient object, and `is_live` fails closed.
     return ChangeOrder(job_id=1, vendor=vendor, number=number, amount=D(amount),
                        status=status, approved_by="Zack")
+
+
+def _unquoted(total, vendor):
+    """An invoice from a supplier who has no quote on this job at all: every
+    line reads unmatched because there was nothing to match against."""
+    inv = invoice(total, vendor=vendor, lines=[
+        line("MISC", total, VERDICT_NOT_ON_QUOTE),
+    ])
+    inv.quote_id = None
+    return inv
 
 
 def line(sku="GAFT3PG", extended="1000.00", verdict=VERDICT_MATCH, desc=""):
@@ -401,3 +412,51 @@ def test_a_rejected_change_order_authorises_nothing_and_is_not_pending():
     assert s.change_orders == D("0")
     assert s.over_quote > D("0")
     assert s.proposed_change_orders == []     # decided, not waiting
+
+
+# --- a different supplier, with no quote of their own ----------------------
+
+def test_a_supplier_with_no_quote_here_is_not_an_off_quote_discrepancy():
+    """Zack's case: ABC quoted the roof, and a couple of things got picked up
+    at New Castle because that is where they were in stock. There was never
+    going to be a New Castle quote, and their invoice must not be measured
+    against ABC's."""
+    s = jobsummary.build(job(
+        quotes=[quote("100000.00", vendor="ABC Supply Co")],
+        invoices=[
+            invoice("40000.00", vendor="ABC Supply Co"),
+            _unquoted("842.50", vendor="New Castle Building Products"),
+        ],
+    ))
+
+    assert s.unquoted_supplier == D("842.50")
+    assert s.unquoted_vendors == ["New Castle Building Products"]
+    assert s.off_quote == ZERO_D          # nothing was slipped onto ABC's bill
+    assert s.unexplained == ZERO_D
+    assert not s.needs_explaining
+    assert s.invoiced == D("40842.50")    # still counted as spend
+
+
+def test_an_item_the_quoted_supplier_slipped_in_is_still_a_discrepancy():
+    """The distinction that makes the previous test safe rather than blind."""
+    s = jobsummary.build(job(
+        quotes=[quote("100000.00", vendor="ABC Supply Co")],
+        invoices=[invoice("40000.00", vendor="ABC Supply Co", lines=[
+            line("SKYLIGHT", "9000.00", VERDICT_NOT_ON_QUOTE),
+        ])],
+    ))
+    assert s.off_quote == D("9000.00")
+    assert s.unquoted_supplier == ZERO_D
+
+
+def test_several_stragglers_from_one_supplier_name_them_once():
+    s = jobsummary.build(job(
+        quotes=[quote("100000.00", vendor="ABC Supply Co")],
+        invoices=[
+            _unquoted("300.00", vendor="New Castle Building Products"),
+            _unquoted("542.50", vendor="NEW CASTLE BLDG PRODUCTS"),
+            _unquoted("120.00", vendor="Bergen Fasteners"),
+        ],
+    ))
+    assert s.unquoted_supplier == D("962.50")
+    assert len(s.unquoted_vendors) == 2

@@ -1730,3 +1730,33 @@ def test_the_panel_comes_back_if_receipts_are_switched_on(client, tmp_path, monk
     monkeypatch.setattr(settings, "require_receipt", True)
     upload(client, _pdf(tmp_path, "q.pdf", "rcpt-q3"), QUOTE_PAYLOAD, job_number="260000")
     assert "Receiving confirmations" in client.get("/job/260000").text
+
+
+def test_a_straggler_from_another_supplier_is_not_measured_against_the_quote(client, tmp_path):
+    """ABC quoted the roof; a couple of things got picked up at New Castle
+    because that is where they were in stock. Their invoice must not be priced
+    against ABC's quote, and must not read as a discrepancy for it."""
+    abc_quote = {**QUOTE_PAYLOAD, "vendor": "ABC Supply Co"}
+    upload(client, _pdf(tmp_path, "q.pdf", "abc-q"), abc_quote, job_number="260000")
+
+    straggler = {**INVOICE_PAYLOAD, "vendor": "New Castle Building Products",
+                 "document_number": "NC-991", "total": "842.50"}
+    upload(client, _pdf(tmp_path, "i.pdf", "nc-i"), straggler, job_number="260000")
+
+    session = SessionLocal()
+    invoice = session.query(Invoice).filter_by(invoice_number="NC-991").one()
+    assert invoice.quote_id is None            # never matched to ABC's quote
+    assert invoice.overbilled_amount == D("0")
+    invoice_id = invoice.id
+    session.close()
+
+    page = client.get(f"/invoice/{invoice_id}")
+    assert "No quote from this supplier" in page.text
+    assert "last-minute pickup" in page.text
+    assert "Investigate" not in page.text
+
+    job = client.get("/job/260000").text
+    assert "no quote from them on this job" in job
+    assert "New Castle Building Products" in job
+    # And it does not light the job up as a discrepancy.
+    assert "Money on this job with no quoted price behind it" not in job

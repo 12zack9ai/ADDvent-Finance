@@ -54,6 +54,10 @@
     <span class="score-n">
       {% if s.off_quote_lines %}{{ s.off_quote_lines }} line{{ "" if s.off_quote_lines == 1 else "s" }}
       {% else %}every line traced{% endif %}
+      {%- if s.unquoted_supplier %}
+        <span class="score-flag" style="color:var(--soft);font-weight:600">
+          + {{ s.unquoted_supplier | money }} from a supplier with no quote here</span>
+      {% endif %}
     </span>
   </div>
 
@@ -560,6 +564,13 @@
         {{ s.invoiced | money }} billed
         {% if s.quoted %} against {{ s.quoted | money }} quoted{% endif %}
       </div>
+      {% if s.unquoted_vendors %}
+        <div class="muted">
+          {{ s.unquoted_supplier | money }} of that is from
+          {{ s.unquoted_vendors | join(", ") }} — no quote from them on this job,
+          so those prices were not checked against anything.
+        </div>
+      {% endif %}
     </div>
     {% if s.found > 0 %}
       <span class="chip c-over" style="font-size:13px;padding:5px 13px">

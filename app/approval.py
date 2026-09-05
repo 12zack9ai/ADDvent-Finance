@@ -105,7 +105,7 @@ class Routing:
             ACTION_APPROVE: "Ready to approve",
             ACTION_SPOT_CHECK: "Ready to approve — owner spot check",
             ACTION_HOLD: "Hold — billed above quote with no change order",
-            ACTION_INVESTIGATE: "Investigate — nothing to match against",
+            ACTION_INVESTIGATE: "No quote from this supplier — price not checked",
         }[self.action]
 
 
@@ -225,9 +225,15 @@ def route(invoice: Invoice) -> Routing:
     if invoice.quote_id is None:
         routing.action = ACTION_INVESTIGATE
         routing.tier = TIER_OWNER
+        # Deliberately not phrased as a fault. ABC quoted the roof and a couple
+        # of things got picked up at New Castle because that is where they were
+        # in stock - normal, and it is precisely why an invoice is never
+        # measured against another supplier's quote. What is true is that
+        # nothing checked this price, and somebody should read it.
         routing.reasons.append(
-            "No approved quote or purchase order on file for this vendor on "
-            "this job, so the price was not checked against anything."
+            f"No quote on this job from {invoice.vendor or 'this supplier'}, so "
+            f"nothing checked these prices. Often a last-minute pickup, and "
+            f"worth reading before it is paid."
         )
         return routing
 
