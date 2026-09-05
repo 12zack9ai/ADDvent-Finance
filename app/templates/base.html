@@ -136,6 +136,14 @@ stroke='%23bcd3f4' stroke-width='2' stroke-linecap='round'>\
 .panel{
   background:var(--surface);border:1px solid var(--rule);border-radius:var(--r);
   padding:20px 22px;margin-bottom:18px;box-shadow:var(--sh-1);
+  /* A table with seven columns cannot fit a phone, and something has to give.
+     Without this the whole page widens: the body scrolls sideways and takes
+     the nav, the headings and the job number off screen with it - so the
+     reader loses their place to read one column. Scrolling inside the panel
+     keeps the page still and moves only the table. This is used on phones to
+     check money; nothing may be unreachable, so hiding the overflow is not an
+     option either. */
+  overflow-x:auto;
 }
 .panel h2{margin-bottom:12px}
 .panel.tight{padding:14px 16px}
@@ -309,6 +317,22 @@ table.grid th{
 table.grid th.r{text-align:right}
 table.grid td{padding:13px 12px;border-bottom:1px solid var(--rule-lt);vertical-align:middle}
 table.grid td.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* Long unbroken text - a 40-character part number, a pasted URL, a vendor who
+   types a description with no spaces - must wrap rather than set the width of
+   the whole table. break-word, not anywhere: `anywhere` also lets the browser
+   shrink a column to its narrowest possible measure, which turned "New Castle
+   Building Products" into five broken lines on a phone to save a column that
+   was going to scroll regardless. */
+table.grid td,table.list td{overflow-wrap:break-word}
+
+/* On a phone a table is not squeezed until the words break - it keeps the
+   width its own contents need and the panel scrolls. Capped, because one long
+   description should not push the columns beside it off into the distance;
+   and expressed as a minimum, so a narrow table that already fits is left
+   alone rather than made to scroll for nothing. */
+@media (max-width: 720px){
+  table.grid{min-width:min(max-content, 760px)}
+}
 table.grid tr:last-child td{border-bottom:none}
 table.grid tbody tr:hover{background:var(--surface-2)}
 table.list{width:100%;border-collapse:collapse;font-size:.97rem}

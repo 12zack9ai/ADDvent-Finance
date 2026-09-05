@@ -36,6 +36,17 @@
   }
   @media print{ .toolbar{display:none} .sheet{padding:0;max-width:none} }
 
+  /* On a phone. This document is paper - the same layout on screen and in
+     print is the entire point of rendering it once - so it is not reflowed;
+     the line table is what a vendor is being asked to look at and it has to
+     read the same on both. Instead the sheet scrolls sideways inside itself,
+     so the page around it stays put and the approve buttons underneath stay
+     where a thumb can reach them. */
+  @media screen and (max-width: 900px){
+    .sheet{overflow-x:auto; -webkit-overflow-scrolling:touch}
+    .vitems{min-width:640px}
+  }
+
   /* ---- header ---- */
   .head{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;
         border-bottom:2.5px solid var(--navy);padding-bottom:11px;margin-bottom:13px}
