@@ -73,6 +73,9 @@ from app.models import (                                             # noqa: E40
     CHECK_SUBCONTRACTOR,
     CO_APPROVED,
     CO_PROPOSED,
+    JOB_LOST,
+    PURCHASE_EMAIL,
+    PURCHASE_TEXT,
     Approval,
     CashReport,
     ChangeOrder,
@@ -81,6 +84,7 @@ from app.models import (                                             # noqa: E40
     Invoice,
     InvoiceLine,
     Job,
+    Purchase,
     Quote,
     QuoteLine,
     Receipt,
@@ -248,6 +252,26 @@ class Seed:
         self.session.flush()
         return request
 
+    def buy(self, job, merchant, total, description, *, days, who="",
+            texted=False, tax=None):
+        """A receipt photographed at the counter and sent in."""
+        doc = self.doc(job, f"receipt-{self.n + 1:03d}.jpg", "receipt",
+                       sender=who, source="email" if who else "upload",
+                       subject="", days=days)
+        doc.mime_type = "image/jpeg"
+        row = Purchase(
+            job_id=job.id, document_id=doc.id, merchant=merchant,
+            purchased_on=ago(days), total=D(total),
+            tax=D(tax) if tax else None,
+            subtotal=(D(total) - D(tax)) if tax else None,
+            description=description, bought_by=who,
+            arrived_by=PURCHASE_TEXT if texted else PURCHASE_EMAIL,
+            created_at=at(days),
+        )
+        self.session.add(row)
+        self.session.flush()
+        return row
+
     def receipt(self, job, vendor, reference, who, note, *, days):
         row = Receipt(job_id=job.id, vendor=vendor, kind="delivery",
                       reference=reference, confirmed_by=who, note=note,
@@ -354,6 +378,15 @@ def job_269001(s: Seed) -> Job:
         ("", "Flashing, vents and detail work", D("0.35"), "LS", D("14000.00")),
     ], taxed=False)
 
+    s.buy(job, "Home Depot #4412", "84.12", "Caulk, blades, shop rags",
+          days=24, who="2015550147@mms.att.net", texted=True, tax="5.57")
+    s.buy(job, "Sunoco", "78.40", "Fuel, box truck", days=19,
+          who="malvarez@addventuresinc.com")
+    s.buy(job, "Bergen Tool Rental", "212.44", "Compactor, one day",
+          days=12, who="ttorres@addventuresinc.com", tax="14.08")
+    s.buy(job, "Home Depot #4412", "46.88", "Roofing nails, extra bundle",
+          days=6, who="2015550147@mms.att.net", texted=True)
+
     s.receipt(job, ABC, "PS-118420-1", "M. Alvarez (site)",
               "Pallet count checked against the delivery ticket.", days=26)
     s.check(job, "Township of Oakland", "450.00", CHECK_PERMIT, days=26,
@@ -398,6 +431,9 @@ def job_269002(s: Seed) -> Job:
         ("DE-10-BRN", "Drip edge, 10 ft, brown", D("64"), "EA", D("12.85")),
         ("SKY-BLD-M06", "Solar blind, M06", D("6"), "EA", D("214.00")),
     ], sender="ap@abcsupply.com")
+
+    s.buy(job, "Lowe's #1782", "119.63", "Sealant, flashing tape", days=15,
+          who="ttorres@addventuresinc.com", tax="7.93")
 
     s.receipt(job, ABC, "PS-118655", "T. Torres (PM)",
               "Six skylights on site, none damaged.", days=21)
@@ -603,8 +639,32 @@ def job_269008(s: Seed) -> Job:
     return job
 
 
+def job_269009(s: Seed) -> Job:
+    """A job we chased and did not get. The spend is still real."""
+    job = s.job("269009", "Brookside Manor — roof replacement (not awarded)",
+                outcome=JOB_LOST,
+                outcome_note="Board went with another contractor, 28 August.")
+    s.buy(job, "Sunoco", "64.20", "Fuel, three site visits", days=38,
+          who="zmabry@addventuresinc.com")
+    s.buy(job, "Bergen Tool Rental", "180.00", "Lift, half day for the survey",
+          days=36, who="ttorres@addventuresinc.com")
+    s.buy(job, "Staples", "41.75", "Printing and binding, three proposal copies",
+          days=31, who="2015550147@mms.att.net", texted=True)
+    return job
+
+
+def job_269010(s: Seed) -> Job:
+    """The same again, smaller. There are always several of these."""
+    job = s.job("269010", "Fox Hollow — gutter replacement (not awarded)",
+                outcome=JOB_LOST, outcome_note="No decision; association shelved it.")
+    s.buy(job, "Sunoco", "38.90", "Fuel, measure-up", days=52,
+          who="malvarez@addventuresinc.com")
+    return job
+
+
 BUILDERS = (job_269001, job_269002, job_269003, job_269004,
-            job_269005, job_269006, job_269007, job_269008)
+            job_269005, job_269006, job_269007, job_269008,
+            job_269009, job_269010)
 
 
 # --- the cash flow report -------------------------------------------------

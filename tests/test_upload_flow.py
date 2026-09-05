@@ -1677,25 +1677,25 @@ def test_the_job_page_links_to_the_costing_report(client):
 
 # --- the front door shows all four programmes ------------------------------
 
-def test_the_home_page_offers_all_five_programmes(client):
+def test_the_home_page_offers_all_six_programmes(client):
     body = client.get("/").text
-    assert "Five programmes" in body
-    for heading in ("Invoices", "Subcontractors", "Checks", "Cash flow",
-                    "Job costing"):
+    assert "Six programmes" in body
+    for heading in ("Invoices", "Subcontractors", "Checks", "Receipts",
+                    "Cash flow", "Job costing"):
         assert heading in body
     for href in ('href="/incoming"', 'href="/sub-invoices"', 'href="/checks"',
-                 'href="/cashflow"', 'href="/jobs"'):
+                 'href="/purchases"', 'href="/cashflow"', 'href="/jobs"'):
         assert href in body
 
 
-def test_the_nav_is_six_places_and_a_way_out(client):
+def test_the_nav_is_one_place_per_programme_and_a_way_out(client):
     """Approvals, the Inbox and Vendors are drill-downs. Having them in the bar
-    made ten choices out of five programmes and an action."""
+    made ten choices out of the programmes and an action."""
     import re
     nav = re.search(r"<nav>(.*?)</nav>", client.get("/").text, re.S).group(1)
     links = re.findall(r'href="([^"]+)"', nav)
 
-    assert links == ["/", "/incoming", "/sub-invoices", "/checks",
+    assert links == ["/", "/incoming", "/sub-invoices", "/checks", "/purchases",
                      "/cashflow", "/jobs", "/upload", "/logout"]
     for gone in ("/approvals", "/vendors", "/inbox"):
         assert gone not in links

@@ -43,6 +43,28 @@ def reply_address(sender: str) -> str:
     return addresses[0] if addresses else ""
 
 
+# Carrier gateways that turn an email into a text message. A phone can send a
+# photograph to an email address on all three US networks, which is what makes
+# "just text the receipt in" work with no phone number, no provider and no
+# monthly bill - the picture arrives as an ordinary email with an attachment.
+#
+# It matters which way a document came in, because the answer goes back the
+# same way: a five-line email becomes a wall of texts on a job site.
+SMS_GATEWAYS = {
+    "txt.att.net", "mms.att.net",                 # AT&T
+    "vtext.com", "vzwpix.com",                    # Verizon
+    "tmomail.net",                                # T-Mobile
+    "msg.fi.google.com",                          # Google Fi
+    "email.uscc.net", "mms.uscc.net",             # US Cellular
+}
+
+
+def came_from_a_phone(sender: str) -> bool:
+    """Was this texted in rather than emailed?"""
+    address = reply_address(sender).lower()
+    return address.rsplit("@", 1)[-1] in SMS_GATEWAYS if "@" in address else False
+
+
 def _reply_subject(subject: str) -> str:
     subject = (subject or "").strip() or "your document"
     if re.match(r"^\s*re:", subject, re.I):
@@ -58,6 +80,7 @@ def compose_job_query(
     vendor: str = "",
     document_number: str = "",
     in_reply_to: str = "",
+    texting: bool = False,
 ) -> EmailMessage:
     """The question itself. Short, specific, and answerable in one line."""
     _, _, _, _, from_address = settings.smtp_settings()
@@ -79,6 +102,20 @@ def compose_job_query(
         msg["References"] = in_reply_to
     # Bounces and vacation replies should not be treated as an answer.
     msg["Auto-Submitted"] = "auto-generated"
+
+    if texting:
+        # This is going to arrive on a phone as a text, so it is one sentence.
+        # Everything the email version explains - that the document is safe,
+        # that replying keeps it attached - is true but unreadable split
+        # across six messages, and somebody standing in a lumber yard needs
+        # the question, not the reassurance.
+        msg.set_content(
+            f"{REPLY_SENTINEL}\n"
+            "\n"
+            f"Got the photo of {what}. Which job? Reply with just the number, "
+            "e.g. 260000\n"
+        )
+        return msg
 
     # The sentinel is the FIRST line, not the last. A reply quotes this whole
     # message beneath the sender's own words, so cutting a reply at the sentinel
@@ -135,7 +172,13 @@ def ask_for_job_number(document, *, vendor: str = "", document_number: str = "")
     Returns None when the question was not appropriate or not possible - not an
     error. Most documents arrive with a job number and never come near this.
     """
-    if not settings.ask_for_job_number:
+    # A receipt is always asked about, whatever the setting says. Every other
+    # document reaches us with a job number printed on it or a vendor who
+    # knows one; a till receipt says $84.12 and the time of day, and the only
+    # person who can say which roof it was for is the one who took the photo -
+    # who is, right now, still holding the phone.
+    always = getattr(document, "kind", "") == "receipt"
+    if not settings.ask_for_job_number and not always:
         return None
     if document.source != "email":
         return None                       # an uploader is standing right there
@@ -173,6 +216,7 @@ def ask_for_job_number(document, *, vendor: str = "", document_number: str = "")
         vendor=vendor,
         document_number=document_number,
         in_reply_to=document.email_message_id,
+        texting=came_from_a_phone(document.sender),
     )
     send(msg)
     return to_address

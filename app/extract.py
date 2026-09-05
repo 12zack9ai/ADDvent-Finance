@@ -21,7 +21,7 @@ from app.config import settings
 
 # Bumped whenever the prompt or schema changes, so stored extractions stay
 # traceable to how they were produced.
-PROMPT_VERSION = "2026-09-05.1"
+PROMPT_VERSION = "2026-09-05.2"
 
 _MEDIA_TYPES = {
     ".pdf": "application/pdf",
@@ -76,8 +76,8 @@ You are a transcriber, not an accountant. Follow these rules exactly:
    among the goods, ALSO include it as a normal line - do not remove it.
 
 6. DOC_TYPE: "quote" for quotes, estimates, proposals, and bids. "invoice" for
-   invoices and bills. "other" for statements, packing slips, credit memos, and
-   anything else.
+   invoices and bills. "receipt" for a till receipt (see 6b). "other" for
+   statements, packing slips, credit memos, and anything else.
 
 6a. "change_order" is for a document authorising EXTRA scope or cost on work
    already quoted. It refers back to existing work rather than pricing a job
@@ -95,6 +95,26 @@ You are a transcriber, not an accountant. Follow these rules exactly:
    bill, which is the more expensive mistake.
    TOTAL, for a change order, is the amount being ADDED - not the new
    contract value including the original.
+
+
+6b. "receipt" is a till receipt or card slip for something bought over the
+   counter: a hardware store, a lumber yard, a fuel station, a tool hire desk.
+   It is a photograph of a small piece of paper, usually crooked, often
+   creased, sometimes faded.
+   Tell it from an invoice by who was standing there. A receipt records a
+   purchase that has ALREADY been paid for - it shows a card type and last
+   four digits, "CASH TEND", "CHANGE DUE", an approval code, a register or
+   lane number, a cashier's name, a time of day. An invoice asks to be paid
+   later and carries terms, a due date and an account number.
+   A receipt almost never carries a job number, a PO or a customer account.
+   Do not invent one. Leave JOB_NUMBER_HINT empty rather than reaching for a
+   store number, a register number or a transaction reference - every one of
+   those is six digits often enough to be mistaken for a job.
+   VENDOR is the shop. DOCUMENT_NUMBER is the receipt or transaction number if
+   one is printed, otherwise empty.
+   LINES are what was bought, when they can be read. A faded thermal receipt
+   often cannot be, and that is fine: TOTAL is the number that matters and is
+   almost always legible even when the items are not.
 
 7. JOB_NUMBER_HINT: our job number, and ONLY our job number.
 
@@ -193,7 +213,7 @@ RECORD_TOOL = {
         "properties": {
             "doc_type": {
                 "type": "string",
-                "enum": ["quote", "invoice", "change_order", "other"],
+                "enum": ["quote", "invoice", "change_order", "receipt", "other"],
             },
             "vendor": {"type": "string", "description": "Company issuing the document"},
             "document_number": {"type": "string", "description": "Invoice or quote number"},

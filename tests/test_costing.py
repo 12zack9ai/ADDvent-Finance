@@ -18,7 +18,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app import costing  # noqa: E402
-from app.models import (  # noqa: E402
+from app.models import (
+    Purchase,  # noqa: E402
     APPROVAL_APPROVED,
     APPROVAL_HELD,
     APPROVAL_PAID,
@@ -42,15 +43,22 @@ def _next() -> int:
     return _ids["n"]
 
 
-def job(invoices=(), checks=(), charged=None, labour=None, contracts=()):
+def job(invoices=(), checks=(), charged=None, labour=None, contracts=(),
+        purchases=(), outcome="active"):
     j = Job(job_number="260000", name="Daul Gardens")
     j.invoices = list(invoices)
     j.check_requests = list(checks)
     j.quotes = list(contracts)
     j.change_orders = []
+    j.purchases = list(purchases)
+    j.outcome = outcome
     j.contract_amount = D(charged) if charged is not None else None
     j.labour_cost = D(labour) if labour is not None else None
     return j
+
+
+def purchase(total="84.12", merchant="Home Depot"):
+    return Purchase(job_id=1, merchant=merchant, total=D(total))
 
 
 def invoice(total="10000.00", status=APPROVAL_APPROVED, vendor="New Castle"):
@@ -193,19 +201,42 @@ def test_labour_is_part_of_the_cost_when_it_is_given():
     assert c.margin == D("26000.00")
 
 
-def test_uncaptured_receipts_are_named_rather_than_omitted():
-    """The category exists and is empty and says so. Leaving it out entirely
-    would let the report read as complete when it is not."""
+def test_a_job_with_no_receipts_says_so_rather_than_omitting_the_category():
+    """Leaving it out entirely would let the report read as complete when
+    nobody has sent a receipt in."""
     c = costing.build(job(invoices=[invoice("10000.00")],
                           charged="50000.00", labour="0"))
-    purchases = c.bucket("purchases")
+    bucket = c.bucket("purchases")
 
-    assert purchases is not None
-    assert purchases.agreed == D("0")
-    assert "Not captured yet" in purchases.note
+    assert bucket is not None and bucket.agreed == D("0")
     assert not c.purchases_captured
     assert any("receipts" in gap for gap in c.gaps)
     assert not c.is_complete
+
+
+def test_receipts_are_cost_the_moment_they_arrive():
+    """Paid at the till before anybody here saw them. Nothing to approve and
+    nothing pending - every one of them is cost."""
+    c = costing.build(job(invoices=[invoice("10000.00")], charged="50000.00",
+                          labour="0", purchases=[purchase("84.12"),
+                                                 purchase("212.44", "Lowe's")]))
+    bucket = c.bucket("purchases")
+
+    assert bucket.agreed == D("296.56")
+    assert bucket.pending == D("0")
+    assert bucket.count == 2
+    assert c.cost == D("10296.56")
+    assert c.purchases_captured
+    assert not any("receipts" in gap for gap in c.gaps)
+
+
+def test_a_job_we_did_not_get_says_the_spend_is_a_loss():
+    """Zack: "sometimes we spend money on jobs we don't get so this will turn
+    out to be a loss." No document can say that - only the outcome can."""
+    c = costing.build(job(purchases=[purchase("340.00")], outcome="lost",
+                          labour="0"))
+    assert c.cost == D("340.00")
+    assert any("did not get this job" in gap for gap in c.gaps)
 
 
 def test_an_empty_job_costs_nothing_and_says_everything_is_missing():

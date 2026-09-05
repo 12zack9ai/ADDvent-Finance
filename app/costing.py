@@ -53,6 +53,7 @@ from app.models import (
     CHECK_APPROVED,
     CHECK_PAID,
     CHECK_REQUESTED,
+    JOB_LOST,
     Job,
 )
 
@@ -172,8 +173,8 @@ class Costing:
             )
         if not self.purchases_captured:
             missing.append(
-                "receipts and card purchases are not captured yet, so anything "
-                "bought over the counter is missing"
+                "no receipts have come in for this job, so anything bought "
+                "over the counter is missing"
             )
         if not self.labour_given:
             missing.append(
@@ -184,6 +185,11 @@ class Costing:
             missing.append(
                 "our crew's cost was entered without the hours behind it, so "
                 "nobody can check the rate"
+            )
+        if self.job.outcome == JOB_LOST:
+            missing.append(
+                "we did not get this job, so everything spent on it is a loss "
+                "rather than a cost"
             )
         if self.pending > ZERO:
             missing.append(
@@ -233,15 +239,20 @@ def build(job: Job) -> Costing:
             written.count += 1
     report.buckets.append(written)
 
-    # Card swipes, counter purchases, fuel. Nothing captures these yet, so the
-    # bucket exists and is empty and says so - which is the honest shape. A
-    # report that simply omitted the category would read as complete.
-    purchases = Bucket(
-        "purchases", "Receipts and card purchases",
-        note="Not captured yet — anything bought over the counter is missing.",
-    )
+    # Card swipes, counter purchases, fuel - the receipt department. Already
+    # paid at the till before anybody here saw them, so there is nothing
+    # pending and nothing to approve: every one of them is cost.
+    purchases = Bucket("purchases", "Receipts and card purchases")
+    for purchase in job.purchases:
+        purchases.agreed += purchase.total or ZERO
+        purchases.count += 1
+    if not purchases.count:
+        purchases.note = "None on this job."
     report.buckets.append(purchases)
-    report.purchases_captured = False
+    # Captured the moment anything has come in for this job. It is not a claim
+    # that every receipt was sent - nobody can know that - only that this
+    # category is no longer structurally missing.
+    report.purchases_captured = bool(purchases.count)
 
     report.labour = job.labour_cost or ZERO
     report.labour_given = job.labour_cost is not None

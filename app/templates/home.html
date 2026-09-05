@@ -9,7 +9,7 @@
 <div class="pagehead">
   <div>
     <h1>Finance</h1>
-    <p class="sub">Five programmes, all running on the same documents.</p>
+    <p class="sub">Six programmes, all running on the same documents.</p>
   </div>
 </div>
 
@@ -87,6 +87,28 @@
       {% endif %}
     {% else %}
       <div class="prog-empty">No report yet.</div>
+    {% endif %}
+    <div class="prog-go">Open &rarr;</div>
+  </a>
+
+  <a class="prog" href="/purchases">
+    <div class="prog-head"><h2>Receipts</h2></div>
+    <p class="prog-what">Everything bought over the counter, by job.</p>
+    {% if receipts_count %}
+      <div class="prog-stats">
+        <div><strong>{{ receipts_total | money }}</strong><span>spent</span></div>
+        <div><strong>{{ receipts_folders }}</strong><span>job folders</span></div>
+        <div class="{{ 'is-bad' if receipts_lost > 0 }}">
+          <strong>{{ receipts_lost | money }}</strong><span>on work we lost</span></div>
+      </div>
+      {% if receipts_waiting %}
+        <div class="prog-note">
+          {{ receipts_waiting }} receipt{{ "" if receipts_waiting == 1 else "s" }}
+          waiting on somebody to say which job.
+        </div>
+      {% endif %}
+    {% else %}
+      <div class="prog-empty">No receipts yet.</div>
     {% endif %}
     <div class="prog-go">Open &rarr;</div>
   </a>

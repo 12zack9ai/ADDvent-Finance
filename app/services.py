@@ -47,6 +47,10 @@ from app.models import (
     Invoice,
     InvoiceLine,
     Job,
+    PURCHASE_EMAIL,
+    PURCHASE_TEXT,
+    PURCHASE_UPLOAD,
+    Purchase,
     Quote,
     QuoteLine,
     utcnow,
@@ -295,6 +299,54 @@ def create_change_order(
     session.add(change_order)
     session.flush()
     return change_order
+
+
+def create_purchase(
+    session: Session, job: Job, document: Document, result: ExtractionResult
+) -> Purchase:
+    """File something bought over the counter against a job.
+
+    No comparison and no approval. There is nothing to check it against - it
+    was paid at the till before anybody here saw it, and holding it up would
+    be holding up money that has already gone. What this is for is the other
+    half of the question: what did the job actually cost.
+    """
+    payload = result.payload
+    total = to_decimal(payload.get("total")) or ZERO
+    purchase = Purchase(
+        job_id=job.id,
+        document_id=document.id,
+        merchant=(payload.get("vendor") or "").strip(),
+        purchased_on=_parse_date(payload.get("document_date")),
+        subtotal=to_decimal(payload.get("subtotal")),
+        tax=to_decimal(payload.get("tax")),
+        total=total,
+        description=_describe(result),
+        arrived_by=(PURCHASE_TEXT if mail_send.came_from_a_phone(document.sender)
+                    else PURCHASE_EMAIL if document.source == "email"
+                    else PURCHASE_UPLOAD),
+        bought_by=mail_send.reply_address(document.sender),
+    )
+    session.add(purchase)
+    session.flush()
+    return purchase
+
+
+def _describe(result: ExtractionResult) -> str:
+    """What was bought, in a few words, from whatever the lines say.
+
+    A faded thermal receipt often has no readable lines at all, and an empty
+    description is the honest answer then - inventing "materials" would be a
+    guess dressed up as a record.
+    """
+    lines = result.payload.get("lines") or []
+    names = [str(line.get("description") or "").strip() for line in lines]
+    names = [name for name in names if name]
+    if not names:
+        return ""
+    if len(names) <= 3:
+        return ", ".join(names)
+    return f"{', '.join(names[:3])} and {len(names) - 3} more"
 
 
 def create_invoice(
@@ -615,7 +667,7 @@ def ingest_file(
     if result.doc_type in ("invoice", "change_order"):
         _screen(session, document, result)
 
-    if result.doc_type not in ("quote", "invoice", "change_order"):
+    if result.doc_type not in ("quote", "invoice", "change_order", "receipt"):
         document.status = ST_OTHER
         document.error = "Not a quote or invoice - filed without comparison."
         session.flush()
@@ -648,7 +700,10 @@ def ingest_file(
     job = get_or_create_job(session, job_number)
     document.job_id = job.id
 
-    if result.doc_type == "change_order":
+    if result.doc_type == "receipt":
+        create_purchase(session, job, document, result)
+        document.status = ST_READY
+    elif result.doc_type == "change_order":
         create_change_order(session, job, document, result)
         document.status = ST_NEEDS_APPROVAL
         recompare_job(session, job)

@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block title %}Receipts · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>Receipts</h1>
+    <p class="sub">
+      Everything bought over the counter, in a folder for the job it was bought
+      for.
+    </p>
+  </div>
+  <div><a class="btn ghost" href="/upload">Upload a receipt</a></div>
+</div>
+
+<div class="scorecard">
+  <div class="score">
+    <span class="score-k">Spent at the counter</span>
+    <span class="score-v">{{ s.total | money }}</span>
+    <span class="score-n">{{ s.count }} receipt{{ "" if s.count == 1 else "s" }}
+      across {{ s.folders|length }} job{{ "" if s.folders|length == 1 else "s" }}</span>
+  </div>
+  <div class="score">
+    <span class="score-k">On live work</span>
+    <span class="score-v">{{ s.working_total | money }}</span>
+    <span class="score-n">cost against a job we have</span>
+  </div>
+  <div class="score{{ ' bad' if s.lost_total > 0 }}">
+    <span class="score-k">On work we didn't get</span>
+    <span class="score-v">{{ s.lost_total | money }}</span>
+    <span class="score-n">
+      {% if s.lost %}{{ s.lost|length }} job{{ "" if s.lost|length == 1 else "s" }} —
+        the cost of bidding{% else %}nothing written off{% endif %}</span>
+  </div>
+  <div class="score{{ ' bad' if waiting }}">
+    <span class="score-k">Waiting on an answer</span>
+    <span class="score-v">{{ waiting|length }}</span>
+    <span class="score-n">
+      {% if waiting %}nobody has said which job{% else %}every receipt is filed{% endif %}</span>
+  </div>
+</div>
+
+{% if waiting %}
+<div class="panel" style="border-left:5px solid var(--over-line)">
+  <h2 style="margin-bottom:6px;color:var(--over-ink)">These have no job on them</h2>
+  <p class="muted" style="margin-top:0">
+    A receipt is the one thing that never arrives with a job number — it says
+    the amount and the time of day. We asked whoever sent it; until they
+    answer, it waits here.
+  </p>
+  <table class="grid">
+    <thead><tr><th>Receipt</th><th>From</th><th>Asked</th>
+      <th class="r" style="padding-right:20px">File it</th></tr></thead>
+    <tbody>
+      {% for doc in waiting %}
+      <tr>
+        <td><a href="/document/{{ doc.id }}/file" target="_blank">{{ doc.filename }}</a>
+          <div class="muted">{{ doc.received_at | ago }}</div></td>
+        <td class="muted">{{ doc.sender or "uploaded" }}</td>
+        <td class="muted">
+          {% if doc.job_query_sent_at %}{{ doc.job_query_sent_at | ago }},
+            {{ doc.job_query_to }}{% else %}not asked{% endif %}</td>
+        <td class="r" style="padding-right:20px">
+          <form method="post" action="/document/{{ doc.id }}/assign" class="checkform">
+            <input type="text" name="job_number" placeholder="260014" required
+                   style="width:120px" autocomplete="off">
+            <button class="btn sm" type="submit">File</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if not s.folders %}
+  <div class="panel">
+    <div class="empty">
+      <div class="big">No receipts yet.</div>
+      Photograph it and send it in — email it to the finance mailbox, or text
+      the picture to it. We answer asking which job, and one number files it.
+    </div>
+  </div>
+{% else %}
+
+<div class="folders">
+  {% for f in s.folders %}
+  <a class="folder{{ " attn" if f.is_loss }}" href="/job/{{ f.job.job_number }}">
+    <div class="folder-top">
+      <span class="folder-no">{{ f.job.job_number }}</span>
+      {% if f.is_loss %}<span class="folder-dot"></span>{% endif %}
+    </div>
+    <div class="folder-name">{{ f.job.name or "No job name" }}</div>
+    <div class="folder-meta">
+      {{ f.count }} receipt{{ "" if f.count == 1 else "s" }} ·
+      <strong>{{ f.total | money }}</strong>
+    </div>
+    <div class="folder-tags">
+      {% if f.is_loss %}
+        <span class="chip c-over">we didn't get it</span>
+      {% endif %}
+      {% if f.merchants %}
+        <span class="chip c-none">{{ f.merchants[0] }}{% if f.merchants|length > 1 %}
+          +{{ f.merchants|length - 1 }}{% endif %}</span>
+      {% endif %}
+    </div>
+  </a>
+  {% endfor %}
+</div>
+
+<p class="muted" style="margin-top:14px">
+  Open a folder to see that job's receipts alongside everything else on it.
+  {% if s.lost %}
+    The marked ones are jobs we did not get: that spend is a loss, not a cost,
+    and it is the only money here with nothing on the other side of it.
+  {% endif %}
+</p>
+{% endif %}
+{% endblock %}

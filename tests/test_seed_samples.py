@@ -53,11 +53,11 @@ def job_of(session, number: str) -> Job:
 
 # --- it is there, and it is in the reserved band --------------------------
 
-def test_seeding_produces_eight_jobs_and_a_forecast(session):
+def test_seeding_produces_ten_jobs_and_a_forecast(session):
     """Real jobs run up from 260000, so the 269xxx band cannot collide with
     one - which is also what makes removal safe."""
     jobs = seed_samples.sample_jobs(session)
-    assert len(jobs) == 8
+    assert len(jobs) == 10
     assert all(j.job_number.startswith("269") for j in jobs)
     assert session.scalar(select(CashReport)) is not None
 
@@ -201,6 +201,21 @@ def test_no_dollar_reaches_the_forecast_twice(session):
     from_invoices = [p for p in payables if p.source == "This system"
                      and p.category != "Permits, deposits and other checks"]
     assert len(from_invoices) == len(live)
+
+
+def test_the_receipt_department_has_the_most_folders(session):
+    """Zack: "this one will have more folders than all." Counter spend touches
+    every job, including the two nobody won."""
+    from app import purchases
+
+    jobs = seed_samples.sample_jobs(session)
+    s = purchases.build(jobs)
+
+    assert len(s.folders) > len([j for j in jobs if j.subcontracts])
+    assert s.lost_total > 0
+    assert {f.job.job_number for f in s.lost} == {"269009", "269010"}
+    # And the lost spend is not counted as cost on live work.
+    assert s.working_total == s.total - s.lost_total
 
 
 # --- and it comes back out ------------------------------------------------

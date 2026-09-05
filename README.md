@@ -142,6 +142,26 @@ Hours **and** cost, because a cost with no hours behind it cannot be checked by
 anybody. Blank stays a real answer: on a fully subbed job there is no crew
 figure to give, and the report is complete without one.
 
+## Receipts
+
+The sixth department, and the one with the most folders. Photograph the
+receipt and send it in — **email it to the finance mailbox, or text the
+picture to it.** A phone can send a photo to an email address on AT&T, Verizon
+and T-Mobile, so texting works with no phone number, no provider and no
+monthly bill: the picture arrives as an ordinary email with an attachment.
+
+A receipt is the one document that never carries a job number — it says
+`$84.12` and the time of day. So it is the one document we **always** answer,
+asking which job, whatever `ASK_FOR_JOB_NUMBER` is set to. One number in the
+reply files it. When it came in from a phone the answer is a single sentence,
+because a five-line email is a wall of texts on a job site.
+
+**Some of it is a loss.** A job number is assigned when we start chasing the
+work, and the fuel and the lift rental get spent whether or not the board picks
+us. `Job.outcome` is the only thing in this system that can tell cost from
+loss — no invoice, quote or contract knows — so it is a person's answer, set on
+the job page, and the receipt department totals the two separately.
+
 ## QuickBooks Desktop
 
 QuickBooks Desktop has no cloud API — none. Intuit's pages that read like

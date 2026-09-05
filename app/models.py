@@ -63,6 +63,24 @@ def utcnow() -> datetime:
 BILLING_QUICKBOOKS = "quickbooks"
 BILLING_MANUAL = "manual"
 
+# Did we get the work? Zack, on the receipt department: *"sometimes we spend
+# money on jobs we don't get so this will turn out to be a loss."*
+#
+# That is the one thing a job number alone cannot say. A number is assigned
+# when we start chasing the work, and the fuel, the ladder rental and the
+# sample shingles get spent whether or not the board picks us. On a job we
+# won that spend is cost; on one we lost it is a loss, and nothing else in
+# this system can tell the two apart.
+JOB_ACTIVE = "active"
+JOB_WON = "won"
+JOB_LOST = "lost"
+JOB_OUTCOMES = (
+    (JOB_ACTIVE, "Live"),
+    (JOB_WON, "Won and finished"),
+    (JOB_LOST, "We did not get it"),
+)
+JOB_OUTCOME_LABELS = dict(JOB_OUTCOMES)
+
 
 class Job(Base):
     __tablename__ = "job"
@@ -106,6 +124,13 @@ class Job(Base):
     labour_hours: Mapped[Optional[Decimal]] = mapped_column(Money, nullable=True)
     costing_note: Mapped[str] = mapped_column(Text, default="")
 
+    # Live until somebody says otherwise. Defaulting to "lost" would turn
+    # every job nobody has touched into a loss on the front page.
+    outcome: Mapped[str] = mapped_column(
+        String(16), default=JOB_ACTIVE, server_default=JOB_ACTIVE, index=True
+    )
+    outcome_note: Mapped[str] = mapped_column(Text, default="")
+
     quote_chase_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     quote_chase_to: Mapped[str] = mapped_column(String(255), default="")
     # How many times anyone has been asked for the quotes on this job. The
@@ -113,6 +138,14 @@ class Job(Base):
     # timestamp instead, so a person can chase again tomorrow but not twice in
     # an afternoon.
     quote_chase_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+    @property
+    def is_lost(self) -> bool:
+        return self.outcome == JOB_LOST
+
+    @property
+    def outcome_label(self) -> str:
+        return JOB_OUTCOME_LABELS.get(self.outcome, self.outcome)
 
     @property
     def billed(self) -> Optional[Decimal]:
@@ -153,6 +186,9 @@ class Job(Base):
         back_populates="job", cascade="all, delete-orphan"
     )
     check_requests: Mapped[list["CheckRequest"]] = relationship(
+        back_populates="job", cascade="all, delete-orphan"
+    )
+    purchases: Mapped[list["Purchase"]] = relationship(
         back_populates="job", cascade="all, delete-orphan"
     )
 
@@ -749,6 +785,66 @@ class ChangeOrder(Base):
 
     job: Mapped["Job"] = relationship(back_populates="change_orders")
     document: Mapped[Optional["Document"]] = relationship()
+
+
+# How the photograph got here. Worth recording, because it changes how we
+# answer: a reply to a phone that texted the picture in becomes a text message
+# itself, and a five-line email is a wall of texts on a job site.
+PURCHASE_EMAIL = "email"
+PURCHASE_TEXT = "text"
+PURCHASE_UPLOAD = "upload"
+
+
+class Purchase(Base):
+    """Something bought over the counter, on a card or in cash.
+
+    The sixth department, and the one with the most folders in it. Zack:
+    *"we need to implement taking pictures and emailing every receipt. Or
+    texting. You respond every time what job number. And you add it to a job
+    folder in this department. This one will have more folders than all."*
+
+    Everything else in this system arrives with a job number printed on it, or
+    at least a vendor who knows one. A receipt from a hardware store has
+    neither - it says $84.12 and the time of day. So the job number can only
+    come from the person holding the phone, which is why this is the one
+    document type we always ask about rather than only when we cannot work it
+    out.
+
+    Deliberately not called a Receipt. `Receipt` in this codebase already means
+    somebody confirming material arrived on site, and two things called the
+    same thing in a system about money is how the wrong number gets paid.
+    """
+
+    __tablename__ = "purchase"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("job.id"), index=True)
+    document_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("document.id"), nullable=True
+    )
+
+    merchant: Mapped[str] = mapped_column(String(255), default="", index=True)
+    purchased_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    subtotal: Mapped[Optional[Decimal]] = mapped_column(Money, nullable=True)
+    tax: Mapped[Optional[Decimal]] = mapped_column(Money, nullable=True)
+    total: Mapped[Decimal] = mapped_column(Money, default=Decimal("0"))
+
+    # "Visa 4412", "cash", "Zack's card". Free text on purpose: this is read
+    # off a paper receipt, and forcing it into a list would mean discarding
+    # what the receipt actually said.
+    paid_with: Mapped[str] = mapped_column(String(128), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    bought_by: Mapped[str] = mapped_column(String(128), default="")
+
+    arrived_by: Mapped[str] = mapped_column(String(16), default=PURCHASE_UPLOAD)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+    job: Mapped["Job"] = relationship(back_populates="purchases")
+    document: Mapped[Optional["Document"]] = relationship()
+
+    @property
+    def what(self) -> str:
+        return self.description or self.merchant or "Purchase"
 
 
 class Approval(Base):

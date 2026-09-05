@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app import (
     accounting, auth, cashflow, cashflow_pdf, checks, costing, fmt,
-    invoice_pdf, jobnimbus, jobsummary, scheduler, subs, trust,
+    invoice_pdf, jobnimbus, jobsummary, purchases, scheduler, subs, trust,
 )
 from app.config import settings
 from app.db import get_session, init_db, to_decimal
@@ -49,6 +49,7 @@ from app.models import (
     CHECK_LABELS,
     CHECK_OTHER,
     CHECK_PURPOSES,
+    JOB_OUTCOMES,
     CHECK_PURPOSE_LABELS,
     CheckRequest,
     CO_APPROVED,
@@ -403,6 +404,17 @@ def home(request: Request, session: Session = Depends(get_session)):
     sub_positions = [p for job in sub_jobs for p in subs.positions(job)]
     subs_over = [p for p in sub_positions if p.overage > ZERO]
 
+    # Receipts. The department with the most folders, because counter spend
+    # touches every job - including the ones that never became work.
+    receipt_jobs = session.scalars(
+        select(Job).options(selectinload(Job.purchases))
+    ).all()
+    receipts = purchases.build(receipt_jobs)
+    receipts_waiting = session.scalar(
+        select(func.count(Document.id))
+        .where(Document.kind == "receipt", Document.job_id.is_(None))
+    ) or 0
+
     # Job costing. Only jobs somebody has priced can show a margin, and saying
     # how many cannot is more useful than averaging the ones that can.
     costed = session.scalars(
@@ -442,6 +454,11 @@ def home(request: Request, session: Session = Depends(get_session)):
         subs_over=subs_over,
         subs_over_total=sum((p.overage for p in subs_over), ZERO),
         checks_paid=Decimal(checks_paid) if checks_paid else ZERO,
+        receipts_total=receipts.total,
+        receipts_count=receipts.count,
+        receipts_folders=len(receipts.folders),
+        receipts_lost=receipts.lost_total,
+        receipts_waiting=receipts_waiting,
         costed_count=len(reports),
         uncosted_count=jobs - len(reports),
         costed_revenue=costed_revenue,
@@ -516,6 +533,7 @@ def job_detail(job_number: str, request: Request, session: Session = Depends(get
         jobnimbus_on=jobnimbus.configured(),
         subs=subs.positions(job),
         require_receipt=settings.require_receipt,
+        outcomes=JOB_OUTCOMES,
     ))
 
 
@@ -1127,6 +1145,53 @@ def _check_queue(session: Session) -> list:
         .options(selectinload(CheckRequest.job))
     ).all()
     return checks.queue(requests, _subcontract_jobs(session))
+
+
+@app.get("/purchases", response_class=HTMLResponse)
+def purchase_folders(request: Request, session: Session = Depends(get_session)):
+    """Counter spend, one folder per job. The department with the most."""
+    jobs = session.scalars(
+        select(Job).options(selectinload(Job.purchases))
+    ).all()
+    waiting = session.scalars(
+        select(Document)
+        .where(Document.kind == "receipt", Document.job_id.is_(None))
+        .order_by(Document.received_at.desc())
+    ).all()
+
+    return templates.TemplateResponse(request, "purchases.html", _ctx(
+        request, session,
+        s=purchases.build(jobs),
+        waiting=list(waiting),
+        outcomes=JOB_OUTCOMES,
+    ))
+
+
+@app.post("/job/{job_number}/outcome")
+def set_job_outcome(
+    job_number: str,
+    outcome: str = Form(...),
+    note: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    """Did we get the work? The one thing no document can say.
+
+    It decides whether everything bought on this job is cost or loss, so it is
+    a person's answer and nothing here guesses at it.
+    """
+    job = session.scalar(
+        select(Job).where(Job.job_number == normalize_job_number(job_number))
+    )
+    if job is None:
+        return _redirect("/jobs", err=f"No job {job_number}.")
+    if outcome not in dict(JOB_OUTCOMES):
+        return _redirect(f"/job/{job.job_number}", err="Unknown outcome.")
+
+    job.outcome = outcome
+    job.outcome_note = note.strip()
+    session.commit()
+    return _redirect(f"/job/{job.job_number}",
+                     ok=f"Job {job.job_number}: {job.outcome_label.lower()}.")
 
 
 @app.get("/checks", response_class=HTMLResponse)
