@@ -142,6 +142,35 @@ Hours **and** cost, because a cost with no hours behind it cannot be checked by
 anybody. Blank stays a real answer: on a fully subbed job there is no crew
 figure to give, and the report is complete without one.
 
+## QuickBooks Desktop
+
+QuickBooks Desktop has no cloud API — none. Intuit's pages that read like
+endpoints are qbXML *message schemas* for a Windows COM SDK. The only supported
+way in is the **QuickBooks Web Connector**, which inverts control completely:
+it runs on a Windows machine beside the company file and **calls us** on a
+schedule. We never call QuickBooks.
+
+Everything for that is built and switched off, waiting on the machine:
+
+| | |
+|---|---|
+| `app/quickbooks/protocol.py` | The eight callbacks as a state machine. No HTTP in it, so the whole conversation is testable. |
+| `app/quickbooks/soap.py` | SOAP envelopes and the WSDL the connector fetches first. |
+| `app/quickbooks/qbxml.py` | Building requests, reading responses. Money straight into `Decimal`. |
+| `app/quickbooks/sync.py` | What to ask for, in order, and where the answers go. |
+| `app/quickbooks/mirror.py` | The read model, plus the outbox for writes. |
+| `app/quickbooks/qwc.py` | The `.qwc` file somebody carries to the Windows machine. |
+
+Reads customers, jobs and customer invoices — incrementally, never a full pull.
+That is where **billed** and **collected** on the job costing report come from,
+so nobody types them again. Writes nothing until `QBWC_WRITE_BACK` is on.
+
+`tests/test_quickbooks.py` drives all eight callbacks over real SOAP with
+canned qbXML, so everything up to the wire is proven without a Windows machine.
+What it cannot prove is whether QuickBooks accepts the requests.
+
+**Setup instructions for whoever runs that machine: `docs/QUICKBOOKS-SETUP.md`.**
+
 ## Copying the database
 
 SQLite runs in WAL mode, so the data lives in **three** files: `finance.db`,

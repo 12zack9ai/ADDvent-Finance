@@ -377,32 +377,36 @@ class JobBilling:
 
 
 class QuickBooksJobBilling:
-    """Billed and collected per job, from QuickBooks. Not implemented yet.
+    """Billed and collected per job, read from what QuickBooks last told us.
 
-    Where this plugs in when the connector exists, and what it will ask for,
-    written down now so the shape is not guessed at later:
+    Kept here because this is where every other accounting source lives, but
+    it does no work of its own: `app.quickbooks.sync` owns the mirror and the
+    arithmetic, and this is the door the rest of the application knocks on.
 
-      * A job is a **sub-customer** in QuickBooks - the `Customer:Job`
-        hierarchy - so `Job.qb_customer_list_id` is the join, not the job
-        number. Matching on our six-digit number would depend on somebody
-        having typed it into the job name.
-      * **Billed** is the sum of `InvoiceQuery` for that Customer:Job.
-      * **Collected** is `ReceivePaymentQuery` applied to those invoices, not
-        the invoices' own paid flags - a partial payment is the normal case on
-        a progress-billed roof and the flag cannot express one.
-
-    Deliberately raises rather than returning zeroes. A costing report that
-    silently reported $0 billed on a job that has been invoiced twice would be
-    worse than one that says it does not know.
+    Never live. QuickBooks Desktop cannot be asked a question - the Web
+    Connector polls us - so the honest thing this can return is what the last
+    poll brought back, with the time it arrived attached so a page can say how
+    old it is instead of implying it is current.
     """
 
-    name = "QuickBooks (live)"
+    name = "QuickBooks (via the Web Connector)"
 
-    def for_job(self, job) -> JobBilling:
-        raise NotImplementedError(
-            "QuickBooks is not connected yet, so billed and collected cannot "
-            "be read. Enter them on the job costing page in the meantime."
-        )
+    def __init__(self, session: Session):
+        self.session = session
+
+    def for_job(self, job) -> Optional[JobBilling]:
+        """None means QuickBooks has never been asked about this job.
+
+        Which is a different answer from being asked and told zero, and the
+        costing report says which. Returning zeroes for a job that has been
+        invoiced twice would be worse than saying we do not know.
+        """
+        from app.quickbooks import sync
+
+        found = sync.billing_for(self.session, job)
+        if found is None or found.invoices == 0:
+            return None
+        return JobBilling(billed=found.billed, collected=found.collected)
 
 
 def _as_date(value) -> Optional[date]:

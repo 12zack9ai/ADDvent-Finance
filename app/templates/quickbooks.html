@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}QuickBooks · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>QuickBooks</h1>
+    <p class="sub">
+      Where what we billed and what we collected come from — so nobody types
+      them again.
+    </p>
+  </div>
+  <div><a class="btn ghost" href="/quickbooks/qwc">Download the .qwc file</a></div>
+</div>
+
+<div class="scorecard">
+  <div class="score{{ ' bad' if not ready }}">
+    <span class="score-k">Connection</span>
+    <span class="score-v">{% if ready %}Set up{% else %}Not yet{% endif %}</span>
+    <span class="score-n">
+      {% if ready %}waiting for the Web Connector to call
+      {% elif not enabled %}QUICKBOOKS_ENABLED is off
+      {% else %}no QBWC_PASSWORD set{% endif %}</span>
+  </div>
+  <div class="score">
+    <span class="score-k">Jobs matched</span>
+    <span class="score-v">{{ linked }}</span>
+    <span class="score-n">of {{ customers }} QuickBooks customers and jobs</span>
+  </div>
+  <div class="score">
+    <span class="score-k">Invoices read</span>
+    <span class="score-v">{{ invoices }}</span>
+    <span class="score-n">customer invoices in the mirror</span>
+  </div>
+  <div class="score">
+    <span class="score-k">Waiting to write</span>
+    <span class="score-v">{{ queued }}</span>
+    <span class="score-n">
+      {% if not write_back %}write-back is off{% else %}bills queued for QuickBooks{% endif %}</span>
+  </div>
+</div>
+
+{% if not ready %}
+<div class="panel" style="border-left:5px solid var(--ok-line);background:var(--warn-bg)">
+  <h2 style="margin-bottom:6px;color:var(--ok-ink)">Nothing will happen until this is set up</h2>
+  <p class="muted" style="margin-top:0">
+    QuickBooks Desktop has no cloud API — none. It cannot be reached over the
+    internet, by us or by anybody else. The only supported way in is the
+    <strong>QuickBooks Web Connector</strong>: a small Intuit program that runs
+    on a Windows machine beside the company file and calls <em>this</em> site
+    on a schedule. Everything below is already built and waiting for it.
+  </p>
+  <ol style="margin:0;line-height:1.7">
+    <li>Set <code>QBWC_PASSWORD</code> and <code>QUICKBOOKS_ENABLED=true</code>.</li>
+    <li>Download the <a href="/quickbooks/qwc">.qwc file</a> and open it on the
+      Windows machine that can see the company file.</li>
+    <li>An administrator approves the connection once, inside QuickBooks.</li>
+  </ol>
+  <p class="muted" style="margin-bottom:0">
+    The full instructions, for whoever runs that machine, are in
+    <code>docs/QUICKBOOKS-SETUP.md</code>.
+  </p>
+</div>
+{% endif %}
+
+{% if qwc_problems %}
+<div class="panel" style="border-left:5px solid var(--over-line)">
+  <h2 style="margin-bottom:6px;color:var(--over-ink)">Read this before importing the file</h2>
+  <ul style="margin:0;line-height:1.6">
+    {% for problem in qwc_problems %}<li>{{ problem }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2>What it is set to do</h2>
+  <table class="grid">
+    <tbody>
+      <tr><td><strong>Address the connector polls</strong></td>
+        <td class="mono">{{ base_url }}/qbwc</td></tr>
+      <tr><td><strong>Username it signs in with</strong></td>
+        <td class="mono">{{ username }}</td></tr>
+      <tr><td><strong>Password</strong></td>
+        <td>{% if has_password %}set{% else %}<span class="neg">not set</span>{% endif %}</td></tr>
+      <tr><td><strong>How often</strong></td>
+        <td>every {{ minutes }} minutes</td></tr>
+      <tr><td><strong>qbXML version</strong></td>
+        <td class="mono">{{ qbxml_version }}
+          <span class="muted">— asked for, or lower if the file is older</span></td></tr>
+      <tr><td><strong>Writing bills back</strong></td>
+        <td>{% if write_back %}on{% else %}off — reads only{% endif %}</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="panel">
+  <h2>What it reads</h2>
+  <table class="grid">
+    <thead><tr><th>What</th><th>Last run</th><th class="r">Records</th><th>Result</th></tr></thead>
+    <tbody>
+      {% for key, label in [("company", "Which company file"),
+                            ("customers", "Customers and jobs"),
+                            ("invoices", "Customer invoices")] %}
+      {% set state = states.get(key) %}
+      <tr>
+        <td><strong>{{ label }}</strong></td>
+        <td class="muted">{% if state and state.last_run_at %}{{ state.last_run_at | ago }}
+          {% else %}never{% endif %}</td>
+        <td class="r">{{ state.rows if state else 0 }}</td>
+        <td>
+          {% if not state or not state.last_status %}<span class="chip c-none">not yet</span>
+          {% elif state.last_status == "ok" %}<span class="chip c-ok">fine</span>
+          {% else %}<span class="chip c-over">{{ state.last_error[:80] }}</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if sessions %}
+<div class="panel">
+  <h2>Recent calls</h2>
+  <table class="grid">
+    <thead><tr><th>Started</th><th>Company file</th><th class="r">Requests</th>
+      <th class="r">Records</th><th>How it went</th></tr></thead>
+    <tbody>
+      {% for s in sessions %}
+      <tr>
+        <td class="muted">{{ s.started_at | ago }}</td>
+        <td>{{ s.company_file or "—" }}</td>
+        <td class="r">{{ s.requests_sent }}</td>
+        <td class="r">{{ s.rows_seen }}</td>
+        <td>{% if s.last_error %}<span class="chip c-over">{{ s.last_error[:70] }}</span>
+          {% elif s.finished_at %}<span class="chip c-ok">finished</span>
+          {% else %}<span class="chip c-info">{{ s.percent }}%</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% if unlinked %}
+<div class="panel">
+  <h2>QuickBooks jobs we could not match</h2>
+  <p class="muted" style="margin-top:0">
+    Matched on the six-digit job number in the name, and on nothing else. Two
+    associations can both have a "Building 4", and filing one job's money
+    against another is not a mistake anybody would catch from a costing report.
+    These have no number in them, so nobody has claimed them.
+  </p>
+  <table class="grid">
+    <thead><tr><th>In QuickBooks</th></tr></thead>
+    <tbody>
+      {% for c in unlinked %}<tr><td class="mono">{{ c.full_name }}</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

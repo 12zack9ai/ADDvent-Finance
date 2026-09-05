@@ -76,6 +76,23 @@ services:
       - key: ASK_FOR_JOB_NUMBER
         value: "false"
 
+      # --- QuickBooks Desktop ---
+      # Off until there is a Windows machine beside the company file running
+      # the Web Connector. See docs/QUICKBOOKS-SETUP.md - everything on this
+      # side is built and waiting for it.
+      - key: QUICKBOOKS_ENABLED
+        value: "false"
+      - key: QBWC_USERNAME
+        value: aifinance-qbwc
+      - key: QBWC_PASSWORD          # what gets typed into the Web Connector
+        sync: false
+      - key: QBWC_MINUTES
+        value: "30"
+      # Reading is safe. Writing bills into the company file is the
+      # controller's decision and stays off until they make it.
+      - key: QBWC_WRITE_BACK
+        value: "false"
+
       # Sample data: eight jobs in the reserved 269xxx band that fill every
       # part of the site, so there is something to look at before the real
       # documents start arriving. Set to "false" - or run

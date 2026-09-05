@@ -25,7 +25,12 @@ COOKIE_NAME = "fin_session"
 _SALT = "finance-automation-login"
 
 # Paths reachable without signing in.
-PUBLIC_PATHS = {"/login", "/healthz", "/favicon.ico"}
+# /qbwc has to be public: the QuickBooks Web Connector is a Windows service
+# with no browser and no cookie jar. It is guarded instead by its own username
+# and password, checked in constant time, and the only thing it can do is hold
+# a sync conversation - there is no path from it to a page, a document or a
+# decision.
+PUBLIC_PATHS = {"/login", "/healthz", "/favicon.ico", "/qbwc"}
 
 # A generated key means sessions do not survive a restart, which is a nuisance
 # but never a security hole. Set SECRET_KEY in .env in production.

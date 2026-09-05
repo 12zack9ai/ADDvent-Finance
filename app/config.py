@@ -18,6 +18,11 @@ def _bool(name: str, default: bool = False) -> bool:
     return os.getenv(name, str(default)).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _int(name: str, default: int) -> int:
+    raw = os.getenv(name, "").strip()
+    return int(raw) if raw.isdigit() else default
+
+
 class Settings:
     # --- storage -----------------------------------------------------------
     data_dir: Path = Path(os.getenv("DATA_DIR", BASE_DIR / "data"))
@@ -74,6 +79,25 @@ class Settings:
     # in use. Reserved to job numbers 269xxx and removable in one command:
     #   python scripts/seed_samples.py --remove
     seed_samples: bool = _bool("SEED_SAMPLES", False)
+
+    # --- QuickBooks Desktop ------------------------------------------------
+    # There is no cloud API. QuickBooks calls us, through the Web Connector
+    # running on a Windows machine beside the company file - so these are
+    # credentials the connector sends us, not credentials we send anywhere.
+    quickbooks_enabled: bool = _bool("QUICKBOOKS_ENABLED", False)
+    qbwc_username: str = os.getenv("QBWC_USERNAME", "qbwc").strip()
+    qbwc_password: str = os.getenv("QBWC_PASSWORD", "").strip()
+    # How often the connector runs itself. Thirty minutes is frequent enough
+    # that a costing report is never a day out, and rare enough that the file
+    # lock nobody enjoys is a twice-hourly blip.
+    qbwc_minutes: int = _int("QBWC_MINUTES", 30)
+    # Reading is safe. Writing bills into the company file is the controller's
+    # decision and stays off until they make it.
+    qbwc_write_back: bool = _bool("QBWC_WRITE_BACK", False)
+
+    def quickbooks_ready(self) -> bool:
+        return bool(self.quickbooks_enabled and self.qbwc_username
+                    and self.qbwc_password)
 
     # --- PDF rendering -----------------------------------------------------
     # Path to a Chromium/Chrome binary used to render the marked-up PDF.

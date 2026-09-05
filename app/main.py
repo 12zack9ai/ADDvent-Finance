@@ -149,6 +149,14 @@ def _configure_logging() -> None:
     logging.getLogger("app").setLevel(logging.INFO)
 
 
+# QuickBooks Desktop. Two of its three routes are its own; /qbwc is the only
+# unauthenticated one in the application, because the Web Connector is a
+# Windows service that cannot log in to a website.
+from app.quickbooks.routes import router as quickbooks_router  # noqa: E402
+
+app.include_router(quickbooks_router)
+
+
 @app.on_event("startup")
 async def _startup() -> None:
     _configure_logging()
