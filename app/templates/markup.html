@@ -502,14 +502,13 @@
         <button class="btn ghost" name="decision" value="reject" type="submit">Reject</button>
       </form>
       {% if not routing.can_approve %}
+        {# The blockers are listed above in their own words. Naming a specific
+           reason here guessed wrong the moment there was more than one - it
+           still said "until receipt is confirmed" after receipts stopped
+           being required at all. #}
         <div class="ap-note">
-          {% if routing.untrusted %}
-            Approval is blocked until somebody confirms this bill is genuinely
-            ours &mdash; see the panel above.
-          {% else %}
-            Approval is blocked until receipt is confirmed &mdash;
-            <a href="/job/{{ job.job_number }}#receipts">confirm it on the job page</a>.
-          {% endif %}
+          Approval is blocked until the point{{ "" if routing.blockers|length == 1 else "s" }}
+          above {{ "is" if routing.blockers|length == 1 else "are" }} dealt with.
         </div>
       {% endif %}
     {% elif invoice.approval_status == "approved" %}

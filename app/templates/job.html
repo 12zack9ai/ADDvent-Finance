@@ -322,7 +322,8 @@
 {# ---------------- RECEIVING + CHANGE ORDERS ---------------- #}
 <div class="row" style="align-items:stretch">
 
-  <div class="panel" id="receipts" style="flex:1;min-width:320px">
+  {% if require_receipt %}
+<div class="panel" id="receipts" style="flex:1;min-width:320px">
     <h2 style="margin-bottom:3px">Receiving confirmations</h2>
     <div class="muted" style="margin-bottom:12px">
       The third leg of the match: nothing gets approved until somebody confirms
@@ -384,6 +385,7 @@
       </form>
 </details>
   </div>
+{% endif %}
 
   <div class="panel" id="change-orders" style="flex:1;min-width:320px">
     <h2 style="margin-bottom:3px">Vendor change orders</h2>

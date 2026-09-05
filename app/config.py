@@ -111,7 +111,15 @@ class Settings:
     # Even a clean invoice above this total gets an owner spot-check.
     owner_review_above: str = os.getenv("OWNER_REVIEW_ABOVE", "5000")
     # Require confirmation of delivery / work completion before approval.
-    require_receipt: bool = _bool("REQUIRE_RECEIPT", True)
+    # OFF. Requiring a receipt before every approval means a project manager
+    # signs for every delivery on every job, which is a person's whole day and
+    # is not how this business runs. Zack: "That means I'm gonna have to have a
+    # project manager review that every single time. Leave that out for now."
+    #
+    # The machinery stays - the model, the routing, the confirm form - because
+    # the three-way match is the right control if the receiving side ever gets
+    # staffed. REQUIRE_RECEIPT=true turns it back on and nothing else changes.
+    require_receipt: bool = _bool("REQUIRE_RECEIPT", False)
 
     # --- matching ----------------------------------------------------------
     # Description similarity (0-100) required to consider two lines the same

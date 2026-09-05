@@ -20,7 +20,7 @@
   </div>
   <div class="panel tight" style="text-align:center;margin:0">
     <div style="font-size:24px;font-weight:800;color:var(--warn-ink)">{{ blocked }}</div>
-    <div class="muted">Blocked — receipt not confirmed</div>
+    <div class="muted">Blocked — cannot be approved yet</div>
   </div>
   <div class="panel tight" style="text-align:center;margin:0">
     <div style="font-size:24px;font-weight:800;color:var(--navy)">{{ owner_needed }}</div>
@@ -76,7 +76,11 @@
           </td>
           <td>
             {% if r.blockers %}
-              <span class="chip c-warn">Confirm receipt</span>
+              {# Whatever the actual blocker is. It was hard-coded to "confirm
+                 receipt" and stayed that way after receipts stopped being
+                 required, labelling every blocked invoice with a reason that
+                 could no longer occur. #}
+              <span class="chip c-warn">Blocked</span>
             {% elif r.action == "hold" %}
               <span class="chip c-over">Change order needed</span>
             {% elif r.action == "investigate" %}

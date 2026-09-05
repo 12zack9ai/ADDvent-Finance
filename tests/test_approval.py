@@ -12,7 +12,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import pytest  # noqa: E402
+
 from app import trust  # noqa: E402
+from app.config import settings  # noqa: E402
 from app.approval import (  # noqa: E402
     ACTION_APPROVE,
     ACTION_HOLD,
@@ -121,20 +124,35 @@ def test_no_quote_at_all_goes_to_the_owner_to_investigate():
 
 # --- the receiving leg ----------------------------------------------------
 
-def test_unconfirmed_receipt_blocks_approval_even_when_priced_perfectly():
+@pytest.fixture()
+def receipts_required(monkeypatch):
+    """The three-way match is off by default now - a project manager signing
+    for every delivery on every job is a person's whole day. The machinery
+    stays and these tests still prove it works when it is switched on."""
+    monkeypatch.setattr(settings, "require_receipt", True)
+
+
+def test_receipts_are_not_required_by_default():
+    assert not settings.require_receipt
+    r = route(make(total="1000.00", over="0", receipt=False))
+    assert r.can_approve
+    assert not any("delivered" in b for b in r.blockers)
+
+
+def test_unconfirmed_receipt_blocks_approval_even_when_priced_perfectly(receipts_required):
     """The whole point of a three-way match: right price, never delivered."""
     r = route(make(total="1000.00", over="0", receipt=False))
     assert r.can_approve is False
     assert any("delivered" in b or "completed" in b for b in r.blockers)
 
 
-def test_confirmed_receipt_is_recorded_in_the_reasons():
+def test_confirmed_receipt_is_recorded_in_the_reasons(receipts_required):
     r = route(make())
     assert r.can_approve is True
     assert any("Receipt confirmed" in reason for reason in r.reasons)
 
 
-def test_receipt_from_a_different_vendor_does_not_count():
+def test_receipt_from_a_different_vendor_does_not_count(receipts_required):
     invoice = make(receipt=False)
     invoice.job.receipts.append(Receipt(
         job_id=1, vendor="Cornerstone Lumber", confirmed_by="Site super",

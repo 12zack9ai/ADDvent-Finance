@@ -476,6 +476,7 @@ def job_detail(job_number: str, request: Request, session: Session = Depends(get
         can_send_mail=settings.can_send_mail(),
         jobnimbus_on=jobnimbus.configured(),
         subs=subs.positions(job),
+        require_receipt=settings.require_receipt,
     ))
 
 

@@ -1696,3 +1696,37 @@ def test_a_card_stays_quiet_when_there_is_nothing_to_say(client):
     body = client.get("/").text
     assert "days longest wait" in body            # the numbers are there
     assert "has waited" not in body               # but nothing is shouting
+
+
+def test_no_receiving_panel_when_receipts_are_not_required(client, tmp_path):
+    """A project manager signing for every delivery on every job is a person's
+    whole day, so the requirement is off and the panel that served it is gone."""
+    upload(client, _pdf(tmp_path, "q.pdf", "rcpt-q"), QUOTE_PAYLOAD, job_number="260000")
+    body = client.get("/job/260000").text
+    assert "Receiving confirmations" not in body
+    assert "Confirm a delivery" not in body
+
+
+def test_an_invoice_approves_without_anybody_signing_for_the_delivery(client, tmp_path):
+    upload(client, _pdf(tmp_path, "q.pdf", "rcpt-q2"), QUOTE_PAYLOAD, job_number="260000")
+    upload(client, _pdf(tmp_path, "i.pdf", "rcpt-i"), INVOICE_PAYLOAD, job_number="260000")
+
+    session = SessionLocal()
+    invoice_id = session.query(Invoice).one().id
+    session.close()
+
+    resp = client.post(f"/invoice/{invoice_id}/decide", follow_redirects=False,
+                       data={"decision": "approve", "actor": "Zack"})
+    assert "err=" not in resp.headers["location"]
+
+    session = SessionLocal()
+    assert session.get(Invoice, invoice_id).approval_status == "approved"
+    session.close()
+
+
+def test_the_panel_comes_back_if_receipts_are_switched_on(client, tmp_path, monkeypatch):
+    """The machinery stays; only the requirement is off."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "require_receipt", True)
+    upload(client, _pdf(tmp_path, "q.pdf", "rcpt-q3"), QUOTE_PAYLOAD, job_number="260000")
+    assert "Receiving confirmations" in client.get("/job/260000").text
