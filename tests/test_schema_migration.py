@@ -159,3 +159,52 @@ def test_running_the_migration_twice_changes_nothing(old_database):
 def test_defaults_are_quoted_rather_than_interpolated():
     assert appdb._sql_literal("approved") == "'approved'"
     assert appdb._sql_literal("it's") == "'it''s'"
+
+
+# --- the job table, which every deploy adds something to --------------------
+
+def test_the_costing_columns_land_on_a_job_table_that_predates_them(old_database):
+    """The old `job` table above has five columns. Every costing figure added
+    since - billed, collected, the crew's hours, where the billing came from -
+    has to arrive by this migration or the app fails on its first query."""
+    Base.metadata.create_all(old_database)
+    appdb._add_missing_columns()
+
+    columns = _columns(old_database, "job")
+    for name in ("contract_amount", "collected_amount", "billing_source",
+                 "billing_synced_at", "labour_cost", "labour_hours",
+                 "costing_note"):
+        assert name in columns, name
+
+
+def test_a_job_already_in_service_reads_back_without_a_null_where_a_string_goes(old_database):
+    """billing_source is NOT NULL. A row inserted before the column existed
+    has to be backfilled by the server default, or every read of it raises -
+    which is the exact shape of the change_order bug these tests exist for."""
+    Base.metadata.create_all(old_database)
+    appdb._add_missing_columns()
+
+    with OrmSession(old_database) as session:
+        job = session.get(Job, 1)
+        assert job.billing_source == ""          # not None
+        assert not job.billing_is_synced
+        assert job.collected_amount is None      # genuinely unknown
+        assert job.outstanding is None           # and says so rather than guessing
+
+
+def test_costing_figures_can_be_written_to_the_migrated_table(old_database):
+    Base.metadata.create_all(old_database)
+    appdb._add_missing_columns()
+
+    with OrmSession(old_database) as session:
+        job = session.get(Job, 1)
+        job.contract_amount = D("268000.00")
+        job.collected_amount = D("96400.00")
+        job.labour_hours = D("980")
+        job.labour_cost = D("41500.00")
+        job.billing_source = "manual"
+        session.commit()
+
+        job = session.get(Job, 1)
+        assert job.outstanding == D("171600.00")
+        assert job.labour_rate == D("42.35")

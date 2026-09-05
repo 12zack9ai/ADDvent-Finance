@@ -16,6 +16,8 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from app.config import settings
 
+log = logging.getLogger(__name__)
+
 TWO = Decimal("0.01")
 FOUR = Decimal("0.0001")
 
@@ -34,15 +36,36 @@ class Money(TypeDecorator):
                 value = Decimal(str(value))
             except (InvalidOperation, ValueError):
                 return None
-        return format(value.quantize(FOUR), "f")
+        # NaN is the one that does not announce itself: quantize returns it
+        # rather than raising, so it would be written as the text "NaN" and
+        # read back as a Decimal every comparison in the system answers False
+        # to. Screened before the arithmetic, not after.
+        if not _is_sane(value):
+            log.warning("MONEY: refusing to store an unusable value %r", value)
+            return None
+        try:
+            return format(value.quantize(FOUR), "f")
+        except (InvalidOperation, ValueError):
+            # Belt and braces. to_decimal screens these out at the door, so
+            # reaching here means a Decimal was built somewhere else - and a
+            # column type is the wrong place to take a page down.
+            log.warning("MONEY: refusing to store an unrepresentable value %r", value)
+            return None
 
     def process_result_value(self, value, dialect) -> Optional[Decimal]:
         if value is None:
             return None
         try:
-            return Decimal(value)
+            parsed = Decimal(value)
         except (InvalidOperation, ValueError):
             return None
+        # A row written before the guard above existed, or by hand. Reading it
+        # back as None is a hole in a report; reading it back as NaN is a
+        # comparison that quietly answers False everywhere it is used.
+        if not _is_sane(parsed):
+            log.warning("MONEY: unusable value %r in the database, read as None", value)
+            return None
+        return parsed
 
 
 def to_decimal(value) -> Optional[Decimal]:
@@ -69,7 +92,32 @@ def to_decimal(value) -> Optional[Decimal]:
         d = Decimal(s)
     except (InvalidOperation, ValueError):
         return None
+    if not _is_sane(d):
+        return None
     return -d if negative else d
+
+
+# No line item, invoice, contract or bank balance in this business is within
+# nine orders of magnitude of this. The bound is not about tidiness: a value
+# past it cannot be stored (Decimal.quantize raises), and everything upstream
+# of the store - a misread digit run, a fuzzed form field, a spreadsheet cell
+# holding 1e999 - would take a page out with a 500 instead.
+MAX_MONEY = Decimal("1e12")
+
+
+def _is_sane(value: Decimal) -> bool:
+    """Is this a number arithmetic can be trusted with?
+
+    NaN is the dangerous one and the reason this exists. Every comparison
+    against NaN is False, so an invoice total of NaN is not over the quote, not
+    over tolerance, not over the contract ceiling, and not greater than zero -
+    it passes every check in this system silently. Decimal("nan") is a value
+    `Decimal(str)` accepts without complaint, from a form field or from a
+    document somebody scanned badly. It must never get in.
+    """
+    if not value.is_finite():
+        return False
+    return abs(value) < MAX_MONEY
 
 
 def money_str(value: Optional[Decimal], places: str = "0.01") -> str:
@@ -85,9 +133,6 @@ def qty_str(value: Optional[Decimal]) -> str:
     if normalized == normalized.to_integral_value():
         return str(normalized.to_integral_value())
     return format(normalized, "f")
-
-
-log = logging.getLogger(__name__)
 
 
 class Base(DeclarativeBase):

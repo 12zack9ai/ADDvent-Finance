@@ -549,18 +549,55 @@ def save_costing(
     # Blank clears the figure rather than setting it to zero. Zero labour on a
     # fully subbed job is a real answer; blank means nobody has said yet, and
     # the report reports that difference.
-    job.contract_amount = to_decimal(contract_amount) if contract_amount.strip() else None
-    job.collected_amount = to_decimal(collected_amount) if collected_amount.strip() else None
-    job.labour_cost = to_decimal(labour_cost) if labour_cost.strip() else None
-    job.labour_hours = to_decimal(labour_hours) if labour_hours.strip() else None
-    job.costing_note = costing_note.strip()
+    # Blank clears; anything else has to be a number. Silently clearing a
+    # figure because somebody fat-fingered it is the worst of the three
+    # possible behaviours - the number disappears and nothing says why.
+    fields = {
+        "What we billed": contract_amount,
+        "Collected so far": collected_amount,
+        "What those hours cost": labour_cost,
+        "Hours worked": labour_hours,
+    }
+    parsed = {}
+    for label, raw in fields.items():
+        if not raw.strip():
+            parsed[label] = None
+            continue
+        value = to_decimal(raw)
+        if value is None:
+            return _redirect(
+                f"/job/{job.job_number}/costing",
+                err=f"{label} was not a number I could read: {raw.strip()[:40]}",
+            )
+        if value < 0:
+            return _redirect(
+                f"/job/{job.job_number}/costing",
+                err=f"{label} cannot be negative.",
+            )
+        parsed[label] = value
 
-    # Typed, not synced. Recorded so the report can say where the figure came
+    # Typed, not synced. Recorded so the report can say where a figure came
     # from - once the connector is writing these, a hand-typed one that is
     # three weeks stale must not be mistaken for the live number.
+    #
+    # Compared against what is already stored rather than set blindly: saving
+    # the crew's hours on a synced job re-submits the billing inputs unchanged,
+    # and that is not somebody overriding QuickBooks. Actually changing one is.
+    touched = (
+        parsed["What we billed"] != job.contract_amount
+        or parsed["Collected so far"] != job.collected_amount
+    )
+
+    job.contract_amount = parsed["What we billed"]
+    job.collected_amount = parsed["Collected so far"]
+    job.labour_cost = parsed["What those hours cost"]
+    job.labour_hours = parsed["Hours worked"]
+    job.costing_note = costing_note.strip()
+
     if job.contract_amount is None and job.collected_amount is None:
         job.billing_source = ""
-    elif not job.billing_is_synced:
+        job.billing_synced_at = None
+    elif touched or not job.billing_source:
         job.billing_source = BILLING_MANUAL
         job.billing_synced_at = utcnow()
 
@@ -1340,7 +1377,10 @@ async def cashflow_generate(
     except (InvalidOperation, ValueError):
         return _redirect("/cashflow", err="Opening balance must be a number.")
 
-    as_of_date = date.fromisoformat(as_of) if as_of else date.today()
+    try:
+        as_of_date = date.fromisoformat(as_of) if as_of else date.today()
+    except ValueError:
+        return _redirect("/cashflow", err="The 'as of' date was not a date.")
 
     # Weekly run-rates: what continues whether or not a bill has been entered.
     run_rates = {

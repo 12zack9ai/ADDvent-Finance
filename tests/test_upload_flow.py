@@ -1838,3 +1838,58 @@ def test_a_straggler_from_another_supplier_is_not_measured_against_the_quote(cli
     assert "New Castle Building Products" in job
     # And it does not light the job up as a discrepancy.
     assert "Money on this job with no quoted price behind it" not in job
+
+
+def test_saving_the_crew_does_not_relabel_a_synced_billing_figure(client):
+    """The crew form re-submits the billing inputs unchanged. That is not
+    somebody overriding QuickBooks, and marking it as one would make the
+    provenance label - the whole reason it exists - a lie."""
+    session = SessionLocal()
+    job = Job(job_number="260031", contract_amount=D("50000.00"),
+              collected_amount=D("20000.00"), billing_source="quickbooks")
+    session.add(job)
+    session.commit()
+    session.close()
+
+    form = {"contract_amount": "50000.00", "collected_amount": "20000.00",
+            "labour_hours": "120", "labour_cost": "5000.00"}
+    client.post("/job/260031/costing", data=form, follow_redirects=False)
+
+    session = SessionLocal()
+    job = session.query(Job).filter_by(job_number="260031").one()
+    assert job.billing_source == "quickbooks"        # untouched
+    assert job.labour_hours == D("120")
+    session.close()
+
+    # Actually changing one is an override, and says so.
+    client.post("/job/260031/costing", follow_redirects=False,
+                data={**form, "contract_amount": "61000.00"})
+    session = SessionLocal()
+    job = session.query(Job).filter_by(job_number="260031").one()
+    assert job.billing_source == "manual"
+    assert job.contract_amount == D("61000.00")
+    session.close()
+
+
+def test_a_number_that_will_not_parse_is_refused_rather_than_clearing_the_field(client):
+    """Silently wiping a figure because somebody fat-fingered it is the worst
+    of the three possible behaviours: the number vanishes and nothing says
+    why."""
+    session = SessionLocal()
+    session.add(Job(job_number="260032", contract_amount=D("50000.00")))
+    session.commit()
+    session.close()
+
+    resp = client.post("/job/260032/costing", follow_redirects=False,
+                       data={"contract_amount": "fifty grand"})
+    assert resp.status_code == 303
+    assert "err=" in resp.headers["location"]
+
+    session = SessionLocal()
+    assert session.query(Job).filter_by(job_number="260032").one().contract_amount \
+        == D("50000.00")                              # still there
+    session.close()
+
+    resp = client.post("/job/260032/costing", follow_redirects=False,
+                       data={"contract_amount": "-5"})
+    assert "err=" in resp.headers["location"]

@@ -287,3 +287,33 @@ def test_a_fully_subbed_job_needs_no_crew_figure_at_all():
                           charged="50000.00", labour="0"))
     assert c.labour_given and c.labour == D("0")
     assert "hours and cost have not been entered" not in " ".join(c.gaps)
+
+
+# --- numbers that are not numbers -----------------------------------------
+
+def test_a_value_arithmetic_cannot_be_trusted_with_never_gets_in():
+    """NaN is the dangerous one, and Decimal("nan") is a string a form field
+    or a badly scanned document can produce. Every comparison against it is
+    False, so an invoice total of NaN is not over the quote, not over
+    tolerance, not over the contract ceiling and not greater than zero - it
+    passes every check in this system in silence."""
+    from app.db import to_decimal
+
+    for hostile in ("nan", "NaN", "snan", "Infinity", "-Infinity", "1e999", "9" * 40):
+        assert to_decimal(hostile) is None, hostile
+
+    # And the ordinary shapes still work.
+    assert to_decimal("$4,182.60") == D("4182.60")
+    assert to_decimal("(1,200.50)") == D("-1200.50")
+    assert to_decimal("999999999999.99") == D("999999999999.99")
+
+
+def test_an_unstorable_number_is_refused_rather_than_taking_the_page_down():
+    """A column type is the wrong place to raise. to_decimal screens these at
+    the door; this is what happens if one is built somewhere else."""
+    from decimal import Decimal as Dec
+    from app.db import Money
+
+    assert Money().process_bind_param(Dec("1e999"), None) is None
+    assert Money().process_bind_param(Dec("NaN"), None) is None
+    assert Money().process_bind_param(Dec("4182.60"), None) == "4182.6000"
