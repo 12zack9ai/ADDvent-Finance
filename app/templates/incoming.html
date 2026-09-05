@@ -16,6 +16,7 @@
   <a class="tab {{ 'on' if show == 'unreviewed' }}" href="/incoming?show=unreviewed">
     Not yet reviewed{% if unreviewed %} <span class="pill">{{ unreviewed }}</span>{% endif %}</a>
   <a class="tab {{ 'on' if show == 'over' }}" href="/incoming?show=over">Over quote</a>
+  <a class="tab" href="/inbox">No job number{% if stuck %} <span class="pill">{{ stuck }}</span>{% endif %}</a>
 </div>
 
 {% if stuck %}

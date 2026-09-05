@@ -2,175 +2,114 @@
 {% block title %}{{ site_name }}{% endblock %}
 
 {% block content %}
+{#  Five cards, each saying the same three things: what it is in one sentence,
+    three numbers, and a line that appears ONLY when something needs a person.
+    The notes used to show whether or not anything was wrong, which meant the
+    card that mattered looked exactly like the four that did not.  #}
 <div class="pagehead">
   <div>
     <h1>Finance</h1>
-    <p class="sub">Five programmes. All of them run on the same documents.</p>
+    <p class="sub">Five programmes, all running on the same documents.</p>
   </div>
 </div>
 
 <div class="progs">
 
   <a class="prog" href="/incoming">
-    <div class="prog-head">
-      <h2>Invoice checking</h2>
-      <span class="prog-tag">Live</span>
-    </div>
-    <p class="prog-what">
-      Every vendor invoice compared against the quotes for its job, with a
-      marked-up copy showing exactly where the pricing differs. Nothing is paid
-      without a quoted price and confirmation it was received.
-    </p>
+    <div class="prog-head"><h2>Invoices</h2></div>
+    <p class="prog-what">Every vendor invoice checked against the job's quotes.</p>
     <div class="prog-stats">
-      <div><strong>{{ jobs_count }}</strong><span>job{{ "" if jobs_count == 1 else "s" }}</span></div>
-      <div><strong>{{ invoices_count }}</strong><span>invoices checked</span></div>
-      <div class="{{ 'is-bad' if overbilled > 0 else '' }}">
-        <strong>{{ overbilled | money }}</strong><span>billed over quote</span></div>
+      <div><strong>{{ invoices_count }}</strong><span>checked</span></div>
+      <div><strong>{{ waiting }}</strong><span>to review</span></div>
+      <div class="{{ 'is-bad' if overbilled > 0 }}">
+        <strong>{{ overbilled | money }}</strong><span>over quote</span></div>
     </div>
-    {% if newest %}
-    <div class="prog-note">
-      Most recent: <strong>{{ newest.vendor or "Unknown vendor" }}</strong>
-      {{ newest.invoice_number or "" }} — {{ newest.created_at | ago }}
-    </div>
+    {% if inbox_count %}
+      <div class="prog-note">{{ inbox_count }} arrived with no job number.</div>
     {% endif %}
-    {% if waiting or inbox_count %}
-    <div class="prog-note">
-      {% if waiting %}<strong>{{ waiting }}</strong> waiting on an approver{% endif %}
-      {% if waiting and inbox_count %} · {% endif %}
-      {% if inbox_count %}<strong>{{ inbox_count }}</strong> in the Inbox with no job number{% endif %}
-    </div>
-    {% endif %}
-    <div class="prog-go">See what has come in &rarr;</div>
+    <div class="prog-go">Open &rarr;</div>
   </a>
 
   <a class="prog" href="/sub-invoices">
-    <div class="prog-head">
-      <h2>Subcontractor invoices</h2>
-      <span class="prog-tag">Live</span>
-    </div>
-    <p class="prog-what">
-      A sub's invoice is checked exactly like a supplier's — read, compared
-      against their contract, marked up. The one thing a contract adds is a
-      ceiling, so the invoice that takes them past their award is caught rather
-      than paid.
-    </p>
+    <div class="prog-head"><h2>Subcontractors</h2></div>
+    <p class="prog-what">Their invoices against what they were awarded.</p>
     {% if sub_count %}
-    <div class="prog-stats">
-      <div><strong>{{ subs_awarded | money }}</strong><span>awarded</span></div>
-      <div><strong>{{ subs_billed | money }}</strong><span>billed</span></div>
-      <div class="{{ 'is-bad' if subs_over }}">
-        <strong>{{ subs_over_total | money }}</strong><span>over contract</span></div>
-    </div>
-    {% if subs_over %}
-    <div class="prog-note">
-      <strong>{{ subs_over[0].vendor }}</strong> is
-      {{ subs_over[0].overage | money }} past their award.
-    </div>
-    {% elif subs_pending %}
-    <div class="prog-note">
-      {{ subs_pending | money }} invoiced and waiting on a decision.
-    </div>
-    {% endif %}
+      <div class="prog-stats">
+        <div><strong>{{ subs_awarded | money }}</strong><span>awarded</span></div>
+        <div><strong>{{ subs_billed | money }}</strong><span>billed</span></div>
+        <div class="{{ 'is-bad' if subs_over }}">
+          <strong>{{ subs_over_total | money }}</strong><span>over contract</span></div>
+      </div>
+      {% if subs_over %}
+        <div class="prog-note">{{ subs_over[0].vendor }} is past their award.</div>
+      {% endif %}
     {% else %}
-    <div class="prog-empty">No subcontracts on file yet.</div>
+      <div class="prog-empty">No subcontracts yet.</div>
     {% endif %}
-    <div class="prog-go">See the subs &rarr;</div>
+    <div class="prog-go">Open &rarr;</div>
   </a>
 
   <a class="prog" href="/checks">
-    <div class="prog-head">
-      <h2>Check requests</h2>
-      <span class="prog-tag">Live</span>
-    </div>
-    <p class="prog-what">
-      Who needs a check cut, longest wait first — permits, deposits, fees,
-      reimbursements. Not everything that needs a check is an invoice, and a
-      permit lands in its job's costing like everything else.
-    </p>
+    <div class="prog-head"><h2>Checks</h2></div>
+    <p class="prog-what">Permits, deposits and fees waiting to be paid.</p>
     {% if check_rows %}
-    <div class="prog-stats">
-      <div class="{{ 'is-bad' if check_rows[0].days > 30 }}">
-        <strong>{{ check_rows[0].days }}</strong><span>day{{ "" if check_rows[0].days == 1 else "s" }} longest wait</span></div>
-      <div><strong>{{ check_rows|length }}</strong><span>waiting</span></div>
-      <div><strong>{{ checks_total | money }}</strong><span>requested</span></div>
-    </div>
-    <div class="prog-note">
-      Oldest: <strong>{{ check_rows[0].request.payee }}</strong>
-      — {{ check_rows[0].request.purpose_label | lower }}, job {{ check_rows[0].job_number }}
-    </div>
+      <div class="prog-stats">
+        <div class="{{ 'is-bad' if check_rows[0].days > 30 }}">
+          <strong>{{ check_rows[0].days }}</strong><span>days longest wait</span></div>
+        <div><strong>{{ check_rows|length }}</strong><span>waiting</span></div>
+        <div><strong>{{ checks_total | money }}</strong><span>requested</span></div>
+      </div>
+      {% if check_rows[0].days > 14 %}
+        <div class="prog-note">
+          {{ check_rows[0].request.payee }} has waited {{ check_rows[0].days }} days.
+        </div>
+      {% endif %}
     {% else %}
-    <div class="prog-empty">
-      Nobody is waiting.{% if checks_paid %} {{ checks_paid | money }} paid out so far.{% endif %}
-    </div>
+      <div class="prog-empty">Nobody is waiting.</div>
     {% endif %}
-    <div class="prog-go">See who is waiting &rarr;</div>
+    <div class="prog-go">Open &rarr;</div>
   </a>
 
   <a class="prog" href="/cashflow">
-    <div class="prog-head">
-      <h2>13-week cash flow</h2>
-      <span class="prog-tag">Live</span>
-    </div>
-    <p class="prog-what">
-      What has to go out, what is expected in, and what the bank balance does
-      across thirteen weeks — with the low point called out. Progress billings
-      and retainage are phased by hand, because nothing else knows when a draw
-      goes out.
-    </p>
+    <div class="prog-head"><h2>Cash flow</h2></div>
+    <p class="prog-what">Thirteen weeks of what goes out and what comes in.</p>
     {% if latest_forecast %}
-    <div class="prog-stats">
-      <div><strong>{{ latest_forecast.closing_balance | money }}</strong><span>projected close</span></div>
-      <div class="{{ 'is-bad' if latest_forecast.goes_negative else '' }}">
-        <strong>{{ latest_forecast.low_point.closing | money }}</strong><span>low point</span></div>
-      <div><strong>{{ latest_forecast.total_out | money }}</strong><span>going out</span></div>
-    </div>
-    <div class="prog-note">
-      Last generated {{ latest_report.created_at.strftime("%d %b %Y") }}
-      {% if latest_report.created_by %} by {{ latest_report.created_by }}{% endif %}
-    </div>
+      <div class="prog-stats">
+        <div><strong>{{ latest_forecast.closing_balance | money }}</strong><span>projected close</span></div>
+        <div class="{{ 'is-bad' if latest_forecast.goes_negative }}">
+          <strong>{{ latest_forecast.low_point.closing | money }}</strong><span>low point</span></div>
+        <div><strong>{{ latest_forecast.total_out | money }}</strong><span>going out</span></div>
+      </div>
+      {% if latest_forecast.goes_negative %}
+        <div class="prog-note">
+          Goes negative in week {{ latest_forecast.first_negative_week.number }}.
+        </div>
+      {% endif %}
     {% else %}
-    <div class="prog-empty">No report generated yet.</div>
+      <div class="prog-empty">No report yet.</div>
     {% endif %}
-    <div class="prog-go">Open cash flow &rarr;</div>
+    <div class="prog-go">Open &rarr;</div>
   </a>
 
   <a class="prog" href="/jobs">
-    <div class="prog-head">
-      <h2>Job costing</h2>
-      <span class="prog-tag">Live</span>
-    </div>
-    <p class="prog-what">
-      Every vendor invoice and every subcontractor draw on a job, added up
-      against what we charged. Receipts and card purchases are not captured
-      yet, so each report says what it is leaving out rather than presenting a
-      margin as final.
-    </p>
+    <div class="prog-head"><h2>Job costing</h2></div>
+    <p class="prog-what">What each job cost, against what we charged.</p>
     {% if costed_count %}
-    <div class="prog-stats">
-      <div><strong>{{ costed_revenue | money }}</strong><span>charged</span></div>
-      <div class="{{ 'is-bad' if costed_margin < 0 }}">
-        <strong>{{ costed_margin | money }}</strong>
-        <span>margin on agreed cost</span></div>
-      <div class="{{ 'is-bad' if costed_worst < 0 }}">
-        <strong>{{ costed_worst | money if costed_pending else costed_margin | money }}</strong>
-        <span>{% if costed_pending %}if everything clears{% else %}nothing outstanding{% endif %}</span></div>
-    </div>
-    {% if costed_pending %}
-    <div class="prog-note">
-      {{ costed_pending | money }} of cost on {{ "this job" if costed_count == 1 else "these jobs" }} is still waiting on a decision, so the first figure is the optimistic one.
-    </div>
-    {% endif %}
-    {% if uncosted_count %}
-    <div class="prog-note">
-      {{ uncosted_count }} job{{ "" if uncosted_count == 1 else "s" }} with no price entered, so no margin on {{ "it" if uncosted_count == 1 else "them" }} yet.
-    </div>
-    {% endif %}
+      <div class="prog-stats">
+        <div><strong>{{ costed_revenue | money }}</strong><span>charged</span></div>
+        <div class="{{ 'is-bad' if costed_margin < 0 }}">
+          <strong>{{ costed_margin | money }}</strong><span>margin</span></div>
+        <div><strong>{{ costed_count }}</strong><span>job{{ "" if costed_count == 1 else "s" }} priced</span></div>
+      </div>
+      {% if costed_pending %}
+        <div class="prog-note">
+          {{ costed_pending | money }} of cost is still undecided, so that margin is the optimistic one.
+        </div>
+      {% endif %}
     {% else %}
-    <div class="prog-empty">
-      No job has a price entered yet. Open a job and use <em>Job costing</em>.
-    </div>
+      <div class="prog-empty">No job priced yet.</div>
     {% endif %}
-    <div class="prog-go">Pick a job &rarr;</div>
+    <div class="prog-go">Open &rarr;</div>
   </a>
 
 </div>
@@ -178,13 +117,9 @@
 <div class="panel quick">
   <h2>Quick actions</h2>
   <div class="quick-row">
-    <a class="btn" href="/incoming">Review invoices that just came in{% if waiting %} ({{ waiting }}){% endif %}</a>
-    <a class="btn ghost" href="/upload">Upload a quote or invoice</a>
-    <a class="btn ghost" href="/sub-invoices">Subcontractor invoices</a>
-    <a class="btn ghost" href="/checks">Check requests{% if check_rows %} ({{ check_rows|length }}){% endif %}</a>
+    <a class="btn" href="/upload">Upload a quote or invoice</a>
     <a class="btn ghost" href="/cashflow">Generate a cash flow report</a>
-    <a class="btn ghost" href="/jobs">All jobs</a>
-    <a class="btn ghost" href="/inbox">Inbox{% if inbox_count %} ({{ inbox_count }}){% endif %}</a>
+    <a class="btn ghost" href="/checks">Request a check</a>
   </div>
 </div>
 {% endblock %}

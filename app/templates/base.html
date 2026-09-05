@@ -517,15 +517,18 @@ tr.overdrawn td{background:var(--over-bg)}
       <input type="text" name="q" value="{{ q or '' }}"
              placeholder="Search job number, vendor, or invoice number…" autocomplete="off">
     </form>
+    {# Six, and every one of them is a place somebody goes on purpose.
+       Approvals, the Inbox and Vendors used to sit here too - they are
+       drill-downs, reachable from the page they belong to, and having them in
+       the bar made ten choices out of what is really five programmes and an
+       action. #}
     <nav>
-      <a href="/incoming">Incoming</a>
-      <a href="/jobs">Jobs</a>
-      <a href="/approvals">Approvals</a>
+      <a href="/">Home</a>
+      <a href="/incoming">Invoices</a>
       <a href="/sub-invoices">Subs</a>
       <a href="/checks">Checks{% if checks_waiting %} ({{ checks_waiting }}){% endif %}</a>
       <a href="/cashflow">Cash flow</a>
-      <a href="/vendors">Vendors</a>
-      <a href="/inbox">Inbox{% if unassigned_count %} ({{ unassigned_count }}){% endif %}</a>
+      <a href="/jobs">Jobs</a>
       <a href="/upload">Upload</a>
       <a href="/logout" style="opacity:.72">Sign out</a>
     </nav>

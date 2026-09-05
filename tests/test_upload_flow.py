@@ -279,15 +279,6 @@ def test_a_new_master_quote_recompares_existing_invoices(client, tmp_path):
 
 # --- the front door ------------------------------------------------------
 
-def test_the_home_page_offers_both_programmes(client):
-    """One place to choose between invoice checking and cash flow."""
-    body = client.get("/").text
-    assert "Invoice checking" in body
-    assert "Cash flow" in body
-    assert 'href="/jobs"' in body
-    assert 'href="/cashflow"' in body
-
-
 def test_the_jobs_list_still_works_at_its_new_address(client):
     assert client.get("/jobs").status_code == 200
 
@@ -360,7 +351,7 @@ def test_incoming_renders_with_nothing_in_it(client):
 def test_the_dashboard_offers_the_incoming_queue(client):
     body = client.get("/").text
     assert 'href="/incoming"' in body
-    assert "just came in" in body
+    assert "checked against the job's quotes" in body
 
 
 def test_relative_times_read_as_a_person_would_say_them():
@@ -1574,12 +1565,34 @@ def test_the_job_page_links_to_the_costing_report(client):
 def test_the_home_page_offers_all_five_programmes(client):
     body = client.get("/").text
     assert "Five programmes" in body
-    for heading in ("Invoice checking", "Subcontractor invoices",
-                    "Check requests", "13-week cash flow", "Job costing"):
+    for heading in ("Invoices", "Subcontractors", "Checks", "Cash flow",
+                    "Job costing"):
         assert heading in body
     for href in ('href="/incoming"', 'href="/sub-invoices"', 'href="/checks"',
                  'href="/cashflow"', 'href="/jobs"'):
         assert href in body
+
+
+def test_the_nav_is_six_places_and_a_way_out(client):
+    """Approvals, the Inbox and Vendors are drill-downs. Having them in the bar
+    made ten choices out of five programmes and an action."""
+    import re
+    nav = re.search(r"<nav>(.*?)</nav>", client.get("/").text, re.S).group(1)
+    links = re.findall(r'href="([^"]+)"', nav)
+
+    assert links == ["/", "/incoming", "/sub-invoices", "/checks",
+                     "/cashflow", "/jobs", "/upload", "/logout"]
+    for gone in ("/approvals", "/vendors", "/inbox"):
+        assert gone not in links
+
+
+def test_the_dropped_tabs_are_still_reachable(client):
+    """Simpler must not mean hidden."""
+    assert 'href="/approvals"' in client.get("/incoming").text
+    assert 'href="/inbox"' in client.get("/incoming").text
+    assert 'href="/vendors"' in client.get("/jobs").text
+    for path in ("/approvals", "/vendors", "/inbox"):
+        assert client.get(path).status_code == 200
 
 
 def test_the_checks_card_leads_with_the_longest_wait(client):
@@ -1591,9 +1604,9 @@ def test_the_checks_card_leads_with_the_longest_wait(client):
         "purpose": "permit", "requested_on": "2026-07-01"})
 
     body = client.get("/").text
-    assert "longest wait" in body
-    assert "Township of Oakland" in body
-    assert "permit" in body
+    assert "days longest wait" in body
+    # Over two weeks, so the card says who rather than only how many.
+    assert "Township of Oakland has waited" in body
 
 
 def test_the_checks_card_is_quiet_when_nobody_is_waiting(client):
@@ -1610,7 +1623,7 @@ def test_the_costing_card_counts_the_jobs_with_no_price_entered(client):
 
     body = client.get("/").text
     assert "$185,000.00" in body
-    assert "1 job with no price entered" in body
+    assert "job priced" in body
 
 
 def test_the_costing_card_does_not_show_a_margin_on_a_fraction_of_the_cost(client, tmp_path):
@@ -1625,13 +1638,24 @@ def test_the_costing_card_does_not_show_a_margin_on_a_fraction_of_the_cost(clien
                 data={"contract_amount": "185000", "labour_cost": "0"})
 
     body = client.get("/").text
-    assert "still waiting on a decision" in body
-    assert "the first figure is the optimistic one" in body
-    assert "if everything clears" in body
-    # $185,000 less $6,154 of invoice and $60,000 of deposit.
-    assert "$118,846.00" in body
+    assert "still undecided" in body
+    assert "the optimistic one" in body
+    assert "$66,154.00" in body        # the cost nobody has agreed to yet
 
 
 def test_the_costing_card_says_so_when_nothing_is_priced(client):
     _sub_job()
-    assert "No job has a price entered yet" in client.get("/").text
+    assert "No job priced yet." in client.get("/").text
+
+
+def test_a_card_stays_quiet_when_there_is_nothing_to_say(client):
+    """The note is what makes one card louder than the other four. If it shows
+    whether or not anything is wrong, it stops meaning anything."""
+    _sub_job()
+    client.post("/checks/new", follow_redirects=False, data={
+        "payee": "Township of Oakland", "amount": "450",
+        "job_number": "260000", "purpose": "permit"})
+
+    body = client.get("/").text
+    assert "days longest wait" in body            # the numbers are there
+    assert "has waited" not in body               # but nothing is shouting
