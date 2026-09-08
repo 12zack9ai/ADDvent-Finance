@@ -16,6 +16,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -380,3 +381,53 @@ def test_a_different_job_in_the_title_does_not_match():
 def test_a_number_field_still_wins_when_it_is_there():
     record = {"number": "241640", "name": "Mountainview Condos"}
     assert jobnimbus._matches(record, "241640")
+
+
+class _Session:
+    """chase_quote_now only flushes; nothing here needs a database."""
+
+    def flush(self):
+        pass
+
+
+# --- one click ------------------------------------------------------------
+# Zack: "I don't want someone to see oh that's the assigned person now. Let me
+# go to the email and type out their email... I want them to just be like
+# click. And all of a sudden you're sending out an email."
+
+def test_asking_for_the_quote_needs_no_address_typed(monkeypatch, with_key):
+    """The address comes from JobNimbus. Nobody looks anybody up."""
+    from app import services
+
+    sent = {}
+    monkeypatch.setattr(settings, "reply_domains_raw", "addventuresinc.com")
+    monkeypatch.setattr(jobnimbus, "find_job", lambda number: jobnimbus.Assignment(
+        job_number=number, person_name="Pat Moran",
+        email="pmoran@addventuresinc.com",
+    ))
+    monkeypatch.setattr(services.settings, "can_send_mail", lambda: True)
+    monkeypatch.setattr(services.mail_send, "ask_for_quote",
+                        lambda *a, **k: sent.setdefault("to", "pmoran@addventuresinc.com"))
+
+    job = SimpleNamespace(id=1, job_number="241640", masters=[], invoices=[],
+                          quote_chase_sent_at=None, quote_chase_to="",
+                          quote_chase_count=0)
+    ok, message = services.chase_quote_now(_Session(), job, "", "Zack")
+    assert ok, message
+    assert sent["to"] == "pmoran@addventuresinc.com"
+
+
+def test_with_nobody_assigned_it_says_to_fix_jobnimbus(monkeypatch, with_key):
+    """Not "type an address" as the headline. The fix is filling in Assigned,
+    and the rep is still never an option."""
+    from app import services
+
+    monkeypatch.setattr(jobnimbus, "find_job", lambda number: None)
+    monkeypatch.setattr(services.settings, "can_send_mail", lambda: True)
+
+    job = SimpleNamespace(id=1, job_number="241640", masters=[], invoices=[],
+                          quote_chase_sent_at=None, quote_chase_to="",
+                          quote_chase_count=0)
+    ok, message = services.chase_quote_now(_Session(), job, "", "Zack")
+    assert not ok
+    assert "Assigned" in message

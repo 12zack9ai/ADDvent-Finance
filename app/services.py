@@ -541,8 +541,9 @@ def chase_quote_now(
 
     if assignment is None or not assignment.usable:
         return False, (
-            "Nobody to send it to. JobNimbus did not give an assignee for this "
-            "job — type the address to send it to instead."
+            "Nobody is assigned to this job in JobNimbus, so there is nobody "
+            "to ask. Fill in Assigned on the job and click again — or open "
+            "Quotes below and type an address to send it somewhere specific."
         )
 
     if not settings.may_email(assignment.email):

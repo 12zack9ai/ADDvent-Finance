@@ -107,10 +107,21 @@
 {% endif %}
 
 {% if not masters and invoices %}
-  {% set _ = needs.append({
-      "what": "No quote on this job",
-      "sub": "Nothing is checking these prices.",
-      "go": "Add one", "href": "#quotes" }) %}
+  {% if can_send_mail and jobnimbus_on and not chase_wait %}
+    {# One click, no typing. JobNimbus knows who is assigned; asking the
+       reader to look that up and compose an email is how an invoice ends up
+       sitting for three weeks. #}
+    {% set _ = needs.append({
+        "what": "No quote on this job",
+        "sub": "Nothing is checking these prices. Ask whoever JobNimbus has assigned to send it over.",
+        "go": "Ask for the quote",
+        "post": "/job/" ~ job.job_number ~ "/ask-for-quote" }) %}
+  {% else %}
+    {% set _ = needs.append({
+        "what": "No quote on this job",
+        "sub": "Nothing is checking these prices.",
+        "go": "Add one", "href": "#quotes" }) %}
+  {% endif %}
 {% endif %}
 
 {% if needs %}
@@ -118,7 +129,16 @@
   {% for n in needs %}
   <div class="needs-row">
     <div class="needs-what">{{ n.what }}<span class="muted">{{ n.sub }}</span></div>
-    <a class="needs-go" href="{{ n.href }}">{{ n.go }} &rarr;</a>
+    {% if n.post %}
+      <form method="post" action="{{ n.post }}" style="margin:0">
+        <input type="hidden" name="actor" value="{{ actor_name }}">
+        <button class="needs-go" type="submit"
+                style="background:none;border:0;cursor:pointer;font:inherit">
+          {{ n.go }} &rarr;</button>
+      </form>
+    {% else %}
+      <a class="needs-go" href="{{ n.href }}">{{ n.go }} &rarr;</a>
+    {% endif %}
   </div>
   {% endfor %}
 </div>
@@ -185,8 +205,10 @@
       {% if can_send_mail and not chase_wait %}
         <form method="post" action="/job/{{ job.job_number }}/ask-for-quote"
               class="drawform" style="margin-top:16px">
-          <label class="fld"><span>Your name</span>
-            <input type="text" name="actor" required autocomplete="off"></label>
+          <label class="fld"><span>Your name
+            <span class="hint" style="display:inline">— remembered for next time</span></span>
+            <input type="text" name="actor" value="{{ actor_name }}"
+                   autocomplete="off"></label>
           <label class="fld">
             {# One line each: a hint broken across two source lines renders with
                a newline in the middle of the sentence. #}

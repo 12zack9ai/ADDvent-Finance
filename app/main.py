@@ -319,6 +319,10 @@ def _ctx(request: Request, session: Session, **kw) -> dict:
         "messages": _messages(request),
         "q": request.query_params.get("q", ""),
         "unassigned_count": count,
+        # Typed once, remembered after. The point of the chase button is that
+        # somebody clicks it and an email goes - stopping to re-type your own
+        # name every time is the friction that stops it being used.
+        "actor_name": request.cookies.get(ACTOR_COOKIE, ""),
         # Anything the watchdog has found. On every page, because the whole
         # point is that nobody has to go and look.
         "alarms": alerts.open_labels(),
@@ -1037,6 +1041,19 @@ def download_invoice_pdf(invoice_id: int, request: Request, session: Session = D
 
 # --- three-way match: receipts, change orders, approval -------------------
 
+ACTOR_COOKIE = "fin_actor"
+
+
+def _remember_actor(response, name: str):
+    """Keep the name for next time, so the next ask needs no typing."""
+    clean = (name or "").strip()[:128]
+    if clean:
+        response.set_cookie(ACTOR_COOKIE, clean, max_age=365 * 86400,
+                            httponly=False, samesite="lax",
+                            secure=settings.base_url.startswith("https"))
+    return response
+
+
 def _actor(name: str) -> str:
     """Who took this action.
 
@@ -1086,23 +1103,33 @@ def confirm_receipt(
 
 @app.post("/job/{job_number}/ask-for-quote")
 def ask_for_quote_now(
+    request: Request,
     job_number: str,
     to_address: str = Form(""),
     actor: str = Form(""),
     session: Session = Depends(get_session),
 ):
-    """The button on a job with no quote on it."""
+    """The button on a job with no quote on it.
+
+    Zack, on what this has to feel like: *"I want them to just be like click.
+    And all of a sudden you're sending out an email for that person to fill in
+    the quote."* So no address is typed - JobNimbus knows who is assigned -
+    and the name of whoever clicked is remembered from last time rather than
+    asked for again. A form that has to be filled in is a form nobody uses,
+    and then the invoice just sits there.
+    """
     job = session.scalar(
         select(Job).where(Job.job_number == normalize_job_number(job_number))
     )
     if job is None:
         return _redirect("/jobs", err=f"No job {job_number}.")
 
-    sent, message = chase_quote_now(session, job, to_address, _actor(actor))
+    who = (actor or "").strip() or request.cookies.get(ACTOR_COOKIE, "")
+    sent, message = chase_quote_now(session, job, to_address, _actor(who))
     session.commit()
-    if sent:
-        return _redirect(f"/job/{job.job_number}", ok=message)
-    return _redirect(f"/job/{job.job_number}", err=message)
+    target = f"/job/{job.job_number}"
+    response = _redirect(target, ok=message) if sent else _redirect(target, err=message)
+    return _remember_actor(response, who)
 
 
 @app.post("/job/{job_number}/change-order")
