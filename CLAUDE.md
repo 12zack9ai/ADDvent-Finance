@@ -10,6 +10,36 @@ Secrets live in Render's environment and in Zack's password manager only.
 
 ---
 
+## This is not part of the Empire
+
+**ADDvent-Finance stands alone.** It is not part of Zack's Empire operation —
+ATLAS, ATHENA, Abodivo, the content and video Routines, or anything living
+under `C:\Users\User\Documents\Empire` on the device `add-win-12`.
+
+Zack's instruction, plainly: *"This should not be a part of the empire
+operation so make sure all of this is excluded from it. No watchdog from the
+empire."*
+
+So:
+
+- **No Empire agent watches this app**, and none ever should. No scheduled
+  Routine, no remote-device agent, no ATLAS/ATHENA process may monitor, read,
+  write to, deploy, or "fix" it.
+- **No shared state.** No files under the Empire workspace, no shared device
+  folders, no shared queues or lock files.
+- **The watchdog inside this app is this app's own.** It runs in the web
+  process on Render, watches only this app's mailbox, backup and disk, and
+  emails only `ALERT_EMAIL`. It reaches nothing outside and nothing outside
+  reaches it. That is the only watchdog this project has, and the only one it
+  gets.
+- **Do not create a Routine for this app.** If something here needs to happen
+  on a schedule, it belongs in `app/scheduler.py` or `app/watchdog.py`, inside
+  the app, on the app's own server.
+
+The one legitimate overlap is subject matter, not systems: the quarterly
+material-list repricing Routine is also Add Ventures work. It reads a price
+list and writes a spreadsheet. It does not touch this app, and must not start.
+
 ## Who this is for
 
 **Add Ventures Inc.** — roofing and construction contractor working for condo
