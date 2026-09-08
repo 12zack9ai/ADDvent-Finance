@@ -560,3 +560,60 @@ def test_a_matching_total_on_an_unreadable_invoice_still_asks():
     o = s.overlaps[0]
     assert o.identical_total and not o.lines_compared
     assert "readable" in o.explanation
+
+
+def test_a_small_delivery_contained_in_a_big_one_is_not_a_duplicate():
+    """Job 241640, and the note that was on screen eight times. A yard sends
+    one big load and then small top-ups. Every top-up is, by the letter of the
+    subset rule, entirely re-billed on the big invoice - because the big load
+    carried some of everything. Nothing about that is a duplicate."""
+    big = invoice("12975.00", number="07RM0002825027-001", on=date(2026, 8, 20),
+                  lines=[
+                      line("SHG-TL-WW", "10000.00"),
+                      line("UND-SYN-10", "1500.00"),
+                      line("NAILS-114", "158.00"),
+                      line("DE-10-WHT", "486.00"),
+                      line("IWS-225", "831.00"),
+                  ])
+    topup = invoice("158.00", number="01WP0002840946-004", on=date(2026, 9, 2),
+                    lines=[line("NAILS-114", "158.00")])
+    s = jobsummary.build(job(quotes=[quote()], invoices=[big, topup]))
+    assert s.overlaps == []
+
+
+def test_several_small_deliveries_do_not_each_raise_a_note():
+    """The same shape, repeated. Nine invoices from one yard produced eight
+    notes, which is worse than none - nobody reads the ninth thing that cried
+    wolf."""
+    big = invoice("12975.00", number="07RM0002825027-001", on=date(2026, 8, 20),
+                  lines=[
+                      line("SHG-TL-WW", "10000.00"), line("NAILS-114", "158.00"),
+                      line("DE-10-WHT", "486.00"), line("CAP-33", "948.00"),
+                      line("SEAL-10", "197.25"),
+                  ])
+    smalls = [
+        invoice("158.00", number="A", on=date(2026, 9, 1),
+                lines=[line("NAILS-114", "158.00")]),
+        invoice("486.00", number="B", on=date(2026, 9, 2),
+                lines=[line("DE-10-WHT", "486.00")]),
+        invoice("948.00", number="C", on=date(2026, 9, 3),
+                lines=[line("CAP-33", "948.00")]),
+        invoice("197.25", number="D", on=date(2026, 9, 4),
+                lines=[line("SEAL-10", "197.25")]),
+    ]
+    s = jobsummary.build(job(quotes=[quote()], invoices=[big, *smalls]))
+    assert s.overlaps == []
+
+
+def test_a_correction_the_same_size_as_what_it_replaces_still_fires():
+    """The guard is a share of the larger invoice, so a real replacement -
+    which by definition accounts for most of what it replaces - is untouched."""
+    wrong = invoice("12975.00", number="INV-1", on=date(2026, 9, 10), lines=[
+        line("SHG-TL-WW", "10000.00"), line("UND-SYN-10", "2975.00"),
+    ])
+    fixed = invoice("12480.00", number="INV-2", on=date(2026, 9, 16), lines=[
+        line("SHG-TL-WW", "10000.00"), line("UND-SYN-10", "2480.00"),
+    ])
+    s = jobsummary.build(job(quotes=[quote()], invoices=[wrong, fixed]))
+    assert len(s.overlaps) == 1
+    assert s.overlaps[0].shared_value == D("12480.00")

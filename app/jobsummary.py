@@ -428,16 +428,22 @@ def _compare(earlier: Invoice, later: Invoice) -> Optional[Overlap]:
                        shared_lines, days, identical_total=True,
                        lines_compared=comparable)
 
-    # Not identical: only interesting if most of the smaller invoice reappears
-    # on the other one. A follow-on delivery of different material is normal
-    # and must stay silent.
+    # Not identical: only interesting if most of BOTH invoices is the same
+    # material. A follow-on delivery is normal and must stay silent.
     smaller = min(
         (earlier.total or ZERO, later.total or ZERO),
         key=lambda t: t if t > ZERO else Decimal("Infinity"),
     )
+    larger = max(earlier.total or ZERO, later.total or ZERO)
     if smaller <= ZERO or shared_lines == 0:
         return None
-    if shared_value < smaller * OVERLAP_FRACTION:
+    # Measured against the LARGER of the two, which is the whole point. A $158
+    # delivery of nails is entirely contained in a $12,975 delivery that also
+    # carried nails - every test below this one passes, and it is not a
+    # duplicate, it is Tuesday. Something that replaces an invoice has to
+    # account for most of what it replaces, so the shared material has to be a
+    # real share of the bigger piece of paper, not just of the smaller.
+    if shared_value < larger * OVERLAP_FRACTION:
         return None
     if not _rebills_everything(earlier, later):
         return None
