@@ -1215,7 +1215,10 @@ def test_with_no_address_and_no_assignee_it_says_so_rather_than_failing(client, 
     resp = client.post("/job/260000/ask-for-quote", follow_redirects=False,
                        data={"actor": "Jena", "to_address": ""})
     assert "err=" in resp.headers["location"]
-    assert "type+the+address" in resp.headers["location"]
+    # The fix is the assignment in JobNimbus, so that is what the message
+    # leads with. Typing an address is the escape hatch, not the instruction -
+    # and the sales rep is never an option at all.
+    assert "Assigned" in resp.headers["location"]
     assert can_email == []
 
 
