@@ -200,9 +200,20 @@ cost, and their policy on third-party SDK access.
 
 ## Restoring
 
-A backup is a plain zip: `finance.db` plus `documents/`. Put both back in
-`DATA_DIR` and restart. **Nobody has done a restore yet** — an untested backup
-is a guess, and this one is still a guess.
+A backup is a plain zip: `finance.db` plus `documents/`. Stop the app and run:
+
+    python scripts/restore_backup.py latest
+    python scripts/restore_backup.py <file.zip> --into /var/lib/finance-automation
+
+It refuses a zip that is not this app's database before it touches anything,
+moves the WAL sidecars aside (left in place, SQLite replays them over the
+restore and silently undoes it), and keeps whatever it replaced as
+`*.superseded-<stamp>` rather than deleting it.
+
+**Rehearsed end to end on 2026-09-08**: a populated data directory was deleted
+outright, restored from the zip, and the app started against it — job page,
+invoice figures and the original PDF all came back. It is a procedure now, not
+a hope. Worth repeating against production data before anyone relies on it.
 
 ## Money asked back
 
@@ -223,7 +234,6 @@ what was asked and what came back, grouped by vendor.
 - Custom domain `finance.addventuresinc.com` — not set up.
 - **Supabase is not wired up.** Until it is, the only copy off this server is
   one somebody downloads from `/backup`.
-- **No restore has ever been tested.**
 - Per-user accounts. One shared password means `Approval.actor` and
   `Dispute.raised_by` are whatever gets typed.
 

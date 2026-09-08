@@ -92,10 +92,14 @@
         check request and receipt.</li>
       <li><strong>documents/</strong> — every PDF and photograph as it arrived.</li>
     </ul>
-    <p>To restore, put <code>finance.db</code> and the contents of
-      <code>documents/</code> back into the app's data folder and restart it.
-      Keep at least one downloaded copy somewhere that is not this server —
-      that is the copy that survives losing the host.</p>
+    <p>To restore, stop the app and run:</p>
+    <pre style="overflow-x:auto"><code>python scripts/restore_backup.py latest</code></pre>
+    <p>It checks the backup is sound before it touches anything, and moves
+      whatever it replaces aside rather than deleting it. This has been
+      rehearsed end to end — data destroyed, restored, app started, documents
+      served — so it is a procedure rather than a hope.</p>
+    <p>Keep at least one downloaded copy somewhere that is not this server.
+      That is the copy that survives losing the host.</p>
   </div>
 </details>
 {% endblock %}
