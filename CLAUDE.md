@@ -25,8 +25,8 @@ the business around **job numbers**.
 |---|---|
 | Project on disk | `/home/user/finance-automation` — **not** the session cwd |
 | Git remote | `https://github.com/12zack9ai/ADDvent-Finance` (public, branch `main`) |
-| Live site | https://addvent-finance.onrender.com |
-| Intended address | https://finance.addventuresinc.com (see DNS below) |
+| Live site | **https://finance.addventuresinc.com** |
+| Also reachable at | https://addvent-finance.onrender.com |
 | Render service | `srv-dadeu67qj5pc738r1mk0` |
 | Render workspace | `tea-dadenqv40ujc73e18k1g` (`update_environment_variables` needs this) |
 | Data disk | `/var/lib/finance-automation`, 10 GB, `DATA_DIR` |
@@ -64,13 +64,16 @@ Editor for the domain — **that zone file is dead.** Nothing on the internet
 reads it. A record added there looks saved, shows up in the list, and never
 resolves. An hour went into this once; do not spend it again.
 
-`finance.addventuresinc.com` is meant to point at the app:
+`finance.addventuresinc.com` points at the app and is live as of 2026-09-08:
 
     CNAME   finance   ->   addvent-finance.onrender.com
 
 added at Register.com, then verified in the Render dashboard under the
 **service's** Settings (`/web/srv-.../settings`) — not the workspace settings,
 which have no custom-domain section at all.
+
+A dead CNAME for `finance` also sits in A2's cPanel zone. It does nothing.
+Delete it if it ever confuses anybody.
 
 Never move the nameservers to A2 to make this easier. The MX records point at
 Protected Harbor, and moving the nameservers takes the mailbox down with them.
@@ -122,10 +125,10 @@ model must never be the thing that decides whether `$4,182.60 != $4,128.60`.
 `LOAD_SAMPLES`, `SEED_SAMPLES`, `RESET_SAMPLES`,
 `QUICKBOOKS_ENABLED`, `QBWC_PASSWORD`.
 
-`BASE_URL` is set to `https://addvent-finance.onrender.com`. It decides whether
-the login cookie is marked Secure, and it is embedded in the QuickBooks `.qwc`
-file we hand to the IT company — so **change it to the custom domain the day
-that domain goes live**, before the `.qwc` is generated.
+`BASE_URL` is `https://finance.addventuresinc.com`. It decides whether the login
+cookie is marked Secure, and it is embedded in the QuickBooks `.qwc` file we
+hand to the IT company — so the `.qwc` must be generated from this value, not
+from the onrender.com address.
 
 **Sample data flags are all off and the app is empty of samples** as of
 2026-09-08 — Zack is loading real documents.
