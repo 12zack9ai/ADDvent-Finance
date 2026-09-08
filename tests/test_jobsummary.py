@@ -77,9 +77,10 @@ def _unquoted(total, vendor):
     return inv
 
 
-def line(sku="GAFT3PG", extended="1000.00", verdict=VERDICT_MATCH, desc=""):
+def line(sku="GAFT3PG", extended="1000.00", verdict=VERDICT_MATCH, desc="",
+         qty=None):
     return InvoiceLine(sku=sku, description=desc, extended=D(extended),
-                       verdict=verdict)
+                       verdict=verdict, qty=None if qty is None else D(qty))
 
 
 def invoice(total="10000.00", vendor="New Castle Building Products",
@@ -617,3 +618,46 @@ def test_a_correction_the_same_size_as_what_it_replaces_still_fires():
     s = jobsummary.build(job(quotes=[quote()], invoices=[wrong, fixed]))
     assert len(s.overlaps) == 1
     assert s.overlaps[0].shared_value == D("12480.00")
+
+
+def test_two_loads_of_the_same_shingle_are_told_apart_by_the_quantity():
+    """The last thing separating a replacement from a second delivery. Same
+    item, same yard, close in size - only the quantity says which it is. Two
+    loads of a different number of squares is a delivery schedule."""
+    first = invoice("12975.00", number="07RM0002825027-001", on=date(2026, 8, 20),
+                    lines=[line("SHG-TL-WW", "12975.00", qty="40")])
+    second = invoice("9731.25", number="07RM0002839989-001", on=date(2026, 9, 2),
+                     lines=[line("SHG-TL-WW", "9731.25", qty="30")])
+    s = jobsummary.build(job(quotes=[quote()], invoices=[first, second]))
+    assert s.overlaps == []
+
+
+def test_the_same_quantity_at_a_different_price_is_still_a_correction():
+    """40 squares billed twice, repriced. That is the case this whole file
+    exists for and the quantity guard must not touch it."""
+    wrong = invoice("12975.00", number="INV-1", on=date(2026, 9, 10),
+                    lines=[line("SHG-TL-WW", "12975.00", qty="40")])
+    fixed = invoice("12480.00", number="INV-2", on=date(2026, 9, 16),
+                    lines=[line("SHG-TL-WW", "12480.00", qty="40")])
+    s = jobsummary.build(job(quotes=[quote()], invoices=[wrong, fixed]))
+    assert len(s.overlaps) == 1
+
+
+def test_an_unread_quantity_does_not_silence_the_check():
+    """A quantity we never got off the page proves nothing, so it must not be
+    used as a reason to say nothing."""
+    wrong = invoice("12975.00", number="INV-1", on=date(2026, 9, 10),
+                    lines=[line("SHG-TL-WW", "12975.00")])
+    fixed = invoice("12480.00", number="INV-2", on=date(2026, 9, 16),
+                    lines=[line("SHG-TL-WW", "12480.00")])
+    s = jobsummary.build(job(quotes=[quote()], invoices=[wrong, fixed]))
+    assert len(s.overlaps) == 1
+
+
+def test_shared_items_reports_what_each_invoice_billed():
+    a = invoice("12975.00", lines=[line("SHG-TL-WW", "12975.00", qty="40")])
+    b = invoice("9731.25", lines=[line("SHG-TL-WW", "9731.25", qty="30")])
+    items = jobsummary.shared_items(a, b)
+    assert len(items) == 1
+    assert items[0].a_qty == D("40") and items[0].b_qty == D("30")
+    assert not items[0].same_quantity

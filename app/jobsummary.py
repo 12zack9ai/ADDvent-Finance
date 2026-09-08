@@ -447,6 +447,8 @@ def _compare(earlier: Invoice, later: Invoice) -> Optional[Overlap]:
         return None
     if not _rebills_everything(earlier, later):
         return None
+    if _quantities_disagree(earlier, later):
+        return None
 
     return Overlap(earlier, later, shared_value, shared_lines, days,
                    identical_total=False)
@@ -495,6 +497,92 @@ def _rebills_everything(a: Invoice, b: Invoice) -> bool:
     if not a_keys or not b_keys:
         return False
     return a_keys <= b_keys or b_keys <= a_keys
+
+
+@dataclass
+class SharedItem:
+    """One item that appears on both invoices, as each of them billed it."""
+
+    label: str
+    a_qty: Optional[Decimal]
+    b_qty: Optional[Decimal]
+    a_extended: Decimal
+    b_extended: Decimal
+
+    @property
+    def same_quantity(self) -> bool:
+        return (self.a_qty is not None and self.b_qty is not None
+                and self.a_qty == self.b_qty)
+
+
+def shared_items(a: Invoice, b: Invoice) -> list[SharedItem]:
+    """The items billed on both, so a person can see what was matched.
+
+    The compare screen exists because "$12,975.00 on both" is a claim, and a
+    claim about money should be shown rather than asserted.
+    """
+    def by_key(invoice: Invoice) -> dict[str, tuple[str, Optional[Decimal], Decimal]]:
+        out: dict[str, tuple[str, Optional[Decimal], Decimal]] = {}
+        for line in invoice.lines:
+            key = _line_key(line)
+            if not key:
+                continue
+            label = (line.description or line.sku or key).strip()
+            name, qty, ext = out.get(key, (label, None, ZERO))
+            if line.qty is not None:
+                qty = (qty or ZERO) + line.qty
+            out[key] = (name or label, qty, ext + (line.extended or ZERO))
+        return out
+
+    left, right = by_key(a), by_key(b)
+    items = []
+    for key, (label, qty, ext) in left.items():
+        if key not in right:
+            continue
+        _, other_qty, other_ext = right[key]
+        items.append(SharedItem(label, qty, other_qty, ext, other_ext))
+    items.sort(key=lambda i: -min(i.a_extended, i.b_extended))
+    return items
+
+
+def _quantities_disagree(a: Invoice, b: Invoice) -> bool:
+    """Do the shared items appear in different amounts on the two invoices?
+
+    The last thing separating a replacement from a second load of the same
+    material, and the one that survives a yard where every invoice shares
+    items with every other. An invoice that replaces another bills the same
+    quantities - that is what makes it the same delivery. A follow-on load
+    bills a different amount of the same thing.
+
+    Only ever used to stay quiet, and only on evidence: a quantity we do not
+    have proves nothing, so an unread quantity leaves the earlier tests to
+    decide rather than silencing them.
+    """
+    a_qty = _quantities(a)
+    b_qty = _quantities(b)
+    for key, qty in a_qty.items():
+        other = b_qty.get(key)
+        if other is None or qty is None:
+            continue
+        if qty != other:
+            return True
+    return False
+
+
+def _quantities(invoice: Invoice) -> dict[str, Optional[Decimal]]:
+    """How much of each item this invoice bills. None where it was not read."""
+    out: dict[str, Optional[Decimal]] = {}
+    for line in invoice.lines:
+        key = _line_key(line)
+        if not key:
+            continue
+        if line.qty is None:
+            out[key] = None
+        elif key in out and out[key] is not None:
+            out[key] = out[key] + line.qty
+        elif key not in out:
+            out[key] = line.qty
+    return out
 
 
 def _line_key(line) -> str:

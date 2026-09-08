@@ -791,6 +791,27 @@ def invoice_markup(invoice_id: int, request: Request, session: Session = Depends
     return HTMLResponse(_render_markup(request, invoice, print_mode=False))
 
 
+@app.get("/compare/{a_id}/{b_id}", response_class=HTMLResponse)
+def compare_invoices(a_id: int, b_id: int, request: Request,
+                     session: Session = Depends(get_session)):
+    """Two invoices the roll-up thinks bill the same material, side by side.
+
+    The job page can only assert it - "$12,975.00 on both" - and an assertion
+    about money is the one thing a person cannot act on. Here they see what
+    was actually matched, and both original invoices as they arrived.
+    """
+    a = session.get(Invoice, a_id)
+    b = session.get(Invoice, b_id)
+    if a is None or b is None:
+        return _redirect("/jobs", err="No such invoice.")
+    if a.job_id != b.job_id:
+        return _redirect("/jobs", err="Those two invoices are on different jobs.")
+    return templates.TemplateResponse(request, "compare.html", _ctx(
+        request, session,
+        job=a.job, a=a, b=b, items=jobsummary.shared_items(a, b),
+    ))
+
+
 @app.get("/invoice/{invoice_id}/pdf")
 def download_invoice_pdf(invoice_id: int, request: Request, session: Session = Depends(get_session)):
     invoice = session.get(Invoice, invoice_id)

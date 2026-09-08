@@ -1070,8 +1070,9 @@ def test_ordering_more_material_at_the_quoted_price_raises_nothing(client, tmp_p
     page = client.get("/job/260000")
     assert "$30,125.00" in page.text
     assert "more than quoted, at quoted prices" in page.text
-    # And no alarm, even though billed is nearly double quoted.
-    assert "Money on this job with no quoted price behind it" not in page.text
+    # And no alarm, even though billed is nearly double quoted: every line
+    # traced back to a quoted price, which is the only question being asked.
+    assert "every line traced" in page.text
 
 
 def test_but_unquoted_material_on_the_same_job_is_raised(client, tmp_path):
@@ -1091,9 +1092,12 @@ def test_but_unquoted_material_on_the_same_job_is_raised(client, tmp_path):
     upload(client, _pdf(tmp_path, "i.pdf", "unq-i"), mixed, job_number="260000")
 
     page = client.get("/job/260000")
-    assert "Money on this job with no quoted price behind it" in page.text
+    # On the tile at the top, not in a row of its own. Zack, on the row that
+    # used to be here: "I click view and it goes to the bottom of the page.
+    # It's just useless. Doesn't even need to be on there."
+    assert "Not on the quote" in page.text
     assert "$6,075.00" in page.text
-    assert "off-quote items" in page.text
+    assert "1 line" in page.text
 
 
 # --- the button: a person asking for the quote -----------------------------

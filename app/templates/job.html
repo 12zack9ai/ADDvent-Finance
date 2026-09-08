@@ -69,7 +69,7 @@
       "what": "Two invoices look like the same material",
       "sub": o.earlier.invoice_number ~ " and " ~ o.later.invoice_number ~
              " — " ~ (o.shared_value | money) ~ " on both. Reject one if it replaced the other.",
-      "go": "Compare", "href": "/invoice/" ~ o.later.id }) %}
+      "go": "Compare", "href": "/compare/" ~ o.earlier.id ~ "/" ~ o.later.id }) %}
 {% endfor %}
 
 {% for inv in invoices %}
@@ -98,13 +98,6 @@
     {% endif %}
   {% endfor %}
 {% endfor %}
-
-{% if s.needs_explaining and s.unexplained > 0 %}
-  {% set _ = needs.append({
-      "what": "Money on this job with no quoted price behind it",
-      "sub": (s.unexplained | money) ~ " — off-quote items, or a price above the quote.",
-      "go": "See", "href": "#quotes" }) %}
-{% endif %}
 
 {% if proposed %}
   {% set _ = needs.append({

@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Compare · {{ site_name }}{% endblock %}
+
+{# The note on the job page says two invoices bill the same material. That is a
+   claim about money, and a claim about money has to be shown. So: what the
+   system matched, then both original invoices, on one screen. #}
+{% block content %}
+<div class="pagehead">
+  <div>
+    <div class="muted"><a href="/job/{{ job.job_number }}">Job {{ job.job_number }}</a> &rsaquo;</div>
+    <h1>Are these the same delivery?</h1>
+    <p class="sub">{{ a.vendor or "Unknown vendor" }} &middot; both invoices below, as they arrived.</p>
+  </div>
+</div>
+
+<div class="cmp-heads">
+  {% for inv in [a, b] %}
+  <div class="cmp-head">
+    <div class="cmp-num">{{ inv.invoice_number or ("#" ~ inv.id) }}</div>
+    <div class="cmp-meta">{{ inv.total | money }}
+      &middot; {{ inv.invoice_date.strftime("%d %b %Y") if inv.invoice_date else "no date" }}</div>
+    <a class="btn" href="/invoice/{{ inv.id }}">Open this one</a>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="panel" style="padding:0;overflow-x:auto">
+  <table class="grid stack">
+    <thead>
+      <tr>
+        <th>Item on both</th>
+        <th class="r">{{ a.invoice_number or a.id }}</th>
+        <th class="r">{{ b.invoice_number or b.id }}</th>
+        <th>Same amount?</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr>
+        <td data-l="Item">{{ item.label }}</td>
+        <td class="r" data-l="{{ a.invoice_number or a.id }}">
+          {{ item.a_extended | money }}{% if item.a_qty is not none %}
+            <span class="muted"> &middot; {{ item.a_qty | qty }}</span>{% endif %}</td>
+        <td class="r" data-l="{{ b.invoice_number or b.id }}">
+          {{ item.b_extended | money }}{% if item.b_qty is not none %}
+            <span class="muted"> &middot; {{ item.b_qty | qty }}</span>{% endif %}</td>
+        <td data-l="Same amount?">
+          {% if item.a_qty is none or item.b_qty is none %}
+            <span class="chip">quantity not read</span>
+          {% elif item.same_quantity %}
+            <span class="chip c-over">same quantity</span>
+          {% else %}
+            <span class="chip c-ok">different quantity</span>
+          {% endif %}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted">Nothing appears on both.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<p class="sub" style="margin:14px 2px 18px">
+  Same item in the <strong>same quantity</strong> on both is a duplicate.
+  Different quantities are two deliveries of the same material, which is normal.
+</p>
+
+<div class="cmp-docs">
+  {% for inv in [a, b] %}
+  <div class="cmp-doc">
+    <div class="cmp-doc-h">{{ inv.invoice_number or ("#" ~ inv.id) }}</div>
+    <iframe src="/document/{{ inv.document_id }}/file" title="{{ inv.invoice_number }}"></iframe>
+    <a class="btn cmp-open" href="/document/{{ inv.document_id }}/file" target="_blank">
+      Open the PDF</a>
+  </div>
+  {% endfor %}
+</div>
+
+<style>
+.cmp-heads{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+  gap:12px;margin:0 0 16px}
+.cmp-head{background:var(--card);border:1px solid var(--rule);border-radius:var(--r);
+  padding:14px 16px;min-width:0}
+.cmp-num{font-weight:700;font-size:16px;word-break:break-word}
+.cmp-meta{color:var(--soft);margin:2px 0 10px}
+.cmp-docs{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:0 0 24px}
+.cmp-doc{background:var(--card);border:1px solid var(--rule);border-radius:var(--r);
+  overflow:hidden;min-width:0;display:flex;flex-direction:column}
+.cmp-doc-h{padding:10px 14px;border-bottom:1px solid var(--rule);font-weight:600;
+  word-break:break-word}
+.cmp-doc iframe{width:100%;height:70vh;border:0;background:#fff}
+.cmp-open{display:none;margin:12px}
+/* A phone cannot show two PDFs at once, and a 40px-wide page is worse than no
+   page. Below this width the table above is the comparison, and each invoice
+   opens full screen on its own. */
+@media (max-width:900px){
+  .cmp-docs{grid-template-columns:1fr}
+  .cmp-doc iframe{display:none}
+  .cmp-open{display:inline-block}
+}
+</style>
+{% endblock %}
