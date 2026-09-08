@@ -26,6 +26,7 @@ the business around **job numbers**.
 | Project on disk | `/home/user/finance-automation` — **not** the session cwd |
 | Git remote | `https://github.com/12zack9ai/ADDvent-Finance` (public, branch `main`) |
 | Live site | https://addvent-finance.onrender.com |
+| Intended address | https://finance.addventuresinc.com (see DNS below) |
 | Render service | `srv-dadeu67qj5pc738r1mk0` |
 | Render workspace | `tea-dadenqv40ujc73e18k1g` (`update_environment_variables` needs this) |
 | Data disk | `/var/lib/finance-automation`, 10 GB, `DATA_DIR` |
@@ -51,6 +52,28 @@ Mail hosting is run by **Protected Harbor**, the IT company. Contact there:
 > is the source of truth for live configuration**, not `.env`. Do not read
 > `.env` and report it as the running config — that mistake has already been
 > made once and produced two wrong answers to Zack.
+
+## DNS — read this before touching a domain record
+
+**The authoritative nameservers for `addventuresinc.com` are Register.com**
+(`dns101.register.com`, `dns102.register.com`). Every DNS record has to be made
+there.
+
+A2 Hosting serves the website at `68.66.224.16` and its cPanel has a Zone
+Editor for the domain — **that zone file is dead.** Nothing on the internet
+reads it. A record added there looks saved, shows up in the list, and never
+resolves. An hour went into this once; do not spend it again.
+
+`finance.addventuresinc.com` is meant to point at the app:
+
+    CNAME   finance   ->   addvent-finance.onrender.com
+
+added at Register.com, then verified in the Render dashboard under the
+**service's** Settings (`/web/srv-.../settings`) — not the workspace settings,
+which have no custom-domain section at all.
+
+Never move the nameservers to A2 to make this easier. The MX records point at
+Protected Harbor, and moving the nameservers takes the mailbox down with them.
 
 ## Rules Zack has set
 
@@ -98,6 +121,11 @@ model must never be the thing that decides whether `$4,182.60 != $4,128.60`.
 `ASK_FOR_JOB_NUMBER`, `ASK_FOR_QUOTE`, `REQUIRE_RECEIPT`,
 `LOAD_SAMPLES`, `SEED_SAMPLES`, `RESET_SAMPLES`,
 `QUICKBOOKS_ENABLED`, `QBWC_PASSWORD`.
+
+`BASE_URL` is set to `https://addvent-finance.onrender.com`. It decides whether
+the login cookie is marked Secure, and it is embedded in the QuickBooks `.qwc`
+file we hand to the IT company — so **change it to the custom domain the day
+that domain goes live**, before the `.qwc` is generated.
 
 **Sample data flags are all off and the app is empty of samples** as of
 2026-09-08 — Zack is loading real documents.
