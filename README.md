@@ -222,6 +222,20 @@ back out in one command:
 .venv/bin/python scripts/seed_samples.py --remove
 ```
 
+To empty an install of **everything** sample - the 269xxx band and the documents
+loaded from `samples/` - before real work starts:
+
+```bash
+.venv/bin/python scripts/reset_samples.py            # say what would go
+.venv/bin/python scripts/reset_samples.py --confirm  # do it
+```
+
+or set `RESET_SAMPLES=true`, which runs it once on the next start and is the
+only way to reach a hosted install. It finds the ingested samples by the
+**content hash of the files this repository ships**, never by job number:
+`260000` is the first real job of 2026 as well as the job those samples were
+loaded into, and a job is only removed if nothing else is left on it.
+
 Nothing else is touched. Add them by hand with `scripts/seed_samples.py`, or
 leave `SEED_SAMPLES` set and the app writes them once on first start.
 

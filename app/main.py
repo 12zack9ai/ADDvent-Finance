@@ -168,12 +168,16 @@ async def _startup() -> None:
     # document store rather than needing a second service with its own disk.
     scheduler.start()
 
-    if settings.load_samples:
+    # Before either loader, and it turns both off for this boot: an install
+    # being emptied must not have samples put back into it on the way past.
+    if settings.reset_samples:
+        asyncio.get_running_loop().run_in_executor(None, _reset_samples_once)
+    elif settings.load_samples:
         # Off the startup path: reading four documents takes about ninety
         # seconds, and blocking here would fail the host's health check.
         asyncio.get_running_loop().run_in_executor(None, _load_samples_once)
 
-    if settings.seed_samples:
+    if settings.seed_samples and not settings.reset_samples:
         asyncio.get_running_loop().run_in_executor(None, _seed_samples_once)
 
 
@@ -185,6 +189,19 @@ def _load_samples_once() -> None:
         log.warning("SAMPLES: %s", load())
     except Exception as exc:                          # noqa: BLE001
         log.warning("SAMPLES: failed - %s", exc)
+
+
+def _reset_samples_once() -> None:
+    """Empty the app of samples. Idempotent - a second run finds nothing."""
+    from scripts.reset_samples import wipe
+    from app.db import SessionLocal
+
+    log = logging.getLogger("finance")
+    try:
+        with SessionLocal() as session:
+            log.warning("RESET: %s", wipe(session))
+    except Exception as exc:                          # noqa: BLE001
+        log.warning("RESET: failed - %s", exc)
 
 
 def _seed_samples_once() -> None:

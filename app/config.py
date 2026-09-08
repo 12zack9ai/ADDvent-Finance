@@ -80,6 +80,15 @@ class Settings:
     #   python scripts/seed_samples.py --remove
     seed_samples: bool = _bool("SEED_SAMPLES", False)
 
+    # Empties the app of every sample, on the next start. The only way to
+    # reach a hosted install, which has no shell. Runs before anything else
+    # and stops the seeder for that boot, so the two cannot fight.
+    #
+    # Safe to leave on: it removes the reserved 269xxx band and documents
+    # whose content hash matches a file this repository ships, and nothing
+    # else. A real document cannot collide with one.
+    reset_samples: bool = _bool("RESET_SAMPLES", False)
+
     # --- QuickBooks Desktop ------------------------------------------------
     # There is no cloud API. QuickBooks calls us, through the Web Connector
     # running on a Windows machine beside the company file - so these are

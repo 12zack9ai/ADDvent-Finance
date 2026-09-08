@@ -98,6 +98,13 @@ services:
       # documents start arriving. Set to "false" - or run
       # `python scripts/seed_samples.py --remove` - to clear them out.
       - key: SEED_SAMPLES
+        value: "false"
+
+      # One-shot: empties the app of every sample on the next start. The only
+      # way to reach a hosted install, which has no shell. Safe to leave on -
+      # it removes the reserved 269xxx band and documents whose content hash
+      # matches a file this repository ships, and nothing else.
+      - key: RESET_SAMPLES
         value: "true"
 
       # Render's Python image has no Chromium, so the marked-up PDF is produced
