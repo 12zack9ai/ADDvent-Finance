@@ -195,6 +195,85 @@ def _matches(record: dict, job_number: str) -> bool:
     return bool(found) and found.strip() == job_number.strip()
 
 
+# --- settling the field names ---------------------------------------------
+
+@dataclass
+class Finding:
+    """What one lookup actually returned, for a person to read.
+
+    The candidate lists above exist because the real key names could not be
+    confirmed when this was written. Trimming them needs a real response from
+    the real account - and this sandbox cannot reach JobNimbus at all, so the
+    lookup has to happen somewhere that can. The app's own server can, which
+    is why this is a function rather than only a script.
+    """
+
+    job_number: str
+    error: str = ""
+    records: int = 0
+    exact: int = 0
+    keys: list[tuple[str, str, str]] = field(default_factory=list)   # name, type, preview
+    matched: list[tuple[str, str]] = field(default_factory=list)     # label, value
+    owners: dict = field(default_factory=dict)
+    assignment: Optional["Assignment"] = None
+    payload_keys: list[str] = field(default_factory=list)
+
+    @property
+    def found(self) -> bool:
+        return self.records > 0 and not self.error
+
+
+def probe(job_number: str) -> Finding:
+    """Ask about one job and report what came back, without interpreting it.
+
+    Read-only: one GET, nothing written anywhere. The result carries a
+    customer's name and address, so it belongs on a screen behind the login
+    and not in a ticket.
+    """
+    number = (job_number or "").strip()
+    finding = Finding(job_number=number)
+    if not configured():
+        finding.error = "No JOBNIMBUS_API_KEY is set."
+        return finding
+
+    try:
+        payload = _request("jobs", {"filter": number, "size": 25})
+    except JobNimbusError as exc:
+        finding.error = str(exc)
+        return finding
+
+    records = _records(payload)
+    finding.records = len(records)
+    if not records:
+        if isinstance(payload, dict):
+            finding.payload_keys = sorted(payload)
+        return finding
+
+    exact = [r for r in records if _matches(r, number)]
+    finding.exact = len(exact)
+    record = (exact or records)[0]
+
+    for key in sorted(record):
+        value = record[key]
+        preview = value if isinstance(value, str) else json.dumps(value)
+        finding.keys.append((key, type(value).__name__, preview[:120]))
+
+    for label, keys in (
+        ("job number", JOB_NUMBER_KEYS),
+        ("job name", JOB_NAME_KEYS),
+        ("rep name", FLAT_NAME_KEYS),
+        ("rep email", FLAT_EMAIL_KEYS),
+    ):
+        finding.matched.append((label, _first(record, keys)))
+
+    for key in OWNER_LIST_KEYS:
+        if record.get(key):
+            finding.owners[key] = record[key]
+
+    finding.assignment = _assignment_from(record, number)
+    return finding
+
+
 def find_job(job_number: str) -> Optional[Assignment]:
     """The JobNimbus job with this number, and who it is assigned to.
 

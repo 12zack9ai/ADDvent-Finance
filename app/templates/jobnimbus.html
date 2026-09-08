@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}JobNimbus · {{ site_name }}{% endblock %}
+
+{# Not a feature - a one-time diagnostic. app/jobnimbus.py reads every field
+   through a list of candidate names because JobNimbus publishes a Postman
+   collection rather than a specification. One real lookup settles which keys
+   exist, and this server can reach JobNimbus where a laptop or a sandbox may
+   not. #}
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>JobNimbus</h1>
+    <p class="sub">Look up one job and see exactly what comes back.</p>
+  </div>
+</div>
+
+{% if not configured %}
+<div class="panel">
+  <div class="empty">
+    <div class="big">No API key yet.</div>
+    Set <code>JOBNIMBUS_API_KEY</code> and reload. Until then nothing here
+    makes a request, and the rest of the app carries on without it.
+  </div>
+</div>
+{% else %}
+
+<div class="panel">
+  <form method="get" action="/jobnimbus" class="row" style="align-items:flex-end">
+    <label class="fld" style="flex:1;min-width:220px"><span>Job number</span>
+      <input name="job" type="text" value="{{ number }}" placeholder="241640"></label>
+    <button class="btn" type="submit">Look it up</button>
+  </form>
+  <p class="muted" style="margin-top:10px">Read-only. One request, nothing written.</p>
+</div>
+
+{% if finding %}
+  {% if finding.error %}
+    <div class="needs">
+      <div class="needs-row"><div class="needs-what">JobNimbus refused
+        <span class="muted">{{ finding.error }}</span></div></div>
+    </div>
+  {% elif not finding.found %}
+    <div class="panel">
+      <div class="empty">
+        <div class="big">Nothing came back for {{ finding.job_number }}.</div>
+        {% if finding.payload_keys %}
+          The response carried: {{ finding.payload_keys | join(", ") }}
+        {% endif %}
+      </div>
+    </div>
+  {% else %}
+    <div class="prog-stats">
+      <div class="score">
+        <span class="score-k">Records</span>
+        <span class="score-v">{{ finding.records }}</span>
+        <span class="score-n">{{ finding.exact }} with that exact number</span>
+      </div>
+      <div class="score{{ ' good' if finding.assignment and finding.assignment.usable }}">
+        <span class="score-k">Who owns it</span>
+        <span class="score-v">{{ finding.assignment.person_name or "—" }}</span>
+        <span class="score-n">{{ finding.assignment.email or "no email found" }}</span>
+      </div>
+    </div>
+
+    <div class="panel" style="padding:0;overflow-x:auto">
+      <div style="padding:18px 20px 6px"><h2 style="margin:0">What the app matched</h2></div>
+      <table class="grid">
+        <thead><tr><th>Field</th><th>Value</th></tr></thead>
+        <tbody>
+          {% for label, value in finding.matched %}
+          <tr><td>{{ label }}</td>
+            <td>{% if value %}<strong>{{ value }}</strong>
+                {% else %}<span class="chip c-over">nothing matched</span>{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <details class="more" open>
+      <summary>Every key on the record <span class="more-count">{{ finding.keys|length }}</span></summary>
+      <div class="more-body">
+        <table class="grid">
+          <thead><tr><th>Key</th><th>Type</th><th>Value</th></tr></thead>
+          <tbody>
+            {% for name, kind, preview in finding.keys %}
+            <tr><td><code>{{ name }}</code></td><td class="muted">{{ kind }}</td>
+              <td class="muted">{{ preview }}</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+
+    {% if finding.owners %}
+    <details class="more">
+      <summary>Owner lists <span class="more-count">{{ finding.owners|length }}</span></summary>
+      <div class="more-body">
+        {% for key, value in finding.owners.items() %}
+          <p><code>{{ key }}</code></p>
+          <pre style="overflow-x:auto">{{ value | tojson(indent=2) }}</pre>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+  {% endif %}
+{% endif %}
+{% endif %}
+{% endblock %}

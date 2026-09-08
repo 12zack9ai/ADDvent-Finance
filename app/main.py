@@ -485,6 +485,24 @@ def dispute_close(dispute_id: int, outcome: str = Form(""),
     return _redirect("/disputes", ok=f"{dispute.vendor}: {DISPUTE_LABELS[outcome].lower()}.")
 
 
+@app.get("/jobnimbus", response_class=HTMLResponse)
+def jobnimbus_probe_page(request: Request, session: Session = Depends(get_session)):
+    """One JobNimbus lookup, shown raw.
+
+    The candidate field lists in app/jobnimbus.py exist because their API is
+    published as a Postman collection rather than a specification. Trimming
+    them needs one real response - and this server can reach JobNimbus where a
+    laptop or a sandbox may not, which is why the probe lives here as well as
+    in scripts/jobnimbus_probe.py.
+    """
+    number = (request.query_params.get("job") or "").strip()
+    finding = jobnimbus.probe(number) if number else None
+    return templates.TemplateResponse(request, "jobnimbus.html", _ctx(
+        request, session,
+        number=number, finding=finding, configured=jobnimbus.configured(),
+    ))
+
+
 @app.get("/backup", response_class=HTMLResponse)
 def backup_page(request: Request, session: Session = Depends(get_session)):
     """Every copy of the business, and how to take one right now.

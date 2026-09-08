@@ -247,3 +247,65 @@ def test_nothing_is_sent_without_smtp(monkeypatch, sendable):
     monkeypatch.setattr(settings, "can_send_mail", lambda: False)
     assert mail_send.ask_for_quote(_Job(), _Invoice(), _assignment()) is None
     assert sendable == []
+
+
+# --- the in-app probe ------------------------------------------------------
+# The candidate field lists exist because JobNimbus publishes a Postman
+# collection rather than a specification. Trimming them needs one real
+# response, and the machine this was written on cannot reach JobNimbus at all -
+# so the lookup has to be runnable from the app's own server.
+
+def test_the_probe_reports_a_missing_key_rather_than_calling_out(monkeypatch):
+    monkeypatch.setattr(settings, "jobnimbus_api_key", "")
+
+    def never(*_a, **_k):
+        raise AssertionError("must not reach the network without a key")
+
+    monkeypatch.setattr(jobnimbus, "_request", never)
+    finding = jobnimbus.probe("241640")
+    assert "JOBNIMBUS_API_KEY" in finding.error
+    assert not finding.found
+
+
+def test_the_probe_lists_every_key_that_came_back(monkeypatch):
+    monkeypatch.setattr(settings, "jobnimbus_api_key", "key")
+    monkeypatch.setattr(jobnimbus, "_request", lambda *_a, **_k: {"results": [{
+        "number": "241640",
+        "name": "Parkside at Wanaque",
+        "sales_rep_name": "Dana Vine",
+        "sales_rep_email": "dana@addventuresinc.com",
+        "owners": [{"id": "u1", "email": "dana@addventuresinc.com"}],
+    }]})
+
+    finding = jobnimbus.probe("241640")
+    assert finding.found and finding.records == 1 and finding.exact == 1
+    names = [k for k, _kind, _preview in finding.keys]
+    assert "sales_rep_email" in names and "owners" in names
+    assert dict(finding.matched)["rep email"] == "dana@addventuresinc.com"
+    assert "owners" in finding.owners
+    assert finding.assignment.usable
+
+
+def test_the_probe_says_which_candidates_found_nothing(monkeypatch):
+    """The point of the exercise. A field that matched no candidate is the
+    thing to go and fix, so it has to be visible rather than blank."""
+    monkeypatch.setattr(settings, "jobnimbus_api_key", "key")
+    monkeypatch.setattr(jobnimbus, "_request", lambda *_a, **_k: {"results": [{
+        "number": "241640", "some_custom_field_17": "Dana Vine",
+    }]})
+
+    finding = jobnimbus.probe("241640")
+    assert dict(finding.matched)["rep email"] == ""
+    assert finding.assignment is not None and not finding.assignment.usable
+
+
+def test_a_refusal_from_jobnimbus_is_reported_not_raised(monkeypatch):
+    monkeypatch.setattr(settings, "jobnimbus_api_key", "key")
+
+    def refuse(*_a, **_k):
+        raise jobnimbus.JobNimbusError("401 Unauthorized")
+
+    monkeypatch.setattr(jobnimbus, "_request", refuse)
+    finding = jobnimbus.probe("241640")
+    assert finding.error == "401 Unauthorized"
+    assert not finding.found

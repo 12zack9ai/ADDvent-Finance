@@ -224,8 +224,13 @@ what was asked and what came back, grouped by vendor.
 
 ## Still open
 
-- **JobNimbus API key** — site-wide, expected from Zack. Then run
-  `scripts/jobnimbus_probe.py <real job number>` once to pin the field names.
+- **JobNimbus API key** — site-wide, expected from Zack. Set
+  `JOBNIMBUS_API_KEY` on Render, then open **`/jobnimbus`** and look up a real
+  job number. It prints every key on the record and says which of the
+  candidate field lists in `app/jobnimbus.py` matched nothing — trim them to
+  what is really there. `scripts/jobnimbus_probe.py` does the same from a
+  terminal, but this sandbox cannot reach `app.jobnimbus.com` at all, so the
+  page is the reliable route.
 - Do subs bill **AIA-style (G702/G703)** or a flat percentage of one contract
   number? This gates sub email ingestion.
 - Customer-side change orders — specified in `docs/subcontractor-check-requests.md`,
