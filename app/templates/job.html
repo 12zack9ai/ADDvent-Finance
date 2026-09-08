@@ -148,7 +148,8 @@
         <td style="padding-left:20px">
           <a href="/invoice/{{ inv.id }}" style="font-weight:700">
             {{ inv.invoice_number or ("Invoice #" ~ inv.id) }}</a></td>
-        <td data-l="Vendor">{{ inv.vendor or "—" }}</td>
+        <td data-l="Vendor">{{ inv.vendor or "—" }}
+          {% if inv.id in sub_ids %}<span class="chip c-info">sub</span>{% endif %}</td>
         <td class="muted" data-l="Date">{{ inv.invoice_date or "—" }}</td>
         <td class="r" data-l="Total" style="font-weight:700">{{ inv.total | money }}</td>
         <td class="r" data-l="Vs. quote">
@@ -295,7 +296,8 @@
     </div>
     {% endfor %}
     <p class="muted" style="margin-top:12px">
-      <a href="/sub-invoices">All subcontractor invoices</a></p>
+      <a href="/sub-invoices?job={{ job.job_number }}">This job's subcontractor invoices</a>
+      &middot; <a href="/sub-invoices">every job</a></p>
   </div>
 </details>
 {% endif %}

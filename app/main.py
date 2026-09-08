@@ -544,6 +544,7 @@ def job_detail(job_number: str, request: Request, session: Session = Depends(get
 
     invoices = sorted(job.invoices, key=lambda i: (i.invoice_date or i.created_at.date(), i.id))
     superseded = [q for q in job.quotes if not q.is_master]
+    positions = subs.positions(job)
 
     return templates.TemplateResponse(request, "job.html", _ctx(
         request, session,
@@ -557,7 +558,12 @@ def job_detail(job_number: str, request: Request, session: Session = Depends(get
         chase_wait=chase_cooldown_left(job),
         can_send_mail=settings.can_send_mail(),
         jobnimbus_on=jobnimbus.configured(),
-        subs=subs.positions(job),
+        subs=positions,
+        # Which rows in the invoice table are a subcontractor's rather than a
+        # supply house's. They arrive through the identical pipeline and sit in
+        # the same table, so without this the two departments are
+        # indistinguishable on the one page that shows both.
+        sub_ids={inv.id for p in positions for inv in p.invoices},
         require_receipt=settings.require_receipt,
         outcomes=JOB_OUTCOMES,
     ))
@@ -1159,7 +1165,11 @@ def sub_invoice_queue(request: Request, session: Session = Depends(get_session))
     of them: grouped by who, with the running total against the award, because
     a contract is a ceiling and an invoice list is not.
     """
+    only = (request.query_params.get("job") or "").strip()
     jobs = _subcontract_jobs(session)
+    if only:
+        wanted = normalize_job_number(only)
+        jobs = [j for j in jobs if j.job_number == wanted]
 
     rows = []
     for job in jobs:
@@ -1171,6 +1181,7 @@ def sub_invoice_queue(request: Request, session: Session = Depends(get_session))
     return templates.TemplateResponse(request, "sub_invoices.html", _ctx(
         request, session,
         rows=rows,
+        only_job=only,
         awarded=sum((p.awarded for _, p in rows), ZERO),
         billed=sum((p.billed for _, p in rows), ZERO),
         pending=sum((p.pending for _, p in rows), ZERO),

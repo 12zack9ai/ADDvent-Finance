@@ -4,8 +4,11 @@
 {% block content %}
 <div class="pagehead">
   <div>
+    {% if only_job %}<div class="muted"><a href="/job/{{ only_job }}">Job {{ only_job }}</a> &rsaquo;</div>{% endif %}
     <h1>Subcontractor invoices</h1>
-    <p class="sub">Billed against what they were awarded.</p>
+    <p class="sub">Billed against what they were awarded.
+      {%- if only_job %} Job {{ only_job }} only &mdash;
+        <a href="/sub-invoices">show every job</a>.{% endif %}</p>
   </div>
   <div>
     <a class="btn" href="/upload?sub=1">Upload</a>
@@ -16,7 +19,8 @@
 {% if not rows %}
   <div class="panel">
     <div class="empty">
-      <div class="big">No subcontracts on file.</div>
+      <div class="big">{% if only_job %}No subcontractor on job {{ only_job }}.
+        {% else %}No subcontracts on file.{% endif %}</div>
       Upload a sub's contract against its job number and their invoices are
       checked against it.
       <div style="margin-top:14px">
