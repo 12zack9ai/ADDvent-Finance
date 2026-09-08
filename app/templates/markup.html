@@ -230,6 +230,11 @@
   </div>
   <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
     <a href="/document/{{ invoice.document_id }}/file" target="_blank">Original invoice</a>
+    {% if not print_mode and invoice.overbilled_amount and invoice.overbilled_amount > 0 %}
+      {# The step that turns a finding into money. Without it the checking
+         produces a number nobody acts on. #}
+      <a class="btn" href="/invoice/{{ invoice.id }}/dispute">Ask for it back</a>
+    {% endif %}
     {% if server_pdf %}
       <a class="btn" href="/invoice/{{ invoice.id }}/pdf">Download PDF</a>
     {% else %}

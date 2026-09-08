@@ -20,7 +20,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app import (
-    accounting, alerts, auth, backup, cashflow, cashflow_pdf, checks, costing, fmt,
+    accounting, alerts, auth, backup, cashflow, cashflow_pdf, checks, costing,
+    disputes, fmt,
     invoice_pdf, jobnimbus, jobsummary, purchases, scheduler, subs, trust,
     watchdog,
 )
@@ -53,6 +54,12 @@ from app.models import (
     JOB_OUTCOMES,
     CHECK_PURPOSE_LABELS,
     CheckRequest,
+    DISPUTE_CREDITED,
+    DISPUTE_DROPPED,
+    DISPUTE_LABELS,
+    DISPUTE_OPEN,
+    DISPUTE_REFUSED,
+    Dispute,
     CO_APPROVED,
     CO_PROPOSED,
     CO_REJECTED,
@@ -378,6 +385,104 @@ def healthz() -> dict:
         # things that have to be reportable from outside.
         "watchdog": watchdog.status(),
     }
+
+
+@app.get("/invoice/{invoice_id}/dispute", response_class=HTMLResponse)
+def dispute_draft(invoice_id: int, request: Request,
+                  session: Session = Depends(get_session)):
+    """The letter asking a vendor for the difference back.
+
+    Not sent from here. This app writes to our own domain and nowhere else,
+    and a dispute is the last thing that should go out unread.
+    """
+    invoice = session.get(Invoice, invoice_id)
+    if invoice is None:
+        return _redirect("/jobs", err="No such invoice.")
+
+    draft = disputes.build(invoice)
+    raised = session.scalars(
+        select(Dispute).where(Dispute.invoice_id == invoice.id)
+        .order_by(Dispute.raised_at.desc())
+    ).all()
+
+    return templates.TemplateResponse(request, "dispute.html", _ctx(
+        request, session,
+        invoice=invoice, job=invoice.job, draft=draft,
+        letter=disputes.letter(draft), raised=raised,
+    ))
+
+
+@app.post("/invoice/{invoice_id}/dispute")
+def dispute_raise(invoice_id: int, request: Request,
+                  who: str = Form(""), note: str = Form(""),
+                  session: Session = Depends(get_session)):
+    invoice = session.get(Invoice, invoice_id)
+    if invoice is None:
+        return _redirect("/jobs", err="No such invoice.")
+
+    draft = disputes.build(invoice)
+    if not draft.worth_sending:
+        return _redirect(f"/invoice/{invoice.id}",
+                         err="Nothing on this invoice is above the quote.")
+
+    session.add(Dispute(
+        invoice_id=invoice.id,
+        vendor=invoice.vendor or "",
+        amount=draft.total,
+        raised_by=who.strip(),
+        note=note.strip(),
+    ))
+    session.commit()
+    return _redirect("/disputes",
+                     ok=f"Recorded: {fmt.money(draft.total)} asked back from "
+                        f"{invoice.vendor or 'the vendor'}.")
+
+
+@app.get("/disputes", response_class=HTMLResponse)
+def dispute_list(request: Request, session: Session = Depends(get_session)):
+    """What we have asked for, what came back, and who keeps doing it."""
+    rows = session.scalars(
+        select(Dispute).order_by(Dispute.raised_at.desc())
+    ).all()
+    return templates.TemplateResponse(request, "disputes.html", _ctx(
+        request, session,
+        disputes=rows,
+        history=disputes.history(list(rows)),
+        asked=sum((d.amount or ZERO for d in rows), ZERO),
+        recovered=sum((d.credited or ZERO for d in rows
+                       if d.status == DISPUTE_CREDITED), ZERO),
+        waiting=sum((d.amount or ZERO for d in rows if d.is_open), ZERO),
+    ))
+
+
+@app.post("/dispute/{dispute_id}")
+def dispute_close(dispute_id: int, outcome: str = Form(""),
+                  credited: str = Form(""), note: str = Form(""),
+                  session: Session = Depends(get_session)):
+    dispute = session.get(Dispute, dispute_id)
+    if dispute is None:
+        return _redirect("/disputes", err="No such dispute.")
+    if outcome not in (DISPUTE_CREDITED, DISPUTE_REFUSED, DISPUTE_DROPPED,
+                       DISPUTE_OPEN):
+        return _redirect("/disputes", err="Unknown outcome.")
+
+    if outcome == DISPUTE_CREDITED:
+        amount = to_decimal(credited)
+        if amount is None:
+            # Refused by name rather than silently treated as nothing: a
+            # credit recorded as zero would understate what the checking
+            # recovered, which is the one number this page exists to report.
+            return _redirect("/disputes",
+                             err=f"Could not read {credited!r} as an amount.")
+        dispute.credited = amount
+    else:
+        dispute.credited = None
+
+    dispute.status = outcome
+    dispute.closed_note = note.strip()
+    dispute.closed_at = None if outcome == DISPUTE_OPEN else utcnow()
+    session.commit()
+    return _redirect("/disputes", ok=f"{dispute.vendor}: {DISPUTE_LABELS[outcome].lower()}.")
 
 
 @app.get("/backup", response_class=HTMLResponse)

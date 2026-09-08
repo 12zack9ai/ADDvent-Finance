@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Ask for it back · {{ site_name }}{% endblock %}
+
+{# Finding the overbill is not the saving. This is. #}
+{% block content %}
+<div class="pagehead">
+  <div>
+    <div class="muted"><a href="/invoice/{{ invoice.id }}">{{ invoice.invoice_number or invoice.id }}</a> &rsaquo;</div>
+    <h1>Ask {{ invoice.vendor or "the vendor" }} for it back</h1>
+    <p class="sub">{{ draft.total | money }} billed above the quote on job
+      {{ job.job_number if job }}.</p>
+  </div>
+</div>
+
+{% if not draft.worth_sending %}
+  <div class="panel">
+    <div class="empty">
+      <div class="big">Nothing to ask for.</div>
+      Every line on this invoice is at or below the quoted price.
+    </div>
+  </div>
+{% else %}
+
+<div class="panel" style="padding:0;overflow-x:auto">
+  <table class="grid stack">
+    <thead>
+      <tr><th style="padding-left:20px">Line</th><th class="r">Quoted</th>
+        <th class="r">Billed</th><th class="r" style="padding-right:20px">Difference</th></tr>
+    </thead>
+    <tbody>
+      {% for item in draft.items %}
+      <tr>
+        <td style="padding-left:20px" data-l="Line">{{ item.description }}
+          {% if item.reason == "not on the quote" %}
+            <span class="chip c-none">not on the quote</span>{% endif %}</td>
+        <td class="r" data-l="Quoted">{{ item.quoted | money if item.quoted else "—" }}</td>
+        <td class="r" data-l="Billed">{{ item.billed | money if item.billed else "—" }}
+          {% if item.percent is not none %}
+            <span class="muted">+{{ item.percent }}%</span>{% endif %}</td>
+        <td class="r" style="padding-right:20px;font-weight:700" data-l="Difference">
+          {{ item.difference | money }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h2 style="margin:26px 2px 10px">The email</h2>
+<p class="sub" style="margin:0 2px 12px">Copy this, read it, change anything you
+  want, and send it from your own mail. The app does not email vendors.</p>
+<div class="panel">
+  <textarea id="letter" rows="20"
+    style="width:100%;border:0;background:transparent;font:inherit;resize:vertical"
+    readonly>{{ letter }}</textarea>
+  <div style="margin-top:10px">
+    <button class="btn" type="button" onclick="copyLetter()">Copy the email</button>
+    <span id="copied" class="muted" hidden>Copied.</span>
+  </div>
+</div>
+
+{% if raised %}
+  <p class="sub" style="margin:16px 2px">
+    Already raised {{ raised|length }} time{{ "" if raised|length == 1 else "s" }} —
+    <a href="/disputes">see where it got to</a>.</p>
+{% endif %}
+
+<h2 style="margin:26px 2px 10px">Once you have sent it</h2>
+<div class="panel">
+  <form method="post" action="/invoice/{{ invoice.id }}/dispute">
+    <label class="fld"><span>Who sent it</span>
+      <input name="who" type="text" placeholder="Your name"></label>
+    <label class="fld" style="margin-top:12px"><span>Anything worth remembering</span>
+      <input name="note" type="text"
+             placeholder="Spoke to Dave first, said he'd check the order"></label>
+    <button class="btn" type="submit" style="margin-top:14px">Record that I asked</button>
+  </form>
+  <p class="muted" style="margin-top:10px">This is what makes the next question
+    answerable: which suppliers this keeps happening with, and how much of it
+    we actually get back.</p>
+</div>
+
+<script>
+function copyLetter() {
+  const box = document.getElementById('letter');
+  navigator.clipboard.writeText(box.value).then(function () {
+    document.getElementById('copied').hidden = false;
+  }, function () {
+    // Clipboard permission refused, or an insecure context. Select it instead
+    // so the keyboard still works - a dead button is worse than no button.
+    box.removeAttribute('readonly');
+    box.select();
+    box.setAttribute('readonly', 'readonly');
+  });
+}
+</script>
+{% endif %}
+{% endblock %}

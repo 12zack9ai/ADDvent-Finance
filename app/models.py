@@ -59,6 +59,22 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def as_utc(value: Optional[datetime]) -> Optional[datetime]:
+    """Force a stored timestamp back into an aware one.
+
+    SQLite has no timezone type, so a datetime written as aware comes back
+    naive. Subtracting one from `utcnow()` then raises, which is a 500 on a
+    page that merely wanted to say how many days something has been open -
+    and it only happens once a row has been round-tripped through the
+    database, so it never shows up on the object you just created.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
 # Where a job's billed and collected figures came from.
 BILLING_QUICKBOOKS = "quickbooks"
 BILLING_MANUAL = "manual"
@@ -870,3 +886,58 @@ class Approval(Base):
     at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     invoice: Mapped["Invoice"] = relationship(back_populates="approvals")
+
+
+# --- asking for the money back ---------------------------------------------
+
+DISPUTE_OPEN = "open"           # raised with the vendor, no answer yet
+DISPUTE_CREDITED = "credited"   # they sent a credit or a corrected invoice
+DISPUTE_REFUSED = "refused"     # they said no, or it turned out to be agreed
+DISPUTE_DROPPED = "dropped"     # we decided not to pursue it
+
+DISPUTE_LABELS = {
+    DISPUTE_OPEN: "Waiting on the vendor",
+    DISPUTE_CREDITED: "Credited",
+    DISPUTE_REFUSED: "Refused",
+    DISPUTE_DROPPED: "Dropped",
+}
+
+
+class Dispute(Base):
+    """A request to a vendor for money billed above their own quote.
+
+    Finding an overbill is not the saving. This is the record of somebody
+    actually asking, and of what came back - which is the only way to know
+    whether the checking is worth anything, and the only way to learn which
+    suppliers do it repeatedly.
+    """
+
+    __tablename__ = "dispute"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    invoice_id: Mapped[int] = mapped_column(ForeignKey("invoice.id"), index=True)
+    # Denormalised on purpose: the vendor history has to survive an invoice
+    # being rejected, and it is what every query here groups by.
+    vendor: Mapped[str] = mapped_column(String(255), default="", index=True)
+
+    amount: Mapped[Optional[Decimal]] = mapped_column(Money, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default=DISPUTE_OPEN, index=True)
+    raised_by: Mapped[str] = mapped_column(String(128), default="")
+    raised_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    note: Mapped[str] = mapped_column(Text, default="")
+
+    credited: Mapped[Optional[Decimal]] = mapped_column(Money, nullable=True)
+    closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    closed_note: Mapped[str] = mapped_column(Text, default="")
+
+    invoice: Mapped["Invoice"] = relationship()
+
+    @property
+    def is_open(self) -> bool:
+        return self.status == DISPUTE_OPEN
+
+    @property
+    def days_open(self) -> int:
+        end = as_utc(self.closed_at) or utcnow()
+        raised = as_utc(self.raised_at) or end
+        return max(0, (end - raised).days)

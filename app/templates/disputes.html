@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Money asked back · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>Money asked back</h1>
+    <p class="sub">What we found, what we asked for, and what actually came back.</p>
+  </div>
+</div>
+
+<div class="prog-stats">
+  <div class="score">
+    <span class="score-k">Asked for</span>
+    <span class="score-v">{{ asked | money }}</span>
+    <span class="score-n">{{ disputes|length }} in total</span>
+  </div>
+  <div class="score{{ ' good' if recovered > 0 }}">
+    <span class="score-k">Got back</span>
+    <span class="score-v">{{ recovered | money }}</span>
+    <span class="score-n">credits and corrected invoices</span>
+  </div>
+  <div class="score{{ ' bad' if waiting > 0 }}">
+    <span class="score-k">Still waiting</span>
+    <span class="score-v">{{ waiting | money }}</span>
+    <span class="score-n">no answer yet</span>
+  </div>
+</div>
+
+<div class="panel" style="padding:0;overflow-x:auto">
+  {% if not disputes %}
+    <div class="empty" style="padding:34px 20px">
+      <div class="big">Nothing asked for yet.</div>
+      When an invoice is billed above its quote, open it and use
+      <strong>Ask for it back</strong>.
+    </div>
+  {% else %}
+  <table class="grid stack">
+    <thead>
+      <tr><th style="padding-left:20px">Vendor</th><th>Invoice</th>
+        <th class="r">Asked</th><th class="r">Back</th><th>State</th>
+        <th style="padding-right:20px"></th></tr>
+    </thead>
+    <tbody>
+      {% for d in disputes %}
+      <tr>
+        <td style="padding-left:20px" data-l="Vendor"><strong>{{ d.vendor or "Unknown" }}</strong>
+          <span class="muted">{{ d.days_open }}d</span></td>
+        <td data-l="Invoice">
+          <a href="/invoice/{{ d.invoice_id }}">{{ d.invoice.invoice_number or d.invoice_id }}</a></td>
+        <td class="r" data-l="Asked" style="font-weight:700">{{ d.amount | money }}</td>
+        <td class="r" data-l="Back">{{ d.credited | money if d.credited else "—" }}</td>
+        <td data-l="State">
+          {% if d.status == "credited" %}<span class="chip c-ok">Credited</span>
+          {% elif d.status == "open" %}<span class="chip c-info">Waiting</span>
+          {% elif d.status == "refused" %}<span class="chip c-over">Refused</span>
+          {% else %}<span class="chip c-none">Dropped</span>{% endif %}</td>
+        <td style="padding-right:20px">
+          {% if d.is_open %}
+          <form method="post" action="/dispute/{{ d.id }}" class="row"
+                style="gap:6px;align-items:center">
+            <input name="credited" type="text" placeholder="0.00"
+                   style="max-width:110px">
+            <button class="btn" name="outcome" value="credited" type="submit">Credited</button>
+            <button class="btn ghost" name="outcome" value="refused" type="submit">Refused</button>
+            <button class="btn ghost" name="outcome" value="dropped" type="submit">Drop</button>
+          </form>
+          {% elif d.closed_note %}<span class="muted">{{ d.closed_note }}</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+
+{% if history %}
+<details class="more" {{ "open" if history|length > 1 }}>
+  <summary>By vendor <span class="more-count">{{ history|length }}</span></summary>
+  <div class="more-body">
+    <p class="sub" style="margin:0 0 12px">A supplier who overbills once made a
+      mistake. One who keeps doing it made a decision, and this is the only
+      place that shows the difference.</p>
+    <table class="grid">
+      <thead><tr><th>Vendor</th><th class="r">Times</th><th class="r">Asked</th>
+        <th class="r">Back</th><th class="r">Recovered</th></tr></thead>
+      <tbody>
+        {% for r in history %}
+        <tr>
+          <td><strong>{{ r.vendor }}</strong>
+            {% if r.open_count %}<span class="chip c-info">{{ r.open_count }} open</span>{% endif %}</td>
+          <td class="r">{{ r.raised }}</td>
+          <td class="r">{{ r.asked | money }}</td>
+          <td class="r">{{ r.recovered | money }}</td>
+          <td class="r">{{ (r.recovery_rate ~ "%") if r.recovery_rate is not none else "—" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</details>
+{% endif %}
+{% endblock %}
