@@ -123,7 +123,10 @@ model must never be the thing that decides whether `$4,182.60 != $4,128.60`.
 `SMTP_HOST/PORT/USER/PASSWORD/FROM`, `REPLY_DOMAINS`,
 `ASK_FOR_JOB_NUMBER`, `ASK_FOR_QUOTE`, `REQUIRE_RECEIPT`,
 `LOAD_SAMPLES`, `SEED_SAMPLES`, `RESET_SAMPLES`,
-`QUICKBOOKS_ENABLED`, `QBWC_PASSWORD`.
+`QUICKBOOKS_ENABLED`, `QBWC_PASSWORD`,
+`BACKUP_ENABLED`, `BACKUP_HOUR`, `BACKUP_KEEP`, `BACKUP_DOCUMENTS`,
+`SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_BUCKET`,
+`ALERT_EMAIL`, `DISK_WARN_BELOW`.
 
 `BASE_URL` is `https://finance.addventuresinc.com`. It decides whether the login
 cookie is marked Secure, and it is embedded in the QuickBooks `.qwc` file we
@@ -131,7 +134,8 @@ hand to the IT company — so the `.qwc` must be generated from this value, not
 from the onrender.com address.
 
 **Sample data flags are all off and the app is empty of samples** as of
-2026-09-08 — Zack is loading real documents.
+2026-09-08 — Zack is loading real documents. `ALERT_EMAIL` is
+`zmabry@addventuresinc.com`.
 
 ## QuickBooks
 
@@ -148,6 +152,35 @@ Three questions still outstanding with them: where the company file physically
 lives, whether they will provision an always-logged-in Windows VM and at what
 cost, and their policy on third-party SDK access.
 
+## Safety net
+
+- **Nightly backup** at 07:00 UTC: one zip with the database and every stored
+  document, 14 kept on the disk, downloadable at `/backup`. Uploaded to
+  Supabase Storage when `SUPABASE_URL` / `SUPABASE_KEY` / `SUPABASE_BUCKET` are
+  set — **they are not yet**, so today the only off-server copy is one somebody
+  downloads.
+- **Watchdog** every 15 minutes: mailbox stale, backup failed or out of date,
+  disk nearly full. Emails `ALERT_EMAIL` once per incident and once on
+  recovery, and shows a banner on every page. Alerts obey `REPLY_DOMAINS` like
+  everything else — an address outside the company is refused.
+- **Login** allows five wrong tries per address, then a doubling delay capped
+  at a minute. A delay, never a lockout.
+- `/healthz` reports mail, backup, disk and any open alarm. It is the thing to
+  point an uptime monitor at.
+
+## Restoring
+
+A backup is a plain zip: `finance.db` plus `documents/`. Put both back in
+`DATA_DIR` and restart. **Nobody has done a restore yet** — an untested backup
+is a guess, and this one is still a guess.
+
+## Money asked back
+
+An invoice billed above its quote offers **Ask for it back**: a composed letter
+with the lines, quoted against billed, and the total. It is a draft for a person
+to send from their own mail — the app never emails a vendor. `/disputes` records
+what was asked and what came back, grouped by vendor.
+
 ## Still open
 
 - **JobNimbus API key** — site-wide, expected from Zack. Then run
@@ -158,8 +191,11 @@ cost, and their policy on third-party SDK access.
   not built.
 - Retainage on subs and lien waivers — raised, never confirmed.
 - Custom domain `finance.addventuresinc.com` — not set up.
-- **Never yet verified: a real vendor quote checked against a real vendor
-  invoice.** Everything so far has run on synthetic documents.
+- **Supabase is not wired up.** Until it is, the only copy off this server is
+  one somebody downloads from `/backup`.
+- **No restore has ever been tested.**
+- Per-user accounts. One shared password means `Approval.actor` and
+  `Dispute.raised_by` are whatever gets typed.
 
 ## Before pushing
 
