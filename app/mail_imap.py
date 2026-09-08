@@ -1,19 +1,21 @@
 """Read the finance mailbox over IMAP.
 
-This is the simple path, and for a mailbox hosted alongside the website (cPanel,
-Plesk, or any ordinary mail host) it is the right one: create the address in the
-control panel, put the credentials in `.env`, done. No app registration, no
-admin consent, no waiting on anyone.
+This is the simple path, and for a mailbox on an ordinary mail host it is the
+right one: create the address, put the credentials in the environment, done. No
+app registration, no admin consent, no waiting on anyone.
 
-    IMAP_HOST=addventuresinc.com     # cPanel: usually the bare domain
+Ours, for the record:
+
+    IMAP_HOST=mail.protectedharborinc.com
     IMAP_PORT=993
-    IMAP_USER=aiap@addventuresinc.com  # the FULL address, not just "aiap"
-    IMAP_PASSWORD=...
+    IMAP_USER=aifinance              # aifinance@addventuresinc.com
+    IMAP_PASSWORD=...                # set on Render, never in a committed file
     MAIL_ENABLED=true
 
-The two things that trip this up: the incoming server on cPanel is normally the
-bare domain rather than mail.<domain>, and the username must be the whole email
-address. Both are shown under Email Accounts -> Connect Devices.
+The thing that trips this up is the username. Some hosts want the whole email
+address and some want only the part before the @; ours took the bare name. If
+the login is refused with the full address, try the short one before assuming
+the password is wrong.
 
 Uses only the standard library - `imaplib` and `email` - so there is nothing
 extra to install and nothing to keep patched.
