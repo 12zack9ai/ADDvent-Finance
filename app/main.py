@@ -489,6 +489,16 @@ def jobs_list(request: Request, session: Session = Depends(get_session)):
     q = (request.query_params.get("q") or "").strip()
     flagged = request.query_params.get("flagged") == "1"
 
+    # Somebody who types a job number wants that job, not a list of one. The
+    # search box used to post to "/", which read no query at all and simply
+    # re-rendered the front door - so searching looked like it did nothing.
+    if q and not flagged:
+        exact = session.scalar(
+            select(Job).where(Job.job_number == normalize_job_number(q))
+        )
+        if exact is not None:
+            return _redirect(f"/job/{exact.job_number}")
+
     stmt = select(Job).options(
         selectinload(Job.quotes).selectinload(Quote.lines),
         selectinload(Job.invoices),
