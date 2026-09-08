@@ -166,6 +166,30 @@ class Settings:
     # item when SKUs are absent or differ.
     fuzzy_threshold: int = int(os.getenv("FUZZY_THRESHOLD", "88"))
 
+    # --- backups -----------------------------------------------------------
+    # On by default. A backup somebody has to remember to switch on is not a
+    # backup, and the cost of a nightly zip nobody needs is a few megabytes.
+    backup_enabled: bool = _bool("BACKUP_ENABLED", True)
+    backup_hour: int = _int("BACKUP_HOUR", 7)      # UTC; ~3am on the east coast
+    backup_keep: int = _int("BACKUP_KEEP", 14)
+    # The PDFs matter as much as the rows. A database without them restores a
+    # ledger nobody can check against the paper it came from.
+    backup_documents: bool = _bool("BACKUP_DOCUMENTS", True)
+    backup_prefix: str = os.getenv("BACKUP_PREFIX", "addvent-finance").strip()
+    backup_upload_timeout: int = _int("BACKUP_UPLOAD_TIMEOUT", 300)
+    # Supabase Storage, when it is set up. Until then the nightly snapshot
+    # still runs and is still downloadable from the site.
+    supabase_url: str = os.getenv("SUPABASE_URL", "").strip()
+    supabase_key: str = os.getenv("SUPABASE_KEY", "").strip()
+    supabase_bucket: str = os.getenv("SUPABASE_BUCKET", "").strip()
+
+    # --- alarms ------------------------------------------------------------
+    # Where "the mailbox stopped" and "the backup failed" go. Must be inside
+    # REPLY_DOMAINS like every other address this app is allowed to write to.
+    alert_email: str = os.getenv("ALERT_EMAIL", "").strip()
+    # Warn when free space on the data volume falls below this fraction.
+    disk_warn_below: float = float(os.getenv("DISK_WARN_BELOW", "0.10"))
+
     @property
     def uploads_dir(self) -> Path:
         return self.data_dir / "uploads"
@@ -174,13 +198,18 @@ class Settings:
     def renders_dir(self) -> Path:
         return self.data_dir / "renders"
 
+    @property
+    def backups_dir(self) -> Path:
+        return self.data_dir / "backups"
+
     def resolved_db_url(self) -> str:
         if self.db_url:
             return self.db_url
         return f"sqlite:///{self.data_dir / 'finance.db'}"
 
     def ensure_dirs(self) -> None:
-        for d in (self.data_dir, self.uploads_dir, self.renders_dir):
+        for d in (self.data_dir, self.uploads_dir, self.renders_dir,
+                  self.backups_dir):
             d.mkdir(parents=True, exist_ok=True)
 
     def imap_configured(self) -> bool:

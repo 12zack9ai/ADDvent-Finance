@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hmac
 import secrets
+import time
 from typing import Optional
 
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
@@ -47,6 +48,55 @@ def verify(password: str) -> bool:
     if not settings.app_password:
         return True
     return hmac.compare_digest(password or "", settings.app_password)
+
+
+# --- slowing down guessing -------------------------------------------------
+# One shared password and an unlimited number of tries is a password that gets
+# guessed eventually. This is not a lockout - locking the office out of their
+# own finance system on a Friday afternoon is a worse outcome than a slow
+# attacker - it is a delay that grows, per source address, and forgets itself.
+
+_ATTEMPT_WINDOW = 900          # a wrong password is remembered for 15 minutes
+_FREE_TRIES = 5                # typos, and the password manager's first guess
+_MAX_WAIT = 60                 # seconds; long enough to make guessing useless
+
+_failures: dict[str, list[float]] = {}
+
+
+def _recent(who: str, now: float) -> list[float]:
+    times = [t for t in _failures.get(who, []) if now - t < _ATTEMPT_WINDOW]
+    if times:
+        _failures[who] = times
+    else:
+        _failures.pop(who, None)
+    return times
+
+
+def wait_for(who: str, now: Optional[float] = None) -> int:
+    """Seconds this address must wait before another try is accepted."""
+    now = time.time() if now is None else now
+    times = _recent(who, now)
+    if len(times) < _FREE_TRIES:
+        return 0
+    # Doubling from one second after the free tries are spent.
+    delay = min(_MAX_WAIT, 2 ** (len(times) - _FREE_TRIES))
+    waited = now - times[-1]
+    return max(0, int(delay - waited) + (1 if delay > waited else 0))
+
+
+def note_failure(who: str, now: Optional[float] = None) -> None:
+    now = time.time() if now is None else now
+    _recent(who, now)
+    _failures.setdefault(who, []).append(now)
+
+
+def note_success(who: str) -> None:
+    _failures.pop(who, None)
+
+
+def forget_attempts() -> None:
+    """Tests only."""
+    _failures.clear()
 
 
 def make_token() -> str:

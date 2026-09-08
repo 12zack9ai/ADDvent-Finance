@@ -20,8 +20,9 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app import (
-    accounting, auth, cashflow, cashflow_pdf, checks, costing, fmt,
+    accounting, alerts, auth, backup, cashflow, cashflow_pdf, checks, costing, fmt,
     invoice_pdf, jobnimbus, jobsummary, purchases, scheduler, subs, trust,
+    watchdog,
 )
 from app.config import settings
 from app.db import get_session, init_db, to_decimal
@@ -167,6 +168,8 @@ async def _startup() -> None:
     # Polls the mailbox from inside this process, so it shares the database and
     # document store rather than needing a second service with its own disk.
     scheduler.start()
+    # Nightly backup, and the thing that notices when a quiet job has stopped.
+    watchdog.start()
 
     # Before either loader, and it turns both off for this boot: an install
     # being emptied must not have samples put back into it on the way past.
@@ -222,6 +225,7 @@ def _seed_samples_once() -> None:
 @app.on_event("shutdown")
 async def _shutdown() -> None:
     await scheduler.stop()
+    await watchdog.stop()
 
 
 # --- access control -------------------------------------------------------
@@ -251,12 +255,24 @@ def login_form(request: Request):
 
 
 @app.post("/login")
-def login_submit(password: str = Form(""), next: str = Form("/")):
+def login_submit(request: Request, password: str = Form(""), next: str = Form("/")):
+    who = request.client.host if request.client else "unknown"
+
+    wait = auth.wait_for(who)
+    if wait:
+        return RedirectResponse(
+            f"/login?error={quote_plus(f'Too many tries. Wait {wait} seconds.')}"
+            f"&next={quote_plus(next or '/')}",
+            status_code=303,
+        )
+
     if not auth.verify(password):
+        auth.note_failure(who)
         return RedirectResponse(
             f"/login?error={quote_plus('Incorrect password.')}&next={quote_plus(next or '/')}",
             status_code=303,
         )
+    auth.note_success(who)
     target = next if next.startswith("/") else "/"
     response = RedirectResponse(target, status_code=303)
     response.set_cookie(
@@ -296,6 +312,9 @@ def _ctx(request: Request, session: Session, **kw) -> dict:
         "messages": _messages(request),
         "q": request.query_params.get("q", ""),
         "unassigned_count": count,
+        # Anything the watchdog has found. On every page, because the whole
+        # point is that nobody has to go and look.
+        "alarms": alerts.open_labels(),
         # On the nav, because a subcontractor waiting on a check is the one
         # thing here that somebody outside the building is actively chasing.
         #
@@ -354,7 +373,51 @@ def healthz() -> dict:
         "pdf": pdf_available(),
         "server_pdf": pdf_available(),
         "mail": scheduler.status(),
+        # Backups, disk and any alarm currently open. Same principle as
+        # mail.stale: the things that fail without anybody noticing are the
+        # things that have to be reportable from outside.
+        "watchdog": watchdog.status(),
     }
+
+
+@app.get("/backup", response_class=HTMLResponse)
+def backup_page(request: Request, session: Session = Depends(get_session)):
+    """Every copy of the business, and how to take one right now.
+
+    A backup nobody can see is a backup nobody trusts, and one you cannot get
+    hold of without asking an engineer is not really yours.
+    """
+    return templates.TemplateResponse(request, "backup.html", _ctx(
+        request, session,
+        snapshots=backup.every(),
+        state=watchdog.status(),
+    ))
+
+
+@app.post("/backup/now")
+def backup_now(request: Request):
+    try:
+        snapshot = watchdog.run_backup() or None
+    except Exception as exc:                          # noqa: BLE001
+        return _redirect("/backup", err=f"Backup failed: {exc}")
+    if snapshot is None:
+        return _redirect("/backup", err="Backup failed - see the page for why.")
+    return _redirect("/backup", ok=f"Saved {snapshot.name} ({snapshot.megabytes} MB).")
+
+
+@app.get("/backup/file/{name}")
+def backup_download(name: str):
+    """Hand over one snapshot.
+
+    The name is matched against the snapshots we know about rather than being
+    joined onto a path. Anything else here is a directory-traversal hole in a
+    route that, by design, returns whole files.
+    """
+    for snapshot in backup.every():
+        if snapshot.name == name:
+            return FileResponse(snapshot.path, media_type="application/zip",
+                                filename=snapshot.name)
+    return _redirect("/backup", err="No such backup.")
 
 
 def _subcontract_jobs(session: Session) -> list[Job]:

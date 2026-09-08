@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Backups · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>Backups</h1>
+    <p class="sub">A copy of everything: the records and every document.</p>
+  </div>
+  <div>
+    <form method="post" action="/backup/now" style="display:inline">
+      <button class="btn" type="submit">Back up now</button>
+    </form>
+  </div>
+</div>
+
+<div class="prog-stats">
+  <div class="score{{ ' good' if state.backup.age_hours is not none and state.backup.age_hours < 36 }}">
+    <span class="score-k">Newest copy</span>
+    <span class="score-v">
+      {%- if state.backup.age_hours is none %}None yet
+      {%- elif state.backup.age_hours < 1 %}Just now
+      {%- else %}{{ state.backup.age_hours|round(0)|int }}h ago{% endif %}</span>
+    <span class="score-n">
+      {%- if state.backup.megabytes %}{{ state.backup.megabytes }} MB
+      {%- else %}nothing saved so far{% endif %}</span>
+  </div>
+  <div class="score">
+    <span class="score-k">Copies kept</span>
+    <span class="score-v">{{ state.backup.count }}</span>
+    <span class="score-n">one a night, oldest dropped</span>
+  </div>
+  <div class="score{{ ' bad' if not state.backup.offsite }}">
+    <span class="score-k">Stored off this server</span>
+    <span class="score-v">{{ "Yes" if state.backup.offsite else "No" }}</span>
+    <span class="score-n">
+      {%- if state.backup.offsite %}also uploaded to Supabase
+      {%- else %}download one to keep a copy{% endif %}</span>
+  </div>
+  <div class="score{{ ' bad' if state.disk.tight }}">
+    <span class="score-k">Disk free</span>
+    <span class="score-v">{{ state.disk.free_gb }} GB</span>
+    <span class="score-n">of {{ state.disk.total_gb }} GB</span>
+  </div>
+</div>
+
+{% if state.backup.last_error %}
+<div class="needs">
+  <div class="needs-row">
+    <div class="needs-what">The last backup did not finish
+      <span class="muted">{{ state.backup.last_error }}</span></div>
+  </div>
+</div>
+{% endif %}
+
+<div class="panel" style="padding:0;overflow-x:auto">
+  {% if not snapshots %}
+    <div class="empty" style="padding:34px 20px">
+      <div class="big">No backups yet.</div>
+      One is taken every night. Press <strong>Back up now</strong> to take the
+      first one immediately.
+    </div>
+  {% else %}
+  <table class="grid stack">
+    <thead>
+      <tr><th style="padding-left:20px">Taken</th><th>File</th>
+        <th class="r">Size</th><th class="r" style="padding-right:20px"></th></tr>
+    </thead>
+    <tbody>
+      {% for s in snapshots %}
+      <tr>
+        <td style="padding-left:20px" data-l="Taken">
+          <strong>{{ s.taken_at.strftime("%d %b %Y") }}</strong>
+          <span class="muted">{{ s.taken_at.strftime("%H:%M") }} UTC</span></td>
+        <td class="muted" data-l="File">{{ s.name }}</td>
+        <td class="r" data-l="Size">{{ s.megabytes }} MB</td>
+        <td class="r" style="padding-right:20px">
+          <a class="btn ghost" href="/backup/file/{{ s.name }}">Download</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+
+<details class="more">
+  <summary>What is in a backup, and how to use one</summary>
+  <div class="more-body">
+    <p>Each file is an ordinary zip. Inside:</p>
+    <ul>
+      <li><strong>finance.db</strong> — every job, quote, invoice, approval,
+        check request and receipt.</li>
+      <li><strong>documents/</strong> — every PDF and photograph as it arrived.</li>
+    </ul>
+    <p>To restore, put <code>finance.db</code> and the contents of
+      <code>documents/</code> back into the app's data folder and restart it.
+      Keep at least one downloaded copy somewhere that is not this server —
+      that is the copy that survives losing the host.</p>
+  </div>
+</details>
+{% endblock %}

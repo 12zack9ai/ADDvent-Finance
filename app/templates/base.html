@@ -307,6 +307,8 @@ details.add{margin-top:4px}
 .drawgo{grid-column:1/-1;margin-top:2px}
 button.btn{font-family:inherit}
 
+.foot{margin:34px 2px 8px;font-size:.82rem;color:var(--soft)}
+.foot a{color:var(--soft)}
 /* ---------- flash messages ---------- */
 .flash{
   padding:14px 18px;border-radius:var(--r-sm);margin-bottom:16px;font-weight:600;
@@ -693,10 +695,18 @@ tr.overdrawn td{background:var(--over-bg)}
 </header>
 
 <div class="wrap">
+  {# Something quiet has stopped. On every page rather than on a status screen,
+     because a status screen only helps the person who thinks to open it. #}
+  {% for alarm in alarms or [] %}
+    <div class="flash err">{{ alarm }}
+      <a href="/backup" style="color:inherit;text-decoration:underline">Check</a></div>
+  {% endfor %}
   {% for category, message in messages %}
     <div class="flash {{ category }}">{{ message | safe }}</div>
   {% endfor %}
   {% block content %}{% endblock %}
+  <p class="foot"><a href="/backup">Backups</a> &middot;
+    <a href="/healthz">System check</a></p>
 </div>
 
 </body>
