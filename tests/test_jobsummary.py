@@ -359,9 +359,9 @@ def test_but_a_reissue_that_bills_every_item_again_is_still_caught():
     assert not s.overlaps[0].identical_total
 
 
-def test_a_resend_under_a_new_number_is_caught_however_the_lines_read():
-    """Identical totals are their own evidence and are not asked to prove
-    anything about line items."""
+def test_a_resend_under_a_new_number_is_caught():
+    """The resend bills the same item again, so it is caught even though the
+    later copy carries an extra zero-value freight line."""
     a = invoice("6154.00", number="INV-551900", on=date(2026, 9, 10), lines=[
         line("GAFT3PG", "6154.00"),
     ])
@@ -520,3 +520,43 @@ def test_several_stragglers_from_one_supplier_name_them_once():
     ))
     assert s.unquoted_supplier == D("962.50")
     assert len(s.unquoted_vendors) == 2
+
+
+def test_two_deliveries_that_happen_to_come_to_the_same_total_stay_quiet():
+    """Zack's, from job 241640. Nine invoices from one yard, two of them
+    landing on the same figure by coincidence. They share no item, so they are
+    two deliveries - and calling that a duplicate put a wrong note at the top
+    of the job, where it is read first and trusted most."""
+    a = invoice("3200.00", number="07RM0002783872-001", on=date(2026, 9, 10),
+                lines=[line("IWS-OC-200", "3200.00")])
+    b = invoice("3200.00", number="01WP0002840946-002", on=date(2026, 9, 17),
+                lines=[line("SHG-OC-DW", "3200.00")])
+    s = jobsummary.build(job(quotes=[quote()], invoices=[a, b]))
+    assert s.overlaps == []
+
+
+def test_a_matching_total_on_mostly_the_same_material_is_still_a_question():
+    """The guard must not swallow the case it was written around. Same total,
+    same yard, and most of it is the same item - that is a resend."""
+    a = invoice("5000.00", number="INV-1", on=date(2026, 9, 10), lines=[
+        line("SHG-OC-DW", "4600.00"), line("UND-DK-10", "400.00"),
+    ])
+    b = invoice("5000.00", number="INV-2", on=date(2026, 9, 14), lines=[
+        line("SHG-OC-DW", "4600.00"), line("IWS-OC-200", "400.00"),
+    ])
+    s = jobsummary.build(job(quotes=[quote()], invoices=[a, b]))
+    assert len(s.overlaps) == 1
+    assert s.overlaps[0].identical_total
+    assert s.overlaps[0].lines_compared
+
+
+def test_a_matching_total_on_an_unreadable_invoice_still_asks():
+    """No lines came off either scan. Silence would read as "checked and
+    fine", so the note stands - and says plainly what it rests on."""
+    a = invoice("3200.00", number="INV-1", on=date(2026, 9, 10))
+    b = invoice("3200.00", number="INV-2", on=date(2026, 9, 14))
+    s = jobsummary.build(job(quotes=[quote()], invoices=[a, b]))
+    assert len(s.overlaps) == 1
+    o = s.overlaps[0]
+    assert o.identical_total and not o.lines_compared
+    assert "readable" in o.explanation

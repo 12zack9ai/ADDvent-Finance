@@ -97,6 +97,9 @@ class Overlap:
     shared_lines: int
     days_apart: int
     identical_total: bool
+    # False when one of the two had no readable line items, so the pair rests
+    # on the totals alone. The note has to say so rather than imply we looked.
+    lines_compared: bool = True
 
     @property
     def headline(self) -> str:
@@ -116,12 +119,19 @@ class Overlap:
     def explanation(self) -> str:
         a = self.earlier.invoice_number or f"#{self.earlier.id}"
         b = self.later.invoice_number or f"#{self.later.id}"
+        if self.identical_total and not self.lines_compared:
+            return (
+                f"{a} and {b} are both for {_fmt(self.earlier.total)} from "
+                f"{self.later.vendor}, {self.when}. Neither one had readable "
+                f"line items, so this is the totals alone - worth opening both "
+                f"to see whether they are the same delivery billed twice."
+            )
         if self.identical_total:
             return (
                 f"{a} and {b} are both for {_fmt(self.earlier.total)} from "
-                f"{self.later.vendor}, {self.when}. Either one is a duplicate, "
-                f"or one was meant to replace the other and the original was "
-                f"never voided."
+                f"{self.later.vendor}, {self.when}, and bill the same material. "
+                f"Either one is a duplicate, or one was meant to replace the "
+                f"other and the original was never voided."
             )
         return (
             f"{self.shared_lines} line"
@@ -405,8 +415,18 @@ def _compare(earlier: Invoice, later: Invoice) -> Optional[Overlap]:
     shared_value, shared_lines = _shared(earlier, later)
 
     if identical:
+        # Two invoices from one supplier landing on the same total is evidence,
+        # but it is not proof, and on a job with nine deliveries from the same
+        # yard it happens by coincidence. When both invoices have readable
+        # lines, they have to actually share material before this is a
+        # question worth putting to anybody.
+        comparable = _has_lines(earlier) and _has_lines(later)
+        if comparable and not _shares_material(earlier, later, shared_value,
+                                               earlier.total or ZERO):
+            return None
         return Overlap(earlier, later, earlier.total or ZERO,
-                       shared_lines, days, identical_total=True)
+                       shared_lines, days, identical_total=True,
+                       lines_compared=comparable)
 
     # Not identical: only interesting if most of the smaller invoice reappears
     # on the other one. A follow-on delivery of different material is normal
@@ -424,6 +444,30 @@ def _compare(earlier: Invoice, later: Invoice) -> Optional[Overlap]:
 
     return Overlap(earlier, later, shared_value, shared_lines, days,
                    identical_total=False)
+
+
+def _has_lines(invoice: Invoice) -> bool:
+    """Did anything readable come off this invoice to compare?
+
+    An unreadable scan produces an invoice with a total and no usable lines.
+    Silence would be wrong there - we have not checked, and saying nothing
+    reads as "checked and fine".
+    """
+    return bool({_line_key(line) for line in invoice.lines} - {""})
+
+
+def _shares_material(a: Invoice, b: Invoice, shared_value: Decimal,
+                     smaller: Decimal) -> bool:
+    """Are these two invoices plausibly for the same material?
+
+    Either one re-bills the whole of the other - a resend or a correction - or
+    enough of the smaller one by value reappears on the larger to be worth a
+    look. Two invoices that share no item at all are two deliveries, whatever
+    their totals happen to come to.
+    """
+    if _rebills_everything(a, b):
+        return True
+    return smaller > ZERO and shared_value >= smaller * OVERLAP_FRACTION
 
 
 def _rebills_everything(a: Invoice, b: Invoice) -> bool:
