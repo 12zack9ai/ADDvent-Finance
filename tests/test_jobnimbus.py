@@ -51,12 +51,14 @@ OWNER_SHAPE = {
     }],
 }
 
+# The same field written flat rather than as a list. Still "assigned to" -
+# never a rep. See NEVER_EMAIL_KEYS and the test below it.
 FLAT_SHAPE = {
     "results": [{
         "number": "260000",
         "display_name": "Daul Gardens",
-        "sales_rep_name": "Mike Reilly",
-        "sales_rep_email": "mreilly@addventuresinc.com",
+        "assigned_to_name": "Mike Reilly",
+        "assigned_to_email": "mreilly@addventuresinc.com",
     }],
 }
 
@@ -272,16 +274,16 @@ def test_the_probe_lists_every_key_that_came_back(monkeypatch):
     monkeypatch.setattr(jobnimbus, "_request", lambda *_a, **_k: {"results": [{
         "number": "241640",
         "name": "Parkside at Wanaque",
-        "sales_rep_name": "Dana Vine",
-        "sales_rep_email": "dana@addventuresinc.com",
+        "assigned_to_name": "Dana Vine",
+        "assigned_to_email": "dana@addventuresinc.com",
         "owners": [{"id": "u1", "email": "dana@addventuresinc.com"}],
     }]})
 
     finding = jobnimbus.probe("241640")
     assert finding.found and finding.records == 1 and finding.exact == 1
     names = [k for k, _kind, _preview in finding.keys]
-    assert "sales_rep_email" in names and "owners" in names
-    assert dict(finding.matched)["rep email"] == "dana@addventuresinc.com"
+    assert "assigned_to_email" in names and "owners" in names
+    assert dict(finding.matched)["assigned email"] == "dana@addventuresinc.com"
     assert "owners" in finding.owners
     assert finding.assignment.usable
 
@@ -295,7 +297,7 @@ def test_the_probe_says_which_candidates_found_nothing(monkeypatch):
     }]})
 
     finding = jobnimbus.probe("241640")
-    assert dict(finding.matched)["rep email"] == ""
+    assert dict(finding.matched)["assigned email"] == ""
     assert finding.assignment is not None and not finding.assignment.usable
 
 
@@ -309,3 +311,72 @@ def test_a_refusal_from_jobnimbus_is_reported_not_raised(monkeypatch):
     finding = jobnimbus.probe("241640")
     assert finding.error == "401 Unauthorized"
     assert not finding.found
+
+
+# --- the assigned person, and nobody else ----------------------------------
+# Zack: "Do not harass the sales rep. As they are not responsible for
+# collecting invoices or what not. The assigned to is typically the project
+# manager, who is responsible for that. Only."
+
+def test_a_job_with_a_rep_but_nobody_assigned_reaches_nobody(monkeypatch, with_key):
+    """Job 241640 on the day the key arrived: Sales rep Sue Vivona, Assigned
+    empty. Writing to the rep would be the app doing the wrong thing
+    confidently, which is worse than doing nothing."""
+    respond(monkeypatch, {"results": [{
+        "number": "241640",
+        "name": "241640- Mountainview Condos (due 10-30-24)",
+        "sales_rep_name": "Sue Vivona",
+        "sales_rep_email": "svivona@addventuresinc.com",
+        "owners": [],
+    }]})
+
+    found = jobnimbus.find_job("241640")
+    assert found is None or not found.usable
+
+
+def test_the_rep_is_never_read_even_as_a_last_resort(monkeypatch, with_key):
+    record = {"number": "260000", "sales_rep_email": "rep@addventuresinc.com"}
+    assignment = jobnimbus._assignment_from(record, "260000")
+    assert assignment.email == ""
+    assert not assignment.usable
+
+
+def test_the_probe_shows_the_rep_so_an_unassigned_job_is_obvious(monkeypatch, with_key):
+    """Reported, never used. A job with a rep and no assignee is the thing to
+    go and fix in JobNimbus, so it has to be visible."""
+    respond(monkeypatch, {"results": [{
+        "number": "241640", "sales_rep_name": "Sue Vivona", "owners": [],
+    }]})
+    finding = jobnimbus.probe("241640")
+    assert finding.rep_present == "Sue Vivona"
+    assert not finding.assignment.usable
+
+
+# --- the six digits are the identity ---------------------------------------
+# Zack: "Some jobs have words after the numbers. But every single one of them
+# has the six digit number, so I wanted to just be known as the six digit
+# number."
+
+def test_a_job_titled_with_words_after_the_number_still_matches(monkeypatch, with_key):
+    respond(monkeypatch, {"results": [{
+        "name": "241640- Mountainview Condos (due 10-30-24)",
+        "owners": [{"id": "u9", "name": "Pat Moran",
+                    "email": "pmoran@addventuresinc.com"}],
+    }]})
+    found = jobnimbus.find_job("241640")
+    assert found is not None and found.person_name == "Pat Moran"
+
+
+def test_a_date_in_the_title_is_not_mistaken_for_a_job_number():
+    record = {"name": "241640- Mountainview Condos (due 10-30-24)"}
+    assert jobnimbus._identifiers(record) == {"241640"}
+
+
+def test_a_different_job_in_the_title_does_not_match():
+    record = {"name": "241641- Somewhere Else"}
+    assert not jobnimbus._matches(record, "241640")
+
+
+def test_a_number_field_still_wins_when_it_is_there():
+    record = {"number": "241640", "name": "Mountainview Condos"}
+    assert jobnimbus._matches(record, "241640")

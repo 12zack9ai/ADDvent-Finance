@@ -55,12 +55,24 @@
         <span class="score-v">{{ finding.records }}</span>
         <span class="score-n">{{ finding.exact }} with that exact number</span>
       </div>
-      <div class="score{{ ' good' if finding.assignment and finding.assignment.usable }}">
-        <span class="score-k">Who owns it</span>
-        <span class="score-v">{{ finding.assignment.person_name or "—" }}</span>
-        <span class="score-n">{{ finding.assignment.email or "no email found" }}</span>
+      <div class="score{{ ' good' if finding.assignment and finding.assignment.usable else ' bad' }}">
+        <span class="score-k">Assigned to</span>
+        <span class="score-v">{{ finding.assignment.person_name or "Nobody" }}</span>
+        <span class="score-n">
+          {%- if finding.assignment.usable %}{{ finding.assignment.email }}
+          {%- else %}nobody will be asked about this job{% endif %}</span>
       </div>
     </div>
+
+    {% if finding.rep_present and not (finding.assignment and finding.assignment.usable) %}
+      <div class="needs">
+        <div class="needs-row"><div class="needs-what">Nobody is assigned to this job
+          <span class="muted">There is a sales rep on the record
+            ({{ finding.rep_present }}), and they are deliberately never
+            contacted — collecting invoices is the project manager's job. Fill
+            in <strong>Assigned</strong> in JobNimbus.</span></div></div>
+      </div>
+    {% endif %}
 
     <div class="panel" style="padding:0;overflow-x:auto">
       <div style="padding:18px 20px 6px"><h2 style="margin:0">What the app matched</h2></div>

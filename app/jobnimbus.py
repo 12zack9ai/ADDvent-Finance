@@ -43,6 +43,7 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from app import jobnum
 from app.config import settings
 
 log = logging.getLogger(__name__)
@@ -63,11 +64,23 @@ class JobNimbusError(RuntimeError):
 
 JOB_NUMBER_KEYS = ("number", "job_number", "jnid_number", "display_number")
 JOB_NAME_KEYS = ("name", "display_name", "job_name")
-# "Assigned to" in the JobNimbus UI. `owners` is a list of assignee records.
+# **Assigned to**, and nothing else. Zack: "Do not harass the sales rep. As
+# they are not responsible for collecting invoices or what not. The assigned
+# to is typically the project manager, who is responsible for that. Only."
+#
+# So the sales rep is not a fallback here and must never become one. A job
+# with nobody assigned is a gap for somebody to fill in JobNimbus, not a
+# licence to write to the next name on the record.
 OWNER_LIST_KEYS = ("owners", "assigned_to", "assignees")
-# Flat fallbacks, for accounts that carry a single named rep instead.
-FLAT_NAME_KEYS = ("sales_rep_name", "assigned_to_name", "owner_name", "manager_name")
-FLAT_EMAIL_KEYS = ("sales_rep_email", "assigned_to_email", "owner_email", "manager_email")
+# Flat forms of the same field, for accounts that carry one named assignee
+# rather than a list. Still "assigned to" - never a rep, never a salesperson.
+FLAT_NAME_KEYS = ("assigned_to_name", "owner_name", "manager_name")
+FLAT_EMAIL_KEYS = ("assigned_to_email", "owner_email", "manager_email")
+# Named here only so the probe can show when a job has no assignee but does
+# have a rep - which is the shape that must NOT be used. Nothing reads these
+# to decide who to email.
+NEVER_EMAIL_KEYS = ("sales_rep_name", "sales_rep_email", "sales_rep",
+                    "rep_name", "rep_email", "salesperson")
 # Inside an owner record.
 PERSON_NAME_KEYS = ("name", "display_name", "first_name_last_name", "full_name")
 PERSON_EMAIL_KEYS = ("email", "email_address", "username")
@@ -178,7 +191,9 @@ def _assignment_from(record: dict, job_number: str) -> Assignment:
                 assignment.person_id = _first(owner, PERSON_ID_KEYS)
                 return assignment
 
-    # No owner record: some accounts carry a flat named rep instead.
+    # No assignee record. Some accounts carry the same field flat rather than
+    # as a list - but nothing beyond "assigned to" is consulted, so a job with
+    # an empty Assigned box comes back unusable and nobody is written to.
     assignment.person_name = _first(record, FLAT_NAME_KEYS)
     assignment.email = _first(record, FLAT_EMAIL_KEYS)
     return assignment
@@ -191,8 +206,36 @@ def _matches(record: dict, job_number: str) -> bool:
     relevant, and emailing the wrong project manager about somebody else's job
     is worse than not emailing at all.
     """
+    wanted = (job_number or "").strip()
+    if not wanted:
+        return False
+
     found = _first(record, JOB_NUMBER_KEYS)
-    return bool(found) and found.strip() == job_number.strip()
+    if found and found.strip() == wanted:
+        return True
+
+    # Zack: "Some jobs have words after the numbers. But every single one of
+    # them has the six digit number." So a record titled
+    # "241640- Mountainview Condos (due 10-30-24)" is job 241640, and refusing
+    # it on a string comparison would leave the app certain the job does not
+    # exist. The six digits are the identity; the words after them are a
+    # label. `find_job_numbers` already knows what a job number looks like,
+    # including that a date like 10-30-24 is not one.
+    return wanted in _identifiers(record)
+
+
+def _identifiers(record: dict) -> set[str]:
+    """Every job-shaped number this record carries, wherever it is written."""
+    out: set[str] = set()
+    for key in JOB_NUMBER_KEYS + JOB_NAME_KEYS:
+        value = record.get(key)
+        if not isinstance(value, str):
+            continue
+        text = value.strip()
+        if jobnum.is_job_number(text):
+            out.add(text)
+        out.update(jobnum.find_job_numbers(text))
+    return out
 
 
 # --- settling the field names ---------------------------------------------
@@ -217,6 +260,9 @@ class Finding:
     owners: dict = field(default_factory=dict)
     assignment: Optional["Assignment"] = None
     payload_keys: list[str] = field(default_factory=list)
+    # A sales rep on the record, if there is one. Never emailed - see
+    # NEVER_EMAIL_KEYS. Reported only so an unassigned job is obvious.
+    rep_present: str = ""
 
     @property
     def found(self) -> bool:
@@ -261,10 +307,15 @@ def probe(job_number: str) -> Finding:
     for label, keys in (
         ("job number", JOB_NUMBER_KEYS),
         ("job name", JOB_NAME_KEYS),
-        ("rep name", FLAT_NAME_KEYS),
-        ("rep email", FLAT_EMAIL_KEYS),
+        ("assigned name", FLAT_NAME_KEYS),
+        ("assigned email", FLAT_EMAIL_KEYS),
     ):
         finding.matched.append((label, _first(record, keys)))
+
+    # Shown so it is visible that a rep exists and is being left alone, not
+    # because anything reads it. A job with a rep and no assignee is the case
+    # to go and fix in JobNimbus.
+    finding.rep_present = _first(record, NEVER_EMAIL_KEYS)
 
     for key in OWNER_LIST_KEYS:
         if record.get(key):

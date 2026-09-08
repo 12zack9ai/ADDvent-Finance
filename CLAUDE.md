@@ -124,6 +124,29 @@ Protected Harbor, and moving the nameservers takes the mailbox down with them.
   I'm working with."* Four numbers, one list, and drawers for everything else.
   No walls of text.
 
+## JobNimbus — who gets asked
+
+The app asks JobNimbus **one question**: an invoice arrived on a job with no
+quote, so who should be asked for it?
+
+**Only the "Assigned to" person.** Zack: *"Do not harass the sales rep. As
+they are not responsible for collecting invoices or what not. The assigned to
+is typically the project manager, who is responsible for that. Only."* The
+sales rep is not a fallback and must never become one — `NEVER_EMAIL_KEYS` in
+`app/jobnimbus.py` exists to name that field so nothing quietly starts reading
+it. A job with nobody assigned reaches nobody, and that is the correct
+outcome: it is a gap to fill in JobNimbus, not a licence to write to whoever
+else is on the record.
+
+Nothing else is taken from JobNimbus. No customer details, no addresses, no
+money, no schedule. One lookup, one name, one email address.
+
+**The six digits are the identity.** Job titles read like
+`241640- Mountainview Condos (due 10-30-24)`. Every job carries the six-digit
+number and that is what the app keys on; the words after it are a label. A
+date like `10-30-24` is not mistaken for one, because the year-prefix rule in
+`app/jobnum.py` rejects it.
+
 ## The design rule that holds the whole thing up
 
 **Claude reads. Python does the arithmetic.** The model extracts values from a
