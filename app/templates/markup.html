@@ -208,6 +208,7 @@
   .vitems tr{page-break-inside:avoid}
   .vsku{font-weight:700;font-size:8.4pt}
   .vdesc{font-size:8.2pt;color:#222}
+  .vquoted{display:block;margin-top:2px;font-size:7.6pt;font-weight:700;color:var(--navy)}
   .vprice{font-weight:700;padding:5px 7px !important}
   .vprice .was{display:block;font-size:7.6pt;font-weight:700;margin-top:2px;white-space:nowrap}
   .vdelta{display:block;font-size:7.6pt;font-weight:700;margin-top:2px}
@@ -340,6 +341,11 @@
           <td>
             <span class="vsku">{{ line.sku or "&mdash;" }}</span><br>
             <span class="vdesc">{{ line.description or "" }}</span>
+            {% if worded_differently(line) %}
+            {# Priced against a quote line worded otherwise - a colour swap looks
+               exactly like this, so say what it was compared to. #}
+            <span class="vquoted">on the quote as: {{ line.quote_line.description or line.quote_line.sku }}</span>
+            {% endif %}
           </td>
 
           {# THE MARKED-UP CELL. red = billed above quote, green = below, gold = exact,

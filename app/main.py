@@ -34,7 +34,7 @@ from app.approval import (
     find_receipt,
     route,
 )
-from app.matching import norm_vendor, vendor_matches
+from app.matching import norm_vendor, vendor_matches, worded_differently
 from app.models import (
     CashReport,
     APPROVAL_APPROVED,
@@ -137,6 +137,7 @@ templates.env.globals["site_name"] = settings.site_name
 # from somewhere unexpected without every route having to look it up.
 templates.env.globals["trust_flags"] = trust.flags_for
 templates.env.globals["trust_blockers"] = lambda doc: trust.blocking(trust.flags_for(doc))
+templates.env.globals["worded_differently"] = worded_differently
 
 
 def _configure_logging() -> None:

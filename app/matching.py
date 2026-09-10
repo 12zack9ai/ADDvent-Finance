@@ -329,6 +329,21 @@ def compare_line(line: InvoiceLine, quote_line: Optional[QuoteLine], method: str
         line.verdict = VERDICT_MATCH
 
 
+def worded_differently(line) -> bool:
+    """True when an invoice line was priced against a quote line worded otherwise.
+
+    A shared part number or a close description is exactly how a colour swap
+    gets matched: "Timberline HDZ Charcoal" priced against "Timberline HDZ
+    Weathered Wood". The price can be right and the item still not what was
+    quoted, so the invoice shows what it was compared to whenever the words
+    differ - normalised, so case and punctuation alone do not count.
+    """
+    quoted = getattr(line, "quote_line", None)
+    if quoted is None:
+        return False
+    return norm_text(line.description) != norm_text(quoted.description)
+
+
 @dataclass
 class InvoiceSummary:
     overbilled: Decimal = Decimal("0")

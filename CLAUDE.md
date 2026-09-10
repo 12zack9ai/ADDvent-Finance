@@ -167,6 +167,12 @@ the job page and the Invoices folder, and an owner spot check. Oldest first by
 the printed invoice date; a rejected invoice, or one with no supplier name,
 sets nothing. Once a quote prices the item, the quote decides and the flag goes.
 
+**The invoice says what each line was compared to** when the wording differs
+from the quote line it matched ("on the quote as: … Weathered Wood" under
+"… Charcoal"). A shared part number or a close description is how a colour
+swap gets priced, and the price matching says nothing about the colour.
+`matching.worded_differently` decides; case and punctuation alone don't count.
+
 **Quote-only jobs stay off the Invoices page.** Zack, 2026-09-10: *"i like it
 in the jobs. the quote should be pulled in when we get invoices to not drown
 that area."* A job with just a quote is on **Jobs**; it joins **Invoices** with
@@ -287,5 +293,5 @@ what was asked and what came back, grouped by vendor.
 ## Before pushing
 
 ```
-cd /home/user/finance-automation && .venv/bin/python -m pytest -q    # 728 passing as of 2026-09-10
+cd /home/user/finance-automation && .venv/bin/python -m pytest -q    # 732 passing as of 2026-09-10
 ```
