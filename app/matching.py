@@ -13,7 +13,7 @@ of invoice lines.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Iterable, Optional
 
@@ -86,6 +86,52 @@ def uom_compatible(a: Optional[str], b: Optional[str]) -> bool:
     return False
 
 
+# Colour names, as suppliers print them on shingles, drip edge, gutters and
+# trim. A colour is a variant of an item, not a different item: quoted in
+# Weathered Wood and ordered in Charcoal is the same shingle at the same price,
+# with a different part number and different wording - so without this no tier
+# in match_line can pair them (job 261216).
+#
+# Deliberately conservative. A word that is also a material - copper, slate,
+# clay, sand - is only here inside a colour name, so "copper flashing" never
+# pairs with "aluminum flashing". A colour that slips through goes on the list;
+# anything else a person pairs with the "same item" button.
+_COLOR_PHRASES = [
+    "weathered wood", "pewter gray", "pewter grey", "mission brown", "hunter green",
+    "oyster gray", "oyster grey", "estate gray", "estate grey", "onyx black",
+    "desert tan", "harbor blue", "colonial slate", "williamsburg slate",
+    "aged copper", "sand dune", "quarry gray", "summer harvest", "black walnut",
+    "sierra gray", "moire black", "heather blend", "georgetown gray",
+    "burnt sienna", "chateau green", "cottage red", "atlantic blue", "true black",
+    "twilight gray", "royal pewter", "shasta white", "patriot red",
+    "sedona canyon", "musket brown", "royal brown", "light gray", "light grey",
+    "dark gray", "dark grey", "slate gray", "slate grey", "silver birch",
+    "copper canyon", "golden amber", "biscayne blue", "appalachian sky",
+    "charcoal", "pewter", "barkwood", "hickory", "shakewood", "driftwood",
+    "birchwood", "brownwood", "onyx", "teak", "black", "white", "gray", "grey",
+    "brown", "tan", "beige", "ivory", "bronze", "almond", "green", "red", "blue",
+]
+_COLOR_RE = re.compile(
+    r"\b(?:"
+    + "|".join(re.escape(p) for p in sorted(_COLOR_PHRASES, key=len, reverse=True))
+    + r")\b"
+)
+
+
+def strip_colors(text: str) -> str:
+    """Normalised text with every colour name taken out."""
+    return _WS_RE.sub(" ", _COLOR_RE.sub(" ", text)).strip()
+
+
+def item_key(line) -> str:
+    """How a person's "same item" is remembered: part number, else wording."""
+    sku = norm_sku(getattr(line, "sku", ""))
+    if sku:
+        return f"sku:{sku}"
+    desc = norm_text(getattr(line, "description", ""))
+    return f"desc:{desc}" if desc else ""
+
+
 # Corporate boilerplate that carries no identifying information. Stripped before
 # comparing two vendor names so "Baker Supply Inc." and "BAKER SUPPLY, LLC"
 # resolve to the same company.
@@ -147,9 +193,14 @@ class QuoteIndex:
     by_sku: dict[str, QuoteLine]
     by_desc: dict[str, QuoteLine]
     all_lines: list[QuoteLine]
+    # item_key -> quote line, from the "same item" button. A person's word
+    # outranks every tier below it.
+    aliases: dict[str, QuoteLine] = field(default_factory=dict)
 
     @classmethod
-    def build(cls, lines: Iterable[QuoteLine]) -> "QuoteIndex":
+    def build(
+        cls, lines: Iterable[QuoteLine], aliases: Optional[dict[str, QuoteLine]] = None
+    ) -> "QuoteIndex":
         by_sku: dict[str, QuoteLine] = {}
         by_desc: dict[str, QuoteLine] = {}
         all_lines: list[QuoteLine] = []
@@ -161,7 +212,8 @@ class QuoteIndex:
             desc = norm_text(line.description)
             if desc and desc not in by_desc:
                 by_desc[desc] = line
-        return cls(by_sku=by_sku, by_desc=by_desc, all_lines=all_lines)
+        return cls(by_sku=by_sku, by_desc=by_desc, all_lines=all_lines,
+                   aliases=dict(aliases or {}))
 
 
 def match_line(line: InvoiceLine, index: QuoteIndex) -> tuple[Optional[QuoteLine], str]:
@@ -170,6 +222,11 @@ def match_line(line: InvoiceLine, index: QuoteIndex) -> tuple[Optional[QuoteLine
     Tiers run most-certain first and stop at the first hit, so a confident SKU
     match is never overridden by a fuzzy description elsewhere on the quote.
     """
+    # Somebody looked at both documents and said which quote line this is.
+    key = item_key(line)
+    if key and key in index.aliases:
+        return index.aliases[key], "manual"
+
     # A part number is definitive: trust it even if the units are written
     # differently on the two documents.
     sku = norm_sku(line.sku)
@@ -199,6 +256,24 @@ def match_line(line: InvoiceLine, index: QuoteIndex) -> tuple[Optional[QuoteLine
                 best, best_score = candidate, score
         if best is not None and best_score >= settings.fuzzy_threshold:
             return best, "fuzzy"
+
+        # A colour is a variant, not a different item (see _COLOR_PHRASES):
+        # the same words once the colours are out of both sides. Exact words,
+        # not a similarity score - with the colour gone a line can be short
+        # enough that "black nails" would score 100 against any quote line
+        # with "nails" in it, and a wrong pairing prices the wrong item.
+        plain = strip_colors(desc)
+        words = set(plain.split())
+        if words:
+            for candidate in index.all_lines:
+                cand_desc = norm_text(candidate.description)
+                cand_plain = strip_colors(cand_desc)
+                if set(cand_plain.split()) != words:
+                    continue
+                if plain == desc and cand_plain == cand_desc:
+                    continue      # no colour on either side: the tiers above decided
+                if uom_compatible(line.uom, candidate.uom):
+                    return candidate, "color"
 
     return None, "none"
 
@@ -362,9 +437,13 @@ class InvoiceSummary:
         return self.lines_over > 0
 
 
-def compare_invoice(lines: list[InvoiceLine], quote_lines: list[QuoteLine]) -> InvoiceSummary:
+def compare_invoice(
+    lines: list[InvoiceLine],
+    quote_lines: list[QuoteLine],
+    aliases: Optional[dict[str, QuoteLine]] = None,
+) -> InvoiceSummary:
     """Compare every line on an invoice against the master quote."""
-    index = QuoteIndex.build(quote_lines)
+    index = QuoteIndex.build(quote_lines, aliases)
     summary = InvoiceSummary()
 
     for line in lines:

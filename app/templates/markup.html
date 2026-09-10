@@ -209,6 +209,14 @@
   .vsku{font-weight:700;font-size:8.4pt}
   .vdesc{font-size:8.2pt;color:#222}
   .vquoted{display:block;margin-top:2px;font-size:7.6pt;font-weight:700;color:var(--navy)}
+  .vsame{margin-top:4px;font-size:7.8pt}
+  .vsame summary{cursor:pointer;color:var(--navy);font-weight:700}
+  .vsame form{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+  .vsame select{max-width:100%;font-size:8pt}
+  .vsame input{max-width:140px;font-size:8pt}
+  .vsame button,.vsame-undo button{font-size:7.6pt;cursor:pointer}
+  .vsame-undo{margin-top:3px}
+  @media print{.vsame,.vsame-undo{display:none}}
   .vprice{font-weight:700;padding:5px 7px !important}
   .vprice .was{display:block;font-size:7.6pt;font-weight:700;margin-top:2px;white-space:nowrap}
   .vdelta{display:block;font-size:7.6pt;font-weight:700;margin-top:2px}
@@ -344,7 +352,28 @@
             {% if worded_differently(line) %}
             {# Priced against a quote line worded otherwise - a colour swap looks
                exactly like this, so say what it was compared to. #}
-            <span class="vquoted">on the quote as: {{ line.quote_line.description or line.quote_line.sku }}</span>
+            <span class="vquoted">on the quote as: {{ line.quote_line.description or line.quote_line.sku }}
+              {%- if (line.match_method or "").startswith("color") %} &middot; different color{% endif %}
+              {%- if (line.match_method or "").startswith("manual") %} &middot; matched by hand{% endif %}</span>
+            {% endif %}
+            {% if not print_mode and (line.match_method or "").startswith("manual") %}
+            <form method="post" action="/invoice/{{ invoice.id }}/line/{{ line.id }}/not-same" class="vsame-undo">
+              <button type="submit">not the same item</button>
+            </form>
+            {% elif not print_mode and line.verdict == "not_on_quote" and not line.quote_line and quote_choices %}
+            {# The matcher could not pair it. A person can: "this is that quote line". #}
+            <details class="vsame">
+              <summary>Same item as a quote line?</summary>
+              <form method="post" action="/invoice/{{ invoice.id }}/line/{{ line.id }}/same">
+                <select name="quote_line_id" required>
+                  {% for q in quote_choices %}
+                  <option value="{{ q.id }}">{{ q.description or q.sku }}{% if q.unit_price is not none %} &mdash; {{ q.unit_price | money4 }}{% endif %}</option>
+                  {% endfor %}
+                </select>
+                <input type="text" name="actor" placeholder="Your name">
+                <button type="submit">Same item</button>
+              </form>
+            </details>
             {% endif %}
           </td>
 

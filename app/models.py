@@ -688,6 +688,33 @@ class InvoiceLine(Base):
     quote_line: Mapped[Optional[QuoteLine]] = relationship()
 
 
+class ItemMatch(Base):
+    """A person said: this invoice item is that quote line.
+
+    The "same item" button, for what the matcher cannot pair on its own. Kept
+    per job and per supplier and keyed on the invoice's part number (else its
+    wording - see matching.item_key), so the next invoice billing the same item
+    pairs the same way without anybody clicking again. It lapses, rather than
+    pricing against a dead number, if its quote line stops being live.
+    """
+
+    __tablename__ = "item_match"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("job.id"), index=True)
+    vendor: Mapped[str] = mapped_column(String(255), default="")
+    key: Mapped[str] = mapped_column(String(512))            # "sku:..." | "desc:..."
+    quote_line_id: Mapped[int] = mapped_column(ForeignKey("quote_line.id"))
+    matched_by: Mapped[str] = mapped_column(String(128), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    quote_line: Mapped[QuoteLine] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("job_id", "vendor", "key", name="uq_item_match"),
+    )
+
+
 # --- three-way match: the receiving leg ------------------------------------
 # Pricing alone is not enough. An invoice can be perfectly priced against the
 # quote and still be for material that never arrived, or for subcontractor work

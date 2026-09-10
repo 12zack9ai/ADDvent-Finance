@@ -34,7 +34,7 @@ from app.approval import (
     find_receipt,
     route,
 )
-from app.matching import norm_vendor, vendor_matches, worded_differently
+from app.matching import item_key, norm_vendor, vendor_matches, worded_differently
 from app.models import (
     CashReport,
     APPROVAL_APPROVED,
@@ -69,6 +69,8 @@ from app.models import (
     ChangeOrder,
     Document,
     Invoice,
+    InvoiceLine,
+    ItemMatch,
     Job,
     Quote,
     Receipt,
@@ -78,6 +80,7 @@ from app.models import (
 )
 from app.pdf import PdfUnavailable, pdf_available, render_html_to_pdf
 from app.services import (
+    recheck_all,
     recompare_job,
     chase_cooldown_left,
     chase_quote_now,
@@ -178,6 +181,9 @@ async def _startup() -> None:
     scheduler.start()
     # Nightly backup, and the thing that notices when a quiet job has stopped.
     watchdog.start()
+    # Off the startup path, like the sample loaders: re-pricing every job must
+    # not hold up the host's health check.
+    asyncio.get_running_loop().run_in_executor(None, _recheck_once)
 
     # Before either loader, and it turns both off for this boot: an install
     # being emptied must not have samples put back into it on the way past.
@@ -190,6 +196,29 @@ async def _startup() -> None:
 
     if settings.seed_samples and not settings.reset_samples:
         asyncio.get_running_loop().run_in_executor(None, _seed_samples_once)
+
+
+# Bump when the matcher changes in a way that should re-price what is already
+# filed. The marker on the data disk makes it once per change, not once per
+# boot - a boot must never be the thing that moves money around.
+RECHECK_VERSION = "2026-09-10-colours"
+
+
+def _recheck_once() -> None:
+    from app.db import SessionLocal
+
+    log = logging.getLogger("finance")
+    marker = settings.data_dir / f"recheck-{RECHECK_VERSION}.done"
+    if marker.exists():
+        return
+    try:
+        with SessionLocal() as session:
+            jobs, invoices = recheck_all(session)
+        marker.write_text(f"{utcnow().isoformat()} {jobs} job(s), {invoices} invoice(s)\n")
+        log.warning("RECHECK %s: re-compared %d invoice(s) on %d job(s)",
+                    RECHECK_VERSION, invoices, jobs)
+    except Exception as exc:                          # noqa: BLE001
+        log.warning("RECHECK %s: failed - %s", RECHECK_VERSION, exc)
 
 
 def _load_samples_once() -> None:
@@ -975,7 +1004,13 @@ def document_file(doc_id: int, session: Session = Depends(get_session)):
 
 def _render_markup(request: Request, invoice: Invoice, print_mode: bool) -> str:
     routing = None if print_mode else route(invoice)
+    # What a grey line could be said to be ("same item"): this supplier's live
+    # quote lines on the job - the same ones the matcher itself prices against.
+    quote_choices = [] if print_mode else [
+        ql for q in invoice.job.masters_for_vendor(invoice.vendor) for ql in q.lines
+    ]
     return templates.get_template("markup.html").render(
+        quote_choices=quote_choices,
         request=request,
         invoice=invoice,
         job=invoice.job,
@@ -996,6 +1031,78 @@ def invoice_markup(invoice_id: int, request: Request, session: Session = Depends
     if invoice is None:
         return _redirect("/jobs", err="No such invoice.")
     return HTMLResponse(_render_markup(request, invoice, print_mode=False))
+
+
+def _invoice_line(session: Session, invoice_id: int, line_id: int):
+    invoice = session.get(Invoice, invoice_id)
+    line = session.get(InvoiceLine, line_id)
+    if invoice is None or line is None or line.invoice_id != invoice.id:
+        return None, None
+    return invoice, line
+
+
+@app.post("/invoice/{invoice_id}/line/{line_id}/same")
+def same_item(
+    invoice_id: int,
+    line_id: int,
+    quote_line_id: int = Form(...),
+    actor: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    """A person says this invoice line is that quote line.
+
+    Remembered for the job and the supplier, so every invoice billing the same
+    item - the ones already here and the ones still to come - is priced
+    against it without anybody clicking again. Then the job is re-compared.
+    """
+    invoice, line = _invoice_line(session, invoice_id, line_id)
+    if invoice is None:
+        return _redirect("/jobs", err="No such invoice line.")
+    back = f"/invoice/{invoice.id}"
+
+    live = {ql.id: ql for q in invoice.job.masters_for_vendor(invoice.vendor) for ql in q.lines}
+    quoted = live.get(quote_line_id)
+    if quoted is None:
+        return _redirect(back, err="That is not a line on a live quote from this supplier.")
+    key = item_key(line)
+    if not key:
+        return _redirect(back, err="This line has no part number or wording to remember it by.")
+
+    pairing = session.scalar(select(ItemMatch).where(
+        ItemMatch.job_id == invoice.job_id,
+        ItemMatch.vendor == invoice.vendor,
+        ItemMatch.key == key,
+    ))
+    if pairing is None:
+        pairing = ItemMatch(job_id=invoice.job_id, vendor=invoice.vendor, key=key)
+        session.add(pairing)
+    pairing.quote_line_id = quoted.id
+    pairing.matched_by = _actor(actor)
+    session.flush()
+
+    recompare_job(session, invoice.job)
+    session.commit()
+    return _redirect(back, ok=f"Priced against the quote's “{quoted.description or quoted.sku}”.")
+
+
+@app.post("/invoice/{invoice_id}/line/{line_id}/not-same")
+def not_same_item(invoice_id: int, line_id: int, session: Session = Depends(get_session)):
+    """Undo "same item": forget the pairing, and re-compare the job without it."""
+    invoice, line = _invoice_line(session, invoice_id, line_id)
+    if invoice is None:
+        return _redirect("/jobs", err="No such invoice line.")
+
+    key = item_key(line)
+    for pairing in session.scalars(select(ItemMatch).where(
+        ItemMatch.job_id == invoice.job_id, ItemMatch.key == key,
+    )).all():
+        if vendor_matches(pairing.vendor, invoice.vendor):
+            session.delete(pairing)
+    session.flush()
+
+    recompare_job(session, invoice.job)
+    session.commit()
+    return _redirect(f"/invoice/{invoice.id}", ok="No longer paired with the quote.")
 
 
 @app.get("/compare/{a_id}/{b_id}", response_class=HTMLResponse)

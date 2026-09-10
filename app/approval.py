@@ -34,6 +34,7 @@ from app.models import (
     APPROVAL_HELD,
     APPROVAL_PAID,
     APPROVAL_PENDING,
+    APPROVAL_REJECTED,
     CO_PROPOSED,
     TIER_OWNER,
     TIER_PM,
@@ -339,12 +340,21 @@ def apply_routing(invoice: Invoice) -> Routing:
     """Recompute routing and park the invoice in the right state.
 
     Only touches invoices that are still open. An invoice a person has already
-    approved or marked paid is left alone - re-running the matcher must never
-    silently un-approve something someone signed for.
+    approved, marked paid, or rejected is left alone - re-running the matcher
+    must never silently undo a decision somebody made. Rejected used to be
+    missing here, so every new quote on a job put its rejected invoices back
+    to Pending.
     """
     routing = route(invoice)
 
-    if invoice.approval_status in (APPROVAL_APPROVED, APPROVAL_PAID):
+    if invoice.approval_status in (APPROVAL_APPROVED, APPROVAL_PAID, APPROVAL_REJECTED):
+        return routing
+
+    # A hold a person placed is theirs to lift. Re-comparing - a new quote, a
+    # "same item" click, the re-check after a deploy - must not quietly
+    # release an invoice somebody parked on purpose.
+    if (invoice.approval_status == APPROVAL_HELD and invoice.approvals
+            and invoice.approvals[-1].decision == "hold"):
         return routing
 
     if routing.action == ACTION_HOLD:

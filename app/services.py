@@ -46,6 +46,7 @@ from app.models import (
     Extraction,
     Invoice,
     InvoiceLine,
+    ItemMatch,
     Job,
     PURCHASE_EMAIL,
     PURCHASE_TEXT,
@@ -432,7 +433,15 @@ def recompare_invoice(session: Session, job: Job, invoice: Invoice) -> None:
     # Newest quote first, so when the same part is on two live quotes at two
     # prices the most recently agreed one is what the vendor is held to.
     quoted_lines = [line for quote in masters for line in quote.lines]
-    summary = compare_invoice(list(invoice.lines), quoted_lines)
+    # Items a person said are the same as a quote line (the "same item"
+    # button) - but only while that quote line is still live. A replaced quote
+    # takes its pairings with it rather than pricing against a dead price.
+    live = {line.id: line for line in quoted_lines}
+    aliases: dict = {}
+    for pairing in session.scalars(select(ItemMatch).where(ItemMatch.job_id == job.id)):
+        if pairing.quote_line_id in live and vendor_matches(pairing.vendor, invoice.vendor):
+            aliases.setdefault(pairing.key, live[pairing.quote_line_id])
+    summary = compare_invoice(list(invoice.lines), quoted_lines, aliases)
     invoice.overbilled_amount = summary.overbilled
     invoice.underbilled_amount = summary.underbilled
     invoice.lines_over = summary.lines_over
@@ -596,6 +605,22 @@ def recompare_job(session: Session, job: Job) -> int:
     # quote decides - not the first invoice.
     pricewatch.check_job(session, job)
     return len(invoices)
+
+
+def recheck_all(session: Session) -> tuple[int, int]:
+    """Re-compare every job against the matcher as it is now.
+
+    For a matcher change that should reach what is already filed - colours
+    pairing, say, which otherwise only applies to the next document on a job.
+    Safe to run: decisions a person made (approved, paid, rejected, a hold they
+    placed) are left as they are. Returns (jobs, invoices).
+    """
+    jobs = session.scalars(select(Job)).all()
+    invoices = 0
+    for job in jobs:
+        invoices += recompare_job(session, job)
+        session.commit()
+    return len(jobs), invoices
 
 
 # --- the entry point ------------------------------------------------------

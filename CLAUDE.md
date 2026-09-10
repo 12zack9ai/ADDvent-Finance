@@ -173,6 +173,30 @@ from the quote line it matched ("on the quote as: … Weathered Wood" under
 swap gets priced, and the price matching says nothing about the colour.
 `matching.worded_differently` decides; case and punctuation alone don't count.
 
+**Colours pair on their own** (`matching._COLOR_PHRASES`, job 261216): with
+the colour names out of both descriptions, the same words are the same item,
+so Charcoal is priced against a Weathered Wood quote line and the invoice says
+"· different color". Exact words, never a similarity score, and a word that is
+also a material (copper, slate, clay, sand) only counts inside a colour name.
+A colour that slips through goes on the list.
+
+**"Same item" is a person's pairing** (`ItemMatch`): on a grey line, pick the
+quote line it is. Remembered per job and supplier by part number (else
+wording), so later invoices billing it pair without a click; "not the same
+item" undoes it. It lapses if its quote line is replaced.
+
+**Re-comparing never undoes a person's decision.** `apply_routing` leaves
+approved, paid and rejected invoices alone, and a hold a person placed (their
+last Approval is "hold"). It didn't: every new quote on a job put that job's
+rejected invoices back to Pending and released anything held by hand.
+
+**A matcher change reaches what is already filed** through `_recheck_once` in
+`app/main.py`: on the first boot after `RECHECK_VERSION` changes, every job is
+re-compared once, off the startup path, and a marker on the data disk stops it
+running again. Bump the version when a change should re-price old invoices.
+"Not on the quote" at the top of the job page is `jobsummary.off_quote` -
+worked out from line verdicts on every view - so pairing a line lowers it.
+
 **Quote-only jobs stay off the Invoices page.** Zack, 2026-09-10: *"i like it
 in the jobs. the quote should be pulled in when we get invoices to not drown
 that area."* A job with just a quote is on **Jobs**; it joins **Invoices** with
@@ -293,5 +317,5 @@ what was asked and what came back, grouped by vendor.
 ## Before pushing
 
 ```
-cd /home/user/finance-automation && .venv/bin/python -m pytest -q    # 732 passing as of 2026-09-10
+cd /home/user/finance-automation && .venv/bin/python -m pytest -q    # 744 passing as of 2026-09-10
 ```
