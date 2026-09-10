@@ -370,6 +370,15 @@
               {% if "effective" in line.match_method %}<span class="vpack">packaging adjusted</span>{% endif %}
             </td>
             <td class="r">{{ line.extended | money }}</td>
+          {% elif line.first_billed_price is not none %}
+            {# Not on the quote, and not what the first invoice on this job
+               charged for it either. Red, because a changed price is the thing
+               to look at - see pricewatch.py. #}
+            <td class="r vprice p-over">
+              {{ line.unit_price | money4 }}{% if line.price_uom %}/{{ line.price_uom }}{% endif %}
+              <span class="was">price changed &middot; first billed {{ line.first_billed_price | money4 }}</span>
+            </td>
+            <td class="r">{{ line.extended | money }}</td>
           {% else %}
             <td class="r vprice p-none">
               {{ line.unit_price | money4 }}{% if line.price_uom %}/{{ line.price_uom }}{% endif %}

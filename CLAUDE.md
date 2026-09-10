@@ -153,6 +153,25 @@ date like `10-30-24` is not mistaken for one, because the year-prefix rule in
 PDF; every comparison, sum, and variance is computed in `decimal.Decimal`. A
 model must never be the thing that decides whether `$4,182.60 != $4,128.60`.
 
+## Items not on the quote
+
+Zack, 2026-09-10: *"invoice one comes in but didnt have a 3" pipe boot on it
+but it was $65. invoice two comes in with the pipe boot at $66 dollars.....
+thats a problem... need an easy way to see that"*
+
+Nothing prices an item the quote left out, so **the first invoice that bills it
+on a job sets its price**, and every later invoice from the same supplier on
+that job is held to it (`app/pricewatch.py`). Either direction is flagged: a
+red "price changed · first billed $65" on the line, a "price changed" chip on
+the job page and the Invoices folder, and an owner spot check. Oldest first by
+the printed invoice date; a rejected invoice, or one with no supplier name,
+sets nothing. Once a quote prices the item, the quote decides and the flag goes.
+
+**Quote-only jobs stay off the Invoices page.** Zack, 2026-09-10: *"i like it
+in the jobs. the quote should be pulled in when we get invoices to not drown
+that area."* A job with just a quote is on **Jobs**; it joins **Invoices** with
+its first invoice. `/incoming` joining on `Invoice` is the design, not a bug.
+
 ## The six departments
 
 1. **Vendor invoicing** — invoice against the job's master quote.
@@ -268,5 +287,5 @@ what was asked and what came back, grouped by vendor.
 ## Before pushing
 
 ```
-cd /home/user/finance-automation && .venv/bin/python -m pytest -q    # 637 passing as of 2026-09-08
+cd /home/user/finance-automation && .venv/bin/python -m pytest -q    # 728 passing as of 2026-09-10
 ```

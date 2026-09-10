@@ -610,6 +610,9 @@ class Invoice(Base):
     lines_under: Mapped[int] = mapped_column(Integer, default=0)
     lines_match: Mapped[int] = mapped_column(Integer, default=0)
     lines_unmatched: Mapped[int] = mapped_column(Integer, default=0)
+    # Lines not on the quote, billed at something other than the first invoice
+    # on this job charged for the same item. See pricewatch.py.
+    lines_price_changed: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     render_path: Mapped[str] = mapped_column(String(1024), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -674,6 +677,12 @@ class InvoiceLine(Base):
     unit_variance: Mapped[Optional[Decimal]] = mapped_column(Money, nullable=True)
     extended_variance: Mapped[Optional[Decimal]] = mapped_column(Money, nullable=True)
     match_method: Mapped[str] = mapped_column(String(32), default="")  # sku|exact|fuzzy|llm|none
+
+    # Set only when this line is not on the quote and the first invoice on the
+    # job to bill the same item charged a different price. Deliberately not a
+    # foreign key: a second path to `invoice` would make `invoice` ambiguous.
+    first_billed_price: Mapped[Optional[Decimal]] = mapped_column(Money, nullable=True)
+    first_billed_invoice_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     invoice: Mapped[Invoice] = relationship(back_populates="lines")
     quote_line: Mapped[Optional[QuoteLine]] = relationship()

@@ -24,7 +24,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import jobnimbus, jobnum, mail_send, segment, trust
+from app import jobnimbus, jobnum, mail_send, pricewatch, segment, trust
 from app.config import settings
 
 log = logging.getLogger(__name__)
@@ -392,6 +392,9 @@ def create_invoice(
     session.flush()
 
     recompare_invoice(session, job, invoice)
+    # It may be dated before invoices already on the job, and so be the first
+    # time an unquoted item was billed - which re-checks every one of them.
+    pricewatch.check_job(session, job)
     return invoice
 
 
@@ -589,6 +592,9 @@ def recompare_job(session: Session, job: Job) -> int:
     invoices = session.scalars(select(Invoice).where(Invoice.job_id == job.id)).all()
     for invoice in invoices:
         recompare_invoice(session, job, invoice)
+    # A new quote can price an item that was unquoted until now, and then the
+    # quote decides - not the first invoice.
+    pricewatch.check_job(session, job)
     return len(invoices)
 
 

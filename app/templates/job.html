@@ -177,6 +177,7 @@
             <span class="chip c-over">+{{ inv.overbilled_amount | money }}</span>
           {% elif not inv.quote_id %}<span class="chip c-none">no quote</span>
           {% else %}<span class="chip c-ok">on quote</span>{% endif %}
+          {% if inv.lines_price_changed %}<span class="chip c-over">price changed</span>{% endif %}
         </td>
         <td class="r" data-l="Status" style="padding-right:20px">
           {% if trust_blockers(inv.document) %}

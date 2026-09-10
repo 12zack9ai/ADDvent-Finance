@@ -221,6 +221,20 @@ def route(invoice: Invoice) -> Routing:
                 + (f" ({receipt.reference})" if receipt.reference else "")
             )
 
+    # --- not on the quote, and billed at a new price -----------------------
+    # Nothing prices an item the quote left out, so the first invoice to bill
+    # it on this job did (pricewatch.py). Deliberately before the no-quote
+    # return: a pickup with no quote at all is exactly where this happens.
+    changed = invoice.lines_price_changed or 0
+    if changed:
+        routing.action = ACTION_SPOT_CHECK
+        routing.tier = TIER_OWNER
+        routing.reasons.append(
+            f"{changed} item{'' if changed == 1 else 's'} not on the quote "
+            f"{'is' if changed == 1 else 'are'} billed at a different price than "
+            f"the first invoice on this job charged - marked “price changed”."
+        )
+
     # --- no quote to match against -----------------------------------------
     if invoice.quote_id is None:
         routing.action = ACTION_INVESTIGATE

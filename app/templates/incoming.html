@@ -53,10 +53,13 @@
       {% if f.over_quote %}
         <span class="chip c-warn">{{ f.over_quote }} over quote</span>
       {% endif %}
+      {% if f.price_changed %}
+        <span class="chip c-over">{{ f.price_changed }} price changed</span>
+      {% endif %}
       {% if not f.has_quote %}
         <span class="chip c-none">no quote</span>
       {% endif %}
-      {% if not f.needs_review and not f.over_quote and not f.untrusted and f.has_quote %}
+      {% if not f.needs_review and not f.over_quote and not f.price_changed and not f.untrusted and f.has_quote %}
         <span class="chip c-ok">all checked</span>
       {% endif %}
     </div>

@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session, selectinload
 from app import (
     accounting, alerts, auth, backup, cashflow, cashflow_pdf, checks, costing,
     disputes, fmt,
-    invoice_pdf, jobnimbus, jobsummary, purchases, scheduler, subs, trust,
+    invoice_pdf, jobnimbus, jobsummary, pricewatch, purchases, scheduler, subs, trust,
     watchdog,
 )
 from app.config import settings
@@ -1303,6 +1303,11 @@ def decide_invoice(
     else:
         return _redirect(f"/invoice/{invoice.id}", err="Unknown decision.")
 
+    # A rejected invoice sets no price for the rest of the job, and reopening
+    # it puts its prices back - either can move what later invoices are held to.
+    if decision in ("reject", "reopen"):
+        pricewatch.check_job(session, invoice.job)
+
     session.add(Approval(
         invoice_id=invoice.id,
         decision=decision,
@@ -1925,6 +1930,7 @@ class Folder:
     invoice_count: int = 0
     needs_review: int = 0        # nobody has decided on these yet
     over_quote: int = 0
+    price_changed: int = 0       # an unquoted item billed at a new price
     untrusted: int = 0           # provenance flags nobody has cleared
     billed: Decimal = ZERO
     has_quote: bool = False
@@ -1942,6 +1948,8 @@ def _folder(job: Job) -> Folder:
             continue
         folder.invoice_count += 1
         folder.billed += invoice.total or ZERO
+        if invoice.lines_price_changed:
+            folder.price_changed += 1
         if invoice.approval_status in (APPROVAL_PENDING, APPROVAL_HELD):
             folder.needs_review += 1
         if invoice.overbilled_amount and invoice.overbilled_amount > 0:
@@ -1985,6 +1993,7 @@ def incoming(request: Request, session: Session = Depends(get_session)):
     # Anything waiting on a person first, then by the most recent arrival.
     # Within "waiting", the job with the most waiting is the worse problem.
     folders.sort(key=lambda f: (-f.untrusted, -f.needs_review, -f.over_quote,
+                                -f.price_changed,
                                 -(f.latest.timestamp() if f.latest else 0)))
 
     stuck = session.scalar(
