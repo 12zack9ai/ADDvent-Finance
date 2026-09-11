@@ -388,5 +388,5 @@ what was asked and what came back, grouped by vendor.
 ## Before pushing
 
 ```
-cd /home/user/finance-automation && .venv/bin/python -m pytest -q    # 787 passing as of 2026-09-11
+cd /home/user/finance-automation && .venv/bin/python -m pytest -q    # 788 passing as of 2026-09-11
 ```

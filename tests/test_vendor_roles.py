@@ -251,3 +251,22 @@ def test_a_question_that_could_not_be_sent_is_tried_again_next_time(outbox, monk
     _file("invoice", "265712", "Retry Gutters Co", "rt-2")
 
     assert len(_questions(outbox)) == 1
+
+
+def test_an_approved_invoice_from_a_sub_without_a_contract_is_not_an_overage(outbox):
+    """Only approved money counts toward an overage, so this is the case that
+    would show "over contract" against a $0 award if the guard were missing."""
+    from app import subs
+
+    doc_id = _file("invoice", "265713", "Approved Subs LLC", "ap-1")
+    with SessionLocal() as session:
+        vendor_roles.set_role(session, "Approved Subs LLC", vendor_roles.SUB)
+        invoice = session.scalar(select(Invoice).where(Invoice.document_id == doc_id))
+        invoice.approval_status = "approved"
+        session.commit()
+        position = subs.position_for(invoice.job, "Approved Subs LLC")
+        assert position is not None and not position.has_contract
+        assert position.overage == 0 and position.would_exceed == 0
+
+    panel = client.get("/sub-invoices").text.split("Approved Subs LLC", 1)[1][:3000]
+    assert "over contract" not in panel
