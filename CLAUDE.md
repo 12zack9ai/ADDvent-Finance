@@ -42,8 +42,11 @@ list and writes a spreadsheet. It does not touch this app, and must not start.
 
 ## Who this is for
 
-**Add Ventures Inc.** — roofing and construction contractor working for condo
-associations. Owner: **Zack**, `zmabry@addventuresinc.com`.
+**Add Ventures Construction Services** — roofing and construction contractor
+working for condo associations. That is the name on every page, email and
+letter the app produces (Zack, 2026-09-11: *"We are add ventures construction
+services"*); it comes from `SITE_NAME`, and the part before "·" is the company
+name. The domain stays addventuresinc.com. Owner: **Zack**, `zmabry@addventuresinc.com`.
 
 The app is **ADDvent-Finance**. It reads vendor and subcontractor documents,
 checks every invoice against the quote for its job, and runs the money side of
