@@ -353,6 +353,29 @@ def _describe(result: ExtractionResult) -> str:
     return f"{', '.join(names[:3])} and {len(names) - 3} more"
 
 
+def printed_total(payload: dict) -> Optional[Decimal]:
+    """The invoice total, or failing that what the printed figures add up to.
+
+    The reader transcribes and never adds up, so a bill without a totals box
+    came back with no TOTAL at all - and was counted as nothing. Filing is
+    where the printed figures may be put together: a printed subtotal and its
+    charges, or printed line amounts when every line has one. A line with no
+    amount means the lines are not the whole bill, so they are not a total.
+    """
+    total = to_decimal(payload.get("total"))
+    if total is not None:
+        return total
+    extras = sum((to_decimal(payload.get(k)) or Decimal("0") for k in ("tax", "freight")),
+                 Decimal("0"))
+    subtotal = to_decimal(payload.get("subtotal"))
+    if subtotal is not None:
+        return subtotal + extras
+    amounts = [to_decimal(line.get("extended")) for line in payload.get("lines") or []]
+    if amounts and all(a is not None for a in amounts):
+        return sum(amounts, Decimal("0")) + extras
+    return None
+
+
 def create_invoice(
     session: Session, job: Job, document: Document, result: ExtractionResult
 ) -> Invoice:
@@ -387,7 +410,7 @@ def create_invoice(
         subtotal=to_decimal(payload.get("subtotal")),
         tax=to_decimal(payload.get("tax")),
         freight=to_decimal(payload.get("freight")),
-        total=to_decimal(payload.get("total")),
+        total=printed_total(payload),
     )
     session.add(invoice)
     session.flush()
@@ -628,6 +651,74 @@ def recheck_all(session: Session) -> tuple[int, int]:
         invoices += recompare_job(session, job)
         session.commit()
     return len(jobs), invoices
+
+
+_REREAD_HINT = (
+    "This invoice was read once and no TOTAL was found, but the person who filed it "
+    "says the amount is printed on it. Find the amount it asks to be paid (rule 10) "
+    "and report it as TOTAL."
+)
+
+
+def reread_missing_totals(session: Session, limit: int = 5) -> list[str]:
+    """Invoices filed with no amount, read once more. Returns what was found.
+
+    Loughlin & Son's Word-typed draws came in "not recorded as any money",
+    though every one prints its amount and the same PDFs had been read with it
+    an hour earlier. What was read already is tried first - a subtotal, line
+    amounts - and costs nothing. Otherwise the document goes to the reader one
+    more time, and only once: a second reading on file is the mark, so a bill
+    that truly carries no amount is not sent every hour forever.
+    """
+    from app.models import APPROVAL_REJECTED
+
+    found: list[str] = []
+    tried = 0
+    missing = session.scalars(
+        select(Invoice)
+        .where(Invoice.total.is_(None), Invoice.approval_status != APPROVAL_REJECTED)
+        .order_by(Invoice.id)
+    ).all()
+    for invoice in missing:
+        document = invoice.document
+        if document is None:
+            continue
+        readings = session.scalars(
+            select(Extraction).where(Extraction.document_id == document.id)
+        ).all()
+        total = None
+        for reading in readings:
+            try:
+                total = printed_total(json.loads(reading.payload_json or "{}"))
+            except ValueError:
+                total = None
+            if total is not None:
+                break
+
+        if total is None:
+            path = Path(document.stored_path or "")
+            if len(readings) >= 2 or tried >= limit or not document.stored_path \
+                    or not path.exists():
+                continue
+            tried += 1
+            try:
+                result = extract_document(path, hint=_REREAD_HINT)
+            except ExtractionError as exc:
+                # The reader being down is worth another try next hour.
+                log.warning("re-reading %s for its amount failed: %s", document.filename, exc)
+                continue
+            session.add(Extraction(
+                document_id=document.id, model=result.model, payload_json=result.raw_json,
+                input_tokens=result.input_tokens, output_tokens=result.output_tokens,
+            ))
+            total = printed_total(result.payload)
+
+        if total is not None:
+            invoice.total = total
+            recompare_invoice(session, invoice.job, invoice)
+            found.append(f"{document.filename}: ${total:,.2f} (read again)")
+        session.commit()
+    return found
 
 
 # --- the entry point ------------------------------------------------------

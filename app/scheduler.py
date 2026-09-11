@@ -82,6 +82,16 @@ def _poll_blocking(sweep: bool = False) -> str:
             except Exception as exc:  # noqa: BLE001 - the sweep must never cost the poll
                 session.rollback()
                 log.warning("mail sweep failed: %s", exc)
+        if sweep:
+            # Invoices filed with no amount, read once more - Loughlin & Son's
+            # draws came in "not recorded as any money" with the price printed.
+            from app.services import reread_missing_totals
+            try:
+                for item in reread_missing_totals(session):
+                    log.info("amount re-read: %s", item)
+            except Exception as exc:  # noqa: BLE001 - never at the poll's expense
+                session.rollback()
+                log.warning("amount re-read failed: %s", exc)
         return result.summary()
     finally:
         session.close()

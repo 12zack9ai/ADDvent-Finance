@@ -153,6 +153,15 @@ You are a transcriber, not an accountant. Follow these rules exactly:
    figures, ambiguous columns, a total that looks inconsistent with the lines.
    Empty string if the document was clean. Never put numbers you invented here.
 
+10. TOTAL, for an invoice, is the amount it asks to be paid, wherever and however
+   it is printed: "Total", "Amount due", "Balance due", "Please remit", "Pay this
+   amount". A subcontractor billing in stages often types the bill up in Word -
+   "Deposit", "2nd payment", "Final payment" - with no totals box at all, only
+   the payment amount in a line or a sentence ("2nd payment due: $25,000").
+   That printed amount is the TOTAL: report it. If the invoice prints exactly
+   one amount, that amount is the TOTAL. This is transcribing a printed figure,
+   not calculating one - rule 1 still forbids adding anything up.
+
 Call record_document exactly once."""
 
 _LINE_SCHEMA = {
