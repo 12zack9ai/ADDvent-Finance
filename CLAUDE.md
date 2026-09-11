@@ -242,10 +242,13 @@ duplicate or error, with the reason. `/mail` lists the last 30 days, linked
 from the Invoices page. Anything skipped or failed is emailed to `ALERT_EMAIL`
 once, never to the mailbox itself, and marked `Auto-Submitted`.
 
-**Quote-only jobs stay off the Invoices page.** Zack, 2026-09-10: *"i like it
-in the jobs. the quote should be pulled in when we get invoices to not drown
-that area."* A job with just a quote is on **Jobs**; it joins **Invoices** with
-its first invoice. `/incoming` joining on `Invoice` is the design, not a bug.
+**Quote-only jobs are on the Invoices page, below the folders.** Zack,
+2026-09-11, reversing what he said on 2026-09-10: *"once a quote is uploaded
+the invoice section should be creating a job for that."* They sit in their own
+section, "Quotes waiting for their first invoice", so they don't bury the
+folders that need a person, which was his worry the day before (*"to not
+drown that area"*). A job moves up into the folders when its first invoice
+arrives.
 
 ## The six departments
 
@@ -362,5 +365,5 @@ what was asked and what came back, grouped by vendor.
 ## Before pushing
 
 ```
-cd /home/user/finance-automation && .venv/bin/python -m pytest -q    # 773 passing as of 2026-09-11
+cd /home/user/finance-automation && .venv/bin/python -m pytest -q    # 776 passing as of 2026-09-11
 ```

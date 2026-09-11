@@ -17,7 +17,7 @@
   </div>
 </div>
 
-{% if not folders %}
+{% if not folders and not waiting %}
   <div class="panel">
     <div class="empty">
       <div class="big">No invoices yet.</div>
@@ -29,6 +29,7 @@
     </div>
   </div>
 {% else %}
+{% if folders %}
 
 <div class="folders">
   {% for f in folders %}
@@ -72,5 +73,27 @@
   Open a folder to see that job's invoices alongside the quotes they were
   checked against.
 </p>
+{% endif %}
+
+{% if waiting %}
+<h2 style="margin:26px 0 10px;font-size:1.05rem">Quotes waiting for their first invoice</h2>
+<div class="folders">
+  {% for w in waiting %}
+  <a class="folder" href="/job/{{ w.job.job_number }}">
+    <div class="folder-top">
+      <span class="folder-no">{{ w.job.job_number }}</span>
+    </div>
+    <div class="folder-name">{{ w.job.name or "No job name" }}</div>
+    <div class="folder-meta">
+      {{ w.count }} quote{{ "" if w.count == 1 else "s" }} · {{ w.quoted | money }}
+    </div>
+    <div class="folder-tags">
+      <span class="chip c-info">{{ w.vendors | join(", ") }}</span>
+      <span class="chip c-none">no invoices yet</span>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
 {% endif %}
 {% endblock %}

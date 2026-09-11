@@ -2072,6 +2072,29 @@ def _folder(job: Job) -> Folder:
     return folder
 
 
+@dataclass
+class QuotedJob:
+    """A job with a live quote and no invoice yet, as the Invoices page shows it."""
+
+    job: Job
+    vendors: list[str]
+    quoted: Decimal
+    count: int
+    latest: Optional[datetime]
+
+
+def _quoted(job: Job) -> QuotedJob:
+    live = job.masters
+    vendors = list(dict.fromkeys((q.vendor or "Unknown vendor").strip() for q in live))
+    return QuotedJob(
+        job=job,
+        vendors=vendors,
+        quoted=sum((q.total or ZERO for q in live), ZERO),
+        count=len(live),
+        latest=max((q.created_at for q in live if q.created_at), default=None),
+    )
+
+
 INCOMING_LIMIT = 60
 
 
@@ -2124,6 +2147,22 @@ def incoming(request: Request, session: Session = Depends(get_session)):
                                 -f.price_changed,
                                 -(f.latest.timestamp() if f.latest else 0)))
 
+    # A job with a quote and no invoice yet. Zack, 2026-09-11: "once a quote
+    # is uploaded the invoice section should be creating a job for that." Its
+    # own section below the folders, so a quote sits ready without burying the
+    # jobs that have something waiting on a person - his worry the day before
+    # was "to not drown that area". The first invoice moves it up.
+    has_invoice = {job.id for job in jobs}
+    quoted_jobs = session.scalars(
+        select(Job)
+        .join(Quote, Quote.job_id == Job.id)
+        .distinct()
+        .options(selectinload(Job.quotes))
+    ).all()
+    waiting = [_quoted(job) for job in quoted_jobs
+               if job.id not in has_invoice and job.masters]
+    waiting.sort(key=lambda w: w.latest or datetime.min, reverse=True)
+
     stuck = session.scalar(
         select(func.count(Document.id))
         .where(Document.status.in_([ST_NEEDS_JOB, ST_ERROR]))
@@ -2136,6 +2175,7 @@ def incoming(request: Request, session: Session = Depends(get_session)):
     return templates.TemplateResponse(request, "incoming.html", _ctx(
         request, session,
         folders=folders,
+        waiting=waiting,
         stuck=stuck,
         unreviewed=unreviewed,
     ))
