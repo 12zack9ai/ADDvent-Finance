@@ -62,7 +62,8 @@ def _questions(sent):
 
 def _file(doc_type: str, job: str, vendor: str, tag: str, *, sender: str = ZACK,
           source: str = "email", number: str | None = None,
-          subject: str | None = None, body: str = "", sub_dept: bool = False):
+          subject: str | None = None, body: str = "", sub_dept: bool = False,
+          lines: list | None = None):
     # The job number rides at the bottom of the body, so a test can write any
     # subject and note it likes above it.
     subject = f"Fwd: {job} {doc_type}" if subject is None else subject
@@ -72,8 +73,9 @@ def _file(doc_type: str, job: str, vendor: str, tag: str, *, sender: str = ZACK,
         "document_number": tag if number is None else number,
         "document_date": "2026-09-11", "total": "5000", "subtotal": "5000",
         "job_number_hint": "",
-        "lines": [{"line_no": 1, "description": "Gutters and leaders, install",
-                   "qty": "1", "unit_price": "5000", "extended": "5000"}],
+        "lines": lines if lines is not None else [
+            {"line_no": 1, "description": "Gutters and leaders, install",
+             "qty": "1", "unit_price": "5000", "extended": "5000"}],
     }
     path = _TMP / f"{tag}.pdf"
     path.write_bytes(b"%PDF-1.4\n% " + tag.encode() + b"\n%%EOF\n")
@@ -356,6 +358,57 @@ def test_a_contract_uploaded_after_the_invoice_takes_the_invoice_to_subs(outbox)
     assert flagged is True
     assert f'href="/invoice/{invoice_id}"' not in client.get(f"/job/{job}").text
     assert f'href="/invoice/{invoice_id}"' in client.get(f"/sub-invoices?job={job}").text
+
+
+# --- a sub's bill is a lump sum ------------------------------------------------------
+
+# How a sub bills: the amount, and the scope underneath with no prices on it.
+LUMP_SUM = [
+    {"line_no": 1, "description": "Roof replacement, 144 Oldwoods Court - 2nd payment",
+     "qty": "", "unit_price": "", "extended": ""},
+    {"line_no": 2, "description": "Tear off and haul away, 2 layers",
+     "qty": "", "unit_price": "", "extended": ""},
+]
+
+
+def test_a_subs_invoice_is_checked_as_a_lump_sum_against_the_contract(outbox):
+    """Zack: "the subs are probably just gonna have one line saying the total
+    of what their invoicing for" - no unit prices, so nothing for a line-by-line
+    check to grade. A sub's bill is checked against the contract."""
+    job = "265735"
+    _file("quote", job, "Lump Sum Roofing LLC", "ls-q", subject="FW: sub contract")
+    _file("invoice", job, "Lump Sum Roofing LLC", "ls-1", number="",
+          subject="FW: 2nd payment", lines=LUMP_SUM)
+    (invoice_id, flagged), = _invoices("Lump Sum Roofing LLC")
+    assert flagged
+
+    page = client.get(f"/invoice/{invoice_id}").text
+    assert "Within the contract" in page
+    assert "on the contract." in page                 # "... this leaves $X on the contract."
+    assert "Every priced line matches" not in page
+    assert '<span class="was">' not in page           # no "not on the quote" on scope lines
+    assert "Same item as a quote line?" not in page
+
+
+def test_a_subs_invoice_with_no_contract_says_so(outbox):
+    _file("invoice", "265736", "No Paper Roofing LLC", "npc-1", number="",
+          subject="FW: sub - Deposit", lines=LUMP_SUM)
+    (invoice_id, _), = _invoices("No Paper Roofing LLC")
+
+    page = client.get(f"/invoice/{invoice_id}").text
+    assert "No contract on file" in page
+    assert '<span class="was">' not in page
+
+
+def test_a_suppliers_invoice_is_still_checked_line_by_line(outbox):
+    _file("invoice", "265737", "Line Priced Supply Co", "lp-1",
+          subject="FW: supplier invoice", lines=LUMP_SUM)
+    (invoice_id, _), = _invoices("Line Priced Supply Co")
+
+    page = client.get(f"/invoice/{invoice_id}").text
+    assert "No quote on this job yet" in page
+    assert '<span class="was">' in page
+    assert "contract" not in page.split('<div class="sheet">', 1)[1].split("vitems", 1)[0]
 
 
 def test_a_sub_without_a_contract_is_never_blocked_as_over_it(outbox):

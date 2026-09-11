@@ -1020,9 +1020,13 @@ def _render_markup(request: Request, invoice: Invoice, print_mode: bool) -> str:
     vendor_role = "" if print_mode or owner is None else (
         vendor_roles.role_of(owner, invoice.vendor)
         or ("sub" if invoice.is_subcontract else ""))
+    # A sub bills a lump sum against a contract; a supplier prices every line.
+    # What the page leads with follows from which one this is.
+    is_subs = vendor_roles.is_subs(invoice)
     return templates.get_template("markup.html").render(
         vendor_role=vendor_role,
-        is_subs=vendor_roles.is_subs(invoice),
+        is_subs=is_subs,
+        contract=subs.contract_check(invoice.job, invoice) if is_subs else None,
         quote_choices=quote_choices,
         request=request,
         invoice=invoice,

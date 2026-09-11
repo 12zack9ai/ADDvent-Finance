@@ -274,7 +274,36 @@
      What sits above it is the verdict - the one thing a reader needs before
      they start reading numbers. #}
 
-  {% if not quote %}
+  {# A sub's invoice is a lump sum: one amount, scope lines without prices.
+     There is nothing on it for a line-by-line check to grade - the question
+     it answers is where it leaves them against their contract. Zack: "the
+     subs are probably just gonna have one line saying the total of what
+     their invoicing for." #}
+  {% if is_subs and contract and contract.over_contract %}
+    <div class="banner b-over">
+      <div>
+        <div class="msg">Past the contract</div>
+        <div class="sub">{{ contract.message }}</div>
+      </div>
+      <div class="amt">+{{ contract.exceeds_by | money }}</div>
+    </div>
+  {% elif is_subs and contract %}
+    <div class="banner b-ok">
+      <div>
+        <div class="msg">Within the contract</div>
+        <div class="sub">{{ contract.message }}</div>
+      </div>
+      <div class="amt">{{ invoice.total | money }}</div>
+    </div>
+  {% elif is_subs %}
+    <div class="banner b-none">
+      <div>
+        <div class="msg">No contract on file</div>
+        <div class="sub">A sub's invoice is checked against their contract. Upload it in Subs and this page updates.</div>
+      </div>
+      <div class="amt">{{ invoice.total | money }}</div>
+    </div>
+  {% elif not quote %}
     <div class="banner b-none">
       <div>
         <div class="msg">No quote on this job yet</div>
@@ -319,7 +348,7 @@
     <table class="vhead"><tr>
       <td>
         <div class="vh-vendor">{{ invoice.vendor or "Unknown vendor" }}</div>
-        <div class="vh-sub">Invoice &middot; rebuilt and checked against the master quote</div>
+        <div class="vh-sub">{% if is_subs %}Subcontractor invoice &middot; the total is checked against their contract{% else %}Invoice &middot; rebuilt and checked against the master quote{% endif %}</div>
       </td>
       <td class="vh-right">
         <div class="vbox">
@@ -372,7 +401,7 @@
             <form method="post" action="/invoice/{{ invoice.id }}/line/{{ line.id }}/not-same" class="vsame-undo">
               <button type="submit">not the same item</button>
             </form>
-            {% elif not print_mode and line.verdict == "not_on_quote" and not line.quote_line and quote_choices %}
+            {% elif not print_mode and not is_subs and line.verdict == "not_on_quote" and not line.quote_line and quote_choices %}
             {# The matcher could not pair it. A person can: "this is that quote line". #}
             <details class="vsame">
               <summary>Same item as a quote line?</summary>
@@ -429,7 +458,8 @@
           {% else %}
             <td class="r vprice p-none">
               {{ line.unit_price | money4 }}{% if line.price_uom %}/{{ line.price_uom }}{% endif %}
-              <span class="was">{% if not quote %}no quote yet{% elif "no_price" in line.match_method %}no price to compare{% else %}not on the quote{% endif %}</span>
+              {# A sub's scope lines carry no price by design - nothing to flag. #}
+              {% if not is_subs %}<span class="was">{% if not quote %}no quote yet{% elif "no_price" in line.match_method %}no price to compare{% else %}not on the quote{% endif %}</span>{% endif %}
             </td>
             <td class="r">{{ line.extended | money }}</td>
           {% endif %}

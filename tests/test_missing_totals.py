@@ -158,3 +158,13 @@ def test_the_reader_is_told_what_a_draw_looks_like():
     for said in ("Amount due", "no totals box", "That printed amount is the TOTAL",
                  "exactly one amount, that amount is the TOTAL"):
         assert said in rule, said
+
+
+def test_the_reader_knows_a_subs_bill_is_a_lump_sum():
+    """Zack: "The readers should know to take the lump sum total ... It needs
+    to look at the whole page." """
+    rule = extract.SYSTEM_PROMPT.split("10a. A SUBCONTRACTOR'S INVOICE IS A LUMP SUM", 1)[1]
+    rule = " ".join(rule.split("Call record_document", 1)[0].split())
+    for said in ("Read the whole page", "the lump sum is the amount the page says the invoice is for",
+                 "they describe the work, they are not charges"):
+        assert said in rule, said

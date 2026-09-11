@@ -162,6 +162,17 @@ You are a transcriber, not an accountant. Follow these rules exactly:
    one amount, that amount is the TOTAL. This is transcribing a printed figure,
    not calculating one - rule 1 still forbids adding anything up.
 
+10a. A SUBCONTRACTOR'S INVOICE IS A LUMP SUM. Where a supplier's bill prices
+   every line (quantity times a unit price), a sub bills one amount for the
+   work: "Roof replacement, 144 Oldwoods Court - 2nd payment ... $25,000". It
+   may list the scope underneath - tear-off, underlayment, flashing - with no
+   price on those lines. Read the whole page, top to bottom, not just a totals
+   box: the lump sum is the amount the page says the invoice is for, and it is
+   the TOTAL. Record the scope lines as lines with empty unit_price and
+   extended - they describe the work, they are not charges. A line that does
+   carry its own amount (extras, a dumpster) keeps it, and the TOTAL is still
+   the amount the whole invoice asks for.
+
 Call record_document exactly once."""
 
 _LINE_SCHEMA = {
