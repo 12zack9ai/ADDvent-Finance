@@ -200,6 +200,28 @@ running again. Bump the version when a change should re-price old invoices.
 "Not on the quote" at the top of the job page is `jobsummary.off_quote` -
 worked out from line verdicts on every view - so pairing a line lowers it.
 
+## Invoices that arrive as a QuickBooks pay link
+
+Some vendors (Superior Seamless Gutters, first) bill from QuickBooks Online:
+the email says "Your invoice is ready!" with a **View and pay** button and no
+PDF. When a mailed message has no usable attachment, `app/paylink.py` opens
+the button's link and reads the invoice out of the JSON Intuit's page ships
+with (`__NEXT_DATA__`), then files it through `ingest_file` exactly like a PDF
+(`extraction=` skips the model). Rules that must not loosen:
+
+- Only links whose text says view / pay / invoice, or that point straight at
+  `connect.intuit.com/t/…`. Never Unsubscribe, Privacy and the like: those sit
+  on the same tracking host, and opening Unsubscribe *is* unsubscribing.
+- https on intuit.com hosts only, checked on every redirect hop; GET only;
+  timeout and size cap. There is no path from here to paying anything.
+- The stored "original" is rebuilt from the fields read (no pay link in it, so
+  a reminder email is a duplicate, not a second invoice).
+- Intuit down means the mail stays unread for the next poll; a page that is
+  not an invoice is passed over. IMAP only - the Graph path does not do this.
+
+Skipped mail is now logged with its reason (`mail: skipped …`), so a message
+with nothing to read no longer disappears into "1 skipped".
+
 **Quote-only jobs stay off the Invoices page.** Zack, 2026-09-10: *"i like it
 in the jobs. the quote should be pulled in when we get invoices to not drown
 that area."* A job with just a quote is on **Jobs**; it joins **Invoices** with
@@ -320,5 +342,5 @@ what was asked and what came back, grouped by vendor.
 ## Before pushing
 
 ```
-cd /home/user/finance-automation && .venv/bin/python -m pytest -q    # 744 passing as of 2026-09-10
+cd /home/user/finance-automation && .venv/bin/python -m pytest -q    # 761 passing as of 2026-09-11
 ```

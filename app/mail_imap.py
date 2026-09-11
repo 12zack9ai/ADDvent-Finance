@@ -40,7 +40,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app import mail_send
+from app import mail_send, paylink
 from app.mail_types import ALLOWED_SUFFIXES, MAX_ATTACHMENT_BYTES, MailboxError, PollResult
 from app.models import Document, utcnow
 from app.services import (
@@ -85,6 +85,25 @@ def _body_text(message: Message) -> str:
         stripped = re.sub(r"(?is)<(script|style).*?</\1>", " ", html_fallback)
         return re.sub(r"\s+", " ", _TAG_RE.sub(" ", stripped)).strip()
     return ""
+
+
+def _raw_bodies(message: Message) -> tuple[str, str]:
+    """The HTML and plain-text bodies as sent, links and all: (html, text)."""
+    html_parts: list[str] = []
+    text_parts: list[str] = []
+    for part in message.walk():
+        if part.get_content_maintype() == "multipart" or part.get_filename():
+            continue
+        content_type = part.get_content_type()
+        if content_type not in ("text/html", "text/plain"):
+            continue
+        try:
+            payload = part.get_payload(decode=True) or b""
+            decoded = payload.decode(part.get_content_charset() or "utf-8", "replace")
+        except Exception:  # noqa: BLE001
+            continue
+        (html_parts if content_type == "text/html" else text_parts).append(decoded)
+    return "\n".join(html_parts), "\n".join(text_parts)
 
 
 def _attachments(message: Message) -> Iterator[tuple[str, bytes]]:
@@ -298,6 +317,53 @@ def _apply_job_answer(session: Session, references: str, subject: str, body: str
                         directive.job_number, document.filename, exc)
     return filed
 
+def _file_pay_link(session: Session, message: Message, result: PollResult, *,
+                   sender: str, subject: str, body: str, message_id: str) -> tuple[bool, bool]:
+    """File the invoice behind a QuickBooks pay link. Returns (found, retry later).
+
+    Only reached when nothing was attached. The first link that turns out to
+    be an invoice is the one filed; an Intuit page that is not an invoice is
+    passed over quietly.
+    """
+    html, text = _raw_bodies(message)
+    retry = False
+    for url in paylink.find_links(html, text):
+        try:
+            payload = paylink.read(url)
+        except paylink.PaylinkError as exc:
+            if exc.retry:
+                retry = True
+                result.errors.append(f"{subject or '(no subject)'}: QuickBooks pay link - {exc}")
+            continue
+        if payload is None:
+            continue
+        label = f"{payload['vendor']} invoice {payload['document_number']}"
+        try:
+            doc = paylink.ingest(session, payload, sender=sender, subject=subject,
+                                 body=body, message_id=message_id)
+            session.commit()
+        except DuplicateDocument:
+            session.rollback()
+            result.skipped.append(f"{label} (already received)")
+            return True, False
+        except IngestError as exc:
+            # Refused for a reason that another try will not change.
+            session.rollback()
+            result.errors.append(f"{label}: {exc}")
+            return True, False
+        except Exception as exc:  # noqa: BLE001 - leave the mail for the next poll
+            session.rollback()
+            result.errors.append(f"{label}: {exc}")
+            return True, True
+        where = f"job {doc.job.job_number}" if doc.job else "the Inbox"
+        result.filed.append(f"{doc.filename} -> {where} ({doc.status}), from the pay link")
+        asked = _ask_about(session, doc)
+        if asked:
+            result.skipped.append(f"{doc.filename} - asked {asked} for the job number")
+        return True, False
+    return False, retry
+
+
 def poll_once(session: Session, limit: int = 25) -> PollResult:
     """Read new mail, ingest every usable attachment, then file the message away.
 
@@ -379,7 +445,18 @@ def poll_once(session: Session, limit: int = 25) -> PollResult:
                     tmp_path.unlink(missing_ok=True)
 
             if not found_any:
-                result.skipped.append(f"{subject or '(no subject)'} (no usable attachments)")
+                # Nothing attached - but a QuickBooks Online vendor sends a
+                # "View and pay" link instead, and the invoice is on that page.
+                found_any, retry = _file_pay_link(
+                    session, message, result, sender=sender, subject=subject,
+                    body=body, message_id=message_id,
+                )
+                if retry:
+                    handled_all = False
+
+            if not found_any:
+                result.skipped.append(
+                    f"{subject or '(no subject)'} (no attachment and no invoice link)")
 
             if handled_all:
                 mailbox.file_away(msg_id, settings.mail_processed_folder)

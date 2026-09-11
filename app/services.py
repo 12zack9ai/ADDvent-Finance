@@ -639,8 +639,14 @@ def ingest_file(
     job_number_override: str = "",
     force_master: bool = False,
     is_subcontract: bool = False,
+    extraction: Optional[ExtractionResult] = None,
 ) -> Document:
-    """Ingest one document end to end. Returns the Document with status set."""
+    """Ingest one document end to end. Returns the Document with status set.
+
+    `extraction` is for a document that arrives already read - an invoice
+    taken off a QuickBooks pay page (paylink.py) - so no model is asked to
+    read it again. Everything after the reading is the same pipeline.
+    """
     stored, digest = store_upload(src_path, filename)
 
     existing = session.scalar(select(Document).where(Document.sha256 == digest))
@@ -651,7 +657,8 @@ def ingest_file(
         filename=filename,
         sha256=digest,
         stored_path=str(stored),
-        mime_type="application/pdf" if stored.suffix == ".pdf" else "image/*",
+        mime_type={".pdf": "application/pdf", ".html": "text/html"}.get(
+            stored.suffix, "image/*"),
         source=source,
         sender=sender,
         subject=subject,
@@ -666,14 +673,17 @@ def ingest_file(
     # number is written when an invoice is forwarded in.
     directive = parse_job_directive(note, subject, body)
 
-    try:
-        hint_parts = [p for p in (note, subject) if p]
-        result = extract_document(stored, hint="\n".join(hint_parts))
-    except ExtractionError as exc:
-        document.status = ST_ERROR
-        document.error = str(exc)
-        session.flush()
-        return document
+    if extraction is not None:
+        result = extraction
+    else:
+        try:
+            hint_parts = [p for p in (note, subject) if p]
+            result = extract_document(stored, hint="\n".join(hint_parts))
+        except ExtractionError as exc:
+            document.status = ST_ERROR
+            document.error = str(exc)
+            session.flush()
+            return document
 
     session.add(Extraction(
         document_id=document.id,

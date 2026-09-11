@@ -55,6 +55,10 @@ def _poll_blocking() -> str:
         result = poll_once(session, limit=25)
         for item in result.filed:
             log.info("mail: filed %s", item)
+        # Why a message was passed over. Without this an email with nothing to
+        # read vanished into "1 skipped" and nobody could say which, or why.
+        for item in result.skipped:
+            log.info("mail: skipped %s", item)
         for item in result.errors:
             log.warning("mail: %s", item)
         return result.summary()
