@@ -174,10 +174,29 @@ def test_a_reply_saying_sub_moves_every_invoice_to_subs(outbox):
 
     assert "Rivera Gutters Inc -> subcontractor (from reply)" in result.filed
     assert all(flagged for _id, flagged in _invoices("Rivera Gutters Inc"))
-    panel = client.get("/sub-invoices").text.split("Rivera Gutters Inc", 1)[1][:3000]
+    panel = client.get("/sub-invoices?job=265705").text.split("Rivera Gutters Inc", 1)[1][:3000]
     assert "None on file" in panel
     assert "over contract" not in panel and "past the award" not in panel
     assert "Rivera Gutters Inc" in client.get("/checks").text
+
+
+def test_subs_opens_on_one_folder_per_job_like_the_invoices_page(outbox):
+    """Zack: "doesn't look like it's in a job folder though within subs.
+    Similar to the vendor tab." """
+    _file("invoice", "265714", "Folder Gutters Inc", "fg-1")
+    with SessionLocal() as session:
+        vendor_roles.set_role(session, "Folder Gutters Inc", vendor_roles.SUB)
+        session.commit()
+
+    body = client.get("/sub-invoices").text
+    folder = body.split('href="/sub-invoices?job=265714"', 1)[1][:1500]
+
+    assert "Folder Gutters Inc" in folder and "no contract on file" in folder
+    assert "1 to look at" in folder
+    assert "fg-1" not in body                      # the invoices are inside the folder
+
+    inside = client.get("/sub-invoices?job=265714").text
+    assert "Folder Gutters Inc" in inside and "fg-1" in inside
 
 
 def test_a_sub_without_a_contract_is_never_blocked_as_over_it(outbox):
@@ -268,5 +287,5 @@ def test_an_approved_invoice_from_a_sub_without_a_contract_is_not_an_overage(out
         assert position is not None and not position.has_contract
         assert position.overage == 0 and position.would_exceed == 0
 
-    panel = client.get("/sub-invoices").text.split("Approved Subs LLC", 1)[1][:3000]
+    panel = client.get("/sub-invoices?job=265713").text.split("Approved Subs LLC", 1)[1][:3000]
     assert "over contract" not in panel

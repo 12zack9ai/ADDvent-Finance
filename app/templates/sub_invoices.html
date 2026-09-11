@@ -57,6 +57,32 @@
   </div>
 </div>
 
+{% if folders %}
+{# One folder per job, like the Invoices page; each opens the job's subs. #}
+<div class="folders">
+  {% for f in folders %}
+  <a class="folder{{ ' attn' if f.waiting or f.overage }}" href="/sub-invoices?job={{ f.job.job_number }}">
+    <div class="folder-top">
+      <span class="folder-no">{{ f.job.job_number }}</span>
+      {% if f.waiting %}<span class="folder-dot" title="{{ f.waiting }} waiting"></span>{% endif %}
+    </div>
+    <div class="folder-name">{{ f.job.name or "No job name" }}</div>
+    <div class="folder-meta">
+      {{ f.positions|length }} sub{{ "" if f.positions|length == 1 else "s" }} · {{ f.billed | money }} billed
+    </div>
+    <div class="folder-tags">
+      <span class="chip c-info">{{ f.vendors | join(", ") }}</span>
+      {% if f.waiting %}<span class="chip c-over">{{ f.waiting }} to look at</span>{% endif %}
+      {% if f.overage %}<span class="chip c-warn">{{ f.overage | money }} over contract</span>{% endif %}
+      {% if f.no_contract %}<span class="chip c-none">no contract on file</span>{% endif %}
+    </div>
+  </a>
+  {% endfor %}
+</div>
+<p class="muted" style="font-size:.9rem">
+  Open a folder to see each sub's contract, what they've billed, and their invoices.
+</p>
+{% else %}
 {% for job, p in rows %}
 <div class="panel">
   <div class="sub-head">
@@ -133,6 +159,7 @@
   {% endif %}
 </div>
 {% endfor %}
+{% endif %}
 
 {% endif %}
 {% endblock %}

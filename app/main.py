@@ -1534,9 +1534,22 @@ def sub_invoice_queue(request: Request, session: Session = Depends(get_session))
     # Anyone past their award first, then whoever has the most under review.
     rows.sort(key=lambda r: (-r[1].overage, -r[1].pending, r[1].vendor.lower()))
 
+    # One folder per job, as on the Invoices page. Zack: "doesn't look like
+    # it's in a job folder though within subs. Similar to the vendor tab." A
+    # folder opens the one-job view, which is the detailed list of subs.
+    folders: list[SubFolder] = []
+    if not only:
+        by_job: dict[int, SubFolder] = {}
+        for job, position in rows:
+            by_job.setdefault(job.id, SubFolder(job=job, positions=[])).positions.append(position)
+        folders = list(by_job.values())
+        folders.sort(key=lambda f: f.latest or datetime.min, reverse=True)
+        folders.sort(key=lambda f: (-f.overage, -f.waiting))   # stable: newest within
+
     return templates.TemplateResponse(request, "sub_invoices.html", _ctx(
         request, session,
         rows=rows,
+        folders=folders,
         only_job=only,
         awarded=sum((p.awarded for _, p in rows), ZERO),
         billed=sum((p.billed for _, p in rows), ZERO),
@@ -2099,6 +2112,39 @@ def _folder(job: Job) -> Folder:
         if folder.latest is None or invoice.created_at > folder.latest:
             folder.latest = invoice.created_at
     return folder
+
+
+@dataclass
+class SubFolder:
+    """One job as the Subs page shows it: every sub on it, rolled up."""
+
+    job: Job
+    positions: list
+
+    @property
+    def vendors(self) -> list[str]:
+        return [p.vendor for p in self.positions]
+
+    @property
+    def billed(self) -> Decimal:
+        return sum((p.billed for p in self.positions), ZERO)
+
+    @property
+    def overage(self) -> Decimal:
+        return sum((p.overage for p in self.positions), ZERO)
+
+    @property
+    def waiting(self) -> int:
+        return sum(len(p.open_invoices) for p in self.positions)
+
+    @property
+    def no_contract(self) -> bool:
+        return any(not p.has_contract for p in self.positions)
+
+    @property
+    def latest(self) -> Optional[datetime]:
+        stamps = [i.created_at for p in self.positions for i in p.invoices if i.created_at]
+        return max(stamps, default=None)
 
 
 @dataclass

@@ -1491,7 +1491,7 @@ def test_a_subs_invoice_is_priced_against_their_contract(client, tmp_path):
     assert invoice.overbilled_amount == D("91.00")
     session.close()
 
-    page = client.get("/sub-invoices")
+    page = client.get("/sub-invoices?job=260000")
     assert "NEW CASTLE BLDG PRODUCTS" in page.text or "New Castle" in page.text
     assert "INV-551900" in page.text
 
