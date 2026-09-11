@@ -795,6 +795,40 @@ def job_detail(job_number: str, request: Request, session: Session = Depends(get
     ))
 
 
+@app.get("/costing", response_class=HTMLResponse)
+def costing_index(request: Request, session: Session = Depends(get_session)):
+    """The Job costing department: find a job, get its report.
+
+    Zack: "I should be able to go into job costing and search the job number
+    and it's just generate me a report." The front door used to send Job
+    costing to the jobs list, whose jobs open the supplier-invoice page - "vendor
+    invoice is its own Department job costing is its own department." A job
+    here opens its costing report, and the report opens each invoice it adds
+    up in the department that invoice belongs to.
+    """
+    q = (request.query_params.get("q") or "").strip()
+    if q:
+        exact = session.scalar(select(Job).where(Job.job_number == normalize_job_number(q)))
+        if exact is not None:
+            return _redirect(f"/job/{exact.job_number}/costing")
+
+    stmt = select(Job).options(
+        selectinload(Job.invoices),
+        selectinload(Job.quotes),
+        selectinload(Job.change_orders),
+        selectinload(Job.check_requests),
+        selectinload(Job.purchases),
+    ).order_by(Job.created_at.desc())
+    if q:
+        like = f"%{q}%"
+        stmt = stmt.where(or_(Job.job_number.ilike(like), Job.name.ilike(like)))
+    rows = [(job, costing.build(job)) for job in session.scalars(stmt).all()]
+
+    return templates.TemplateResponse(request, "costing_index.html", _ctx(
+        request, session, rows=rows, q=q,
+    ))
+
+
 @app.get("/job/{job_number}/costing", response_class=HTMLResponse)
 def job_costing(job_number: str, request: Request, session: Session = Depends(get_session)):
     """What the job cost, and what it made."""
@@ -802,7 +836,7 @@ def job_costing(job_number: str, request: Request, session: Session = Depends(ge
         select(Job).where(Job.job_number == normalize_job_number(job_number))
     )
     if job is None:
-        return _redirect("/jobs", err=f"No job {job_number}.")
+        return _redirect("/costing", err=f"No job {job_number}.")
 
     return templates.TemplateResponse(request, "costing.html", _ctx(
         request, session,
@@ -828,7 +862,7 @@ def save_costing(
         select(Job).where(Job.job_number == normalize_job_number(job_number))
     )
     if job is None:
-        return _redirect("/jobs", err=f"No job {job_number}.")
+        return _redirect("/costing", err=f"No job {job_number}.")
 
     # Blank clears the figure rather than setting it to zero. Zero labour on a
     # fully subbed job is a real answer; blank means nobody has said yet, and

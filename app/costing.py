@@ -70,6 +70,11 @@ class Bucket:
     pending: Decimal = ZERO     # claimed, nobody has decided yet
     count: int = 0
     note: str = ""
+    # What was added up, so the report can open each one where it lives - an
+    # invoice in its department, a check in the queue. Zack: "The only way that
+    # would make sense is if I clicked on a specific invoice on the job costing
+    # and it brought me in there."
+    items: list = field(default_factory=list)
 
     @property
     def worst_case(self) -> Decimal:
@@ -196,6 +201,7 @@ def build(job: Job) -> Costing:
         ) else material
         amount = invoice.total or ZERO
         bucket.count += 1
+        bucket.items.append(invoice)
         if invoice.approval_status in (APPROVAL_APPROVED, APPROVAL_PAID):
             bucket.agreed += amount
         else:
@@ -212,9 +218,11 @@ def build(job: Job) -> Costing:
         if request.status in (CHECK_APPROVED, CHECK_PAID):
             written.agreed += amount
             written.count += 1
+            written.items.append(request)
         elif request.status == CHECK_REQUESTED:
             written.pending += amount
             written.count += 1
+            written.items.append(request)
     report.buckets.append(written)
 
     # Card swipes, counter purchases, fuel - the receipt department. Already
@@ -224,6 +232,7 @@ def build(job: Job) -> Costing:
     for purchase in job.purchases:
         purchases.agreed += purchase.total or ZERO
         purchases.count += 1
+        purchases.items.append(purchase)
     if not purchases.count:
         purchases.note = "None on this job."
     report.buckets.append(purchases)

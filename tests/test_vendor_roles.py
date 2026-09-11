@@ -417,6 +417,53 @@ def test_a_suppliers_invoice_is_still_checked_line_by_line(outbox):
     assert "contract" not in page.split('<div class="sheet">', 1)[1].split("vitems", 1)[0]
 
 
+# --- job costing, its own department ---------------------------------------------------
+
+def test_job_costing_opens_on_its_own_list_and_a_job_opens_its_report(outbox):
+    """Zack: "when I go into job costing it just list the jobs and then when I
+    click into it, it goes into vendor invoices ... vendor invoice is its own
+    Department job costing is its own department." """
+    job = "265740"
+    _file("invoice", job, "Costing Supply Co", "jc-1", subject="FW: supplier invoice")
+
+    assert 'href="/costing"' in client.get("/").text
+    listing = client.get("/costing").text
+    assert f'href="/job/{job}/costing"' in listing
+    assert f'href="/job/{job}"' not in listing
+
+
+def test_searching_a_job_number_goes_straight_to_its_report(outbox):
+    """ "search the job number and it's just generate me a report." """
+    _file("invoice", "265741", "Search Supply Co", "jc-2", subject="FW: supplier invoice")
+
+    resp = client.get("/costing?q=265741", follow_redirects=False)
+    assert resp.status_code in (302, 303, 307)
+    assert resp.headers["location"].startswith("/job/265741/costing")
+    assert "No job matches that" in client.get("/costing?q=999999").text
+
+
+def test_the_report_opens_each_invoice_in_its_own_department(outbox):
+    """ "The only way that would make sense is if I clicked on a specific
+    invoice on the job costing and it brought me in there." """
+    job = "265742"
+    _file("invoice", job, "Report Supply Co", "jc-3", subject="FW: supplier invoice")
+    _file("quote", job, "Report Roofing Sub LLC", "jc-q", subject="FW: sub contract")
+    _file("invoice", job, "Report Roofing Sub LLC", "jc-4", number="",
+          subject="FW: 2nd payment", lines=LUMP_SUM)
+    (supplier_id, _), = _invoices("Report Supply Co")
+    (sub_id, _), = _invoices("Report Roofing Sub LLC")
+
+    report = client.get(f"/job/{job}/costing").text
+    assert '<a href="/costing">Job costing</a>' in report         # back to its own department
+    assert f'href="/job/{job}"' not in report                     # never into supplier invoices
+    assert f'href="/invoice/{supplier_id}"' in report
+    assert f'href="/invoice/{sub_id}"' in report
+    assert "2nd payment" in report
+    assert f'href="/sub-invoices?job={job}"' in report
+    # Each opens in its department: the sub's goes back to Subs.
+    assert f'<a href="/sub-invoices?job={job}">&larr; Subs' in client.get(f"/invoice/{sub_id}").text
+
+
 def test_a_sub_without_a_contract_is_never_blocked_as_over_it(outbox):
     _file("invoice", "265706", "No Paper Subs LLC", "np-1")
     with SessionLocal() as session:

@@ -4,8 +4,9 @@
 {% block content %}
 <div class="pagehead">
   <div>
-    <div class="muted"><a href="/job/{{ job.job_number }}">Job {{ job.job_number }}</a> &rsaquo;</div>
-    <h1>Job costing</h1>
+    {# Back to its own department, never into the supplier-invoice job page. #}
+    <div class="muted"><a href="/costing">Job costing</a> &rsaquo;</div>
+    <h1>Job {{ job.job_number }} costing</h1>
     <p class="sub">{{ job.name or "No job name set" }}</p>
   </div>
   <div><a class="btn ghost" href="#" onclick="window.print();return false;">Print</a></div>
@@ -77,6 +78,52 @@
           {% else %}<span class="muted">—</span>{% endif %}</td>
         <td class="r muted" style="padding-right:20px">{{ b.count or "—" }}</td>
       </tr>
+      {% if b.items %}
+      {# What this line adds up, each opening where it lives: a supplier's
+         invoice in Invoices, a sub's in Subs, a check in the queue. #}
+      <tr>
+        <td colspan="4" style="padding:0 20px 12px">
+          <details>
+            <summary class="muted" style="cursor:pointer">Show the {{ b.items|length }}
+              {{ "item" if b.items|length == 1 else "items" }}</summary>
+            <table class="grid stack" style="margin-top:6px">
+              <tbody>
+              {% for it in b.items %}
+                {% if b.key in ("material", "subcontract") %}
+                <tr>
+                  <td><a href="/invoice/{{ it.id }}" style="font-weight:700">{{ it.reference }}</a></td>
+                  <td data-l="From">{{ it.vendor or "—" }}</td>
+                  <td class="muted" data-l="Date">{{ it.invoice_date or "—" }}</td>
+                  <td class="r" data-l="Amount">{{ it.total | money }}</td>
+                  <td class="r" data-l="Status">{{ {"pending_review": "Review", "held": "Held",
+                      "approved": "Approved", "paid": "Paid"}.get(it.approval_status,
+                      it.approval_status) }}</td>
+                </tr>
+                {% elif b.key == "checks" %}
+                <tr>
+                  <td><a href="/checks" style="font-weight:700">{{ it.payee or "Check" }}</a></td>
+                  <td class="muted" data-l="Status">{{ it.status }}</td>
+                  <td></td>
+                  <td class="r" data-l="Amount">{{ it.amount | money }}</td>
+                  <td></td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td>{% if it.document_id %}<a href="/document/{{ it.document_id }}/file" target="_blank"
+                      style="font-weight:700">{{ it.merchant or "Receipt" }}</a>{% else %}{{ it.merchant or "Receipt" }}{% endif %}</td>
+                  <td class="muted" data-l="Date">{{ it.purchased_on or "—" }}</td>
+                  <td></td>
+                  <td class="r" data-l="Amount">{{ it.total | money }}</td>
+                  <td></td>
+                </tr>
+                {% endif %}
+              {% endfor %}
+              </tbody>
+            </table>
+          </details>
+        </td>
+      </tr>
+      {% endif %}
       {% endfor %}
       <tr>
         <td style="padding-left:20px">
@@ -114,7 +161,7 @@
     <tbody>
       {% for p in subs %}
       <tr>
-        <td><strong>{{ p.vendor }}</strong></td>
+        <td><a href="/sub-invoices?job={{ job.job_number }}" style="font-weight:700">{{ p.vendor }}</a></td>
         <td class="r">{% if p.has_contract %}{{ p.awarded | money }}{% else %}<span class="muted">none on file</span>{% endif %}</td>
         <td class="r">{{ p.billed | money }}</td>
         <td class="r">{{ p.paid | money }}</td>

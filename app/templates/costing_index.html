@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Job costing · {{ site_name }}{% endblock %}
+
+{# The Job costing department. Find a job, get its report. A job here opens
+   its costing report - never the supplier-invoice page, which is another
+   department. Zack: "I should be able to go into job costing and search the
+   job number and it's just generate me a report." #}
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>Job costing</h1>
+    <p class="sub">
+      {% if q %}
+        {{ rows|length }} job{{ "" if rows|length == 1 else "s" }} matching
+        &ldquo;<strong>{{ q }}</strong>&rdquo; · <a href="/costing">every job</a>
+      {% else %}
+        What each job cost &mdash; material, subs, checks, receipts and our crew &mdash;
+        against what we billed.
+      {% endif %}
+    </p>
+  </div>
+  <form method="get" action="/costing" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <input type="search" id="costing-q" name="q" value="{{ q }}"
+           placeholder="Job number or name" aria-label="Find a job" autocomplete="off">
+    <button class="btn" type="submit">Get the report</button>
+  </form>
+</div>
+
+{% if not rows %}
+  <div class="panel">
+    <div class="empty">
+      <div class="big">{% if q %}No job matches that.{% else %}No jobs yet.{% endif %}</div>
+      {% if q %}Try the six-digit job number.{% endif %}
+    </div>
+  </div>
+{% else %}
+  <div class="panel" style="padding:0;overflow-x:auto">
+    <table class="grid">
+      <thead>
+        <tr>
+          <th style="padding-left:20px">Job</th>
+          <th class="r">Cost so far</th>
+          <th class="r">Still on the table</th>
+          <th class="r">Billed</th>
+          <th class="r" style="padding-right:20px">Margin</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for job, c in rows %}
+        <tr>
+          <td style="padding-left:20px">
+            <a href="/job/{{ job.job_number }}/costing" style="font-weight:800">{{ job.job_number }}</a>
+            {% if job.name %}<div class="muted">{{ job.name }}</div>{% endif %}
+          </td>
+          <td class="r" style="font-weight:700">{{ c.cost | money }}</td>
+          <td class="r">{% if c.pending %}<span class="warn">{{ c.pending | money }}</span>
+            {% else %}<span class="muted">—</span>{% endif %}</td>
+          <td class="r">{% if c.has_revenue %}{{ c.billed | money }}{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td class="r" style="padding-right:20px">
+            {% if c.has_revenue %}{{ c.margin | money }}
+            {% else %}<span class="muted">needs what we billed</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+{% endblock %}

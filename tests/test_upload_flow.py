@@ -1701,7 +1701,7 @@ def test_the_home_page_offers_all_six_programmes(client):
                     "Cash flow", "Job costing"):
         assert heading in body
     for href in ('href="/incoming"', 'href="/sub-invoices"', 'href="/checks"',
-                 'href="/purchases"', 'href="/cashflow"', 'href="/jobs"'):
+                 'href="/purchases"', 'href="/cashflow"', 'href="/costing"'):
         assert href in body
 
 
@@ -1712,8 +1712,11 @@ def test_the_nav_is_one_place_per_programme_and_a_way_out(client):
     nav = re.search(r"<nav>(.*?)</nav>", client.get("/").text, re.S).group(1)
     links = re.findall(r'href="([^"]+)"', nav)
 
+    # Each department opens its own page. "Jobs" was the supplier jobs list;
+    # Zack: "vendor invoice is its own Department job costing is its own
+    # department."
     assert links == ["/", "/incoming", "/sub-invoices", "/checks", "/purchases",
-                     "/cashflow", "/jobs", "/upload", "/logout"]
+                     "/cashflow", "/costing", "/upload", "/logout"]
     for gone in ("/approvals", "/vendors", "/inbox"):
         assert gone not in links
 
