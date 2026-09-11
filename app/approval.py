@@ -75,6 +75,12 @@ class Routing:
     within_tolerance: bool = True
     reasons: list[str] = field(default_factory=list)
     blockers: list[str] = field(default_factory=list)
+    # Shown in red like a blocker, and never stops approval: something the
+    # approver must see, and is allowed to approve anyway.
+    warnings: list[str] = field(default_factory=list)
+    # A subcontractor's lump-sum bill, checked against their contract rather
+    # than line by line against a quote.
+    is_sub: bool = False
     covering_change_order: Optional[ChangeOrder] = None
     available_change_orders: list[ChangeOrder] = field(default_factory=list)
     proposed_change_orders: list[ChangeOrder] = field(default_factory=list)
@@ -102,6 +108,8 @@ class Routing:
 
     @property
     def headline(self) -> str:
+        if self.is_sub and self.action == ACTION_INVESTIGATE:
+            return "No contract on file — the total is not checked"
         return {
             ACTION_APPROVE: "Ready to approve",
             ACTION_SPOT_CHECK: "Ready to approve — owner spot check",
@@ -199,10 +207,17 @@ def route(invoice: Invoice) -> Routing:
     # does not cap how much of it a roof needs, while a contract is a fixed
     # award that every invoice eats into. Six invoices can each be correct and
     # the seventh still take the sub past what they were awarded.
+    routing.is_sub = (bool(invoice.is_subcontract)
+                      or subs.is_subcontractor(invoice.job, invoice.vendor))
     routing.contract = subs.contract_check(invoice.job, invoice)
     if routing.contract is not None:
         if routing.contract.over_contract:
-            routing.blockers.append(routing.contract.message)
+            # Flagged for the owner, never refused. Extras on a roof get agreed
+            # on site and billed past the contract all the time. Zack, after
+            # the Approve button went dead on Loughlin & Son's third draw: "It
+            # should definitely be flagged but it shouldn't refuse me."
+            routing.warnings.append(routing.contract.message)
+            routing.action = ACTION_SPOT_CHECK
             routing.tier = TIER_OWNER
         else:
             routing.reasons.append(routing.contract.message)
@@ -245,11 +260,17 @@ def route(invoice: Invoice) -> Routing:
         # in stock - normal, and it is precisely why an invoice is never
         # measured against another supplier's quote. What is true is that
         # nothing checked this price, and somebody should read it.
-        routing.reasons.append(
-            f"No quote on this job from {invoice.vendor or 'this supplier'}, so "
-            f"nothing checked these prices. Often a last-minute pickup, and "
-            f"worth reading before it is paid."
-        )
+        if routing.is_sub:
+            routing.reasons.append(
+                f"No contract on file for {invoice.vendor or 'this subcontractor'}, "
+                f"so nothing checks this total. Upload their contract in Subs."
+            )
+        else:
+            routing.reasons.append(
+                f"No quote on this job from {invoice.vendor or 'this supplier'}, so "
+                f"nothing checked these prices. Often a last-minute pickup, and "
+                f"worth reading before it is paid."
+            )
         return routing
 
     if invoice.quote_match == "sole":
@@ -295,7 +316,8 @@ def route(invoice: Invoice) -> Routing:
                     )
                 return routing
 
-    if invoice.lines_unmatched:
+    # A sub's scope lines carry no price by design; they are not "unchecked".
+    if invoice.lines_unmatched and not routing.is_sub:
         routing.reasons.append(
             f"{invoice.lines_unmatched} line"
             f"{'' if invoice.lines_unmatched == 1 else 's'} not on the quote; "

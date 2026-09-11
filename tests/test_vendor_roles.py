@@ -388,6 +388,10 @@ def test_a_subs_invoice_is_checked_as_a_lump_sum_against_the_contract(outbox):
     assert "Every priced line matches" not in page
     assert '<span class="was">' not in page           # no "not on the quote" on scope lines
     assert "Same item as a quote line?" not in page
+    # None of the supplier-bill wording about unmatched lines.
+    assert "could not be matched to the master quote" not in page
+    assert "those prices were not checked" not in page
+    assert "Not on the master quote" not in page
 
 
 def test_a_subs_invoice_with_no_contract_says_so(outbox):
@@ -398,6 +402,8 @@ def test_a_subs_invoice_with_no_contract_says_so(outbox):
     page = client.get(f"/invoice/{invoice_id}").text
     assert "No contract on file" in page
     assert '<span class="was">' not in page
+    assert "No contract on file for No Paper Roofing LLC" in page
+    assert "No quote on this job from" not in page       # a supplier's wording
 
 
 def test_a_suppliers_invoice_is_still_checked_line_by_line(outbox):

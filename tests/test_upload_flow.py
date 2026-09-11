@@ -1531,8 +1531,12 @@ def test_the_same_upload_without_the_flag_is_an_ordinary_price_list(client, tmp_
     assert "No subcontracts on file" in client.get("/sub-invoices").text
 
 
-def test_a_subs_invoice_past_the_contract_is_held(client, tmp_path):
-    """The one thing a contract adds that a quote does not: a ceiling."""
+def test_a_subs_invoice_past_the_contract_is_flagged_and_can_still_be_approved(client, tmp_path):
+    """The one thing a contract adds that a quote does not: a ceiling. It
+    used to refuse approval outright. Zack, on Loughlin & Son's third draw:
+    "there's extras on Roofing job so sometimes they're gonna be billed over
+    ... It should definitely be flagged but it shouldn't refuse me." """
+    from app.approval import route
     _sub_job(contract="5000.00")
     big = {**INVOICE_PAYLOAD, "vendor": "Reilly Roofing LLC",
            "document_number": "REQ-9", "total": "9000.00"}
@@ -1541,16 +1545,21 @@ def test_a_subs_invoice_past_the_contract_is_held(client, tmp_path):
     session = SessionLocal()
     invoice = session.query(Invoice).filter_by(invoice_number="REQ-9").one()
     invoice_id = invoice.id
+    assert route(invoice).can_approve
+    assert route(invoice).needs_owner                       # the owner still sees it
     session.close()
 
-    page = client.get(f"/invoice/{invoice_id}")
-    assert "past it" in page.text
-    assert "Say what the extra work was" in page.text
+    page = client.get(f"/invoice/{invoice_id}").text
+    assert "past it" in page.split('class="approval"', 1)[1]  # flagged, in red, where you approve
+    assert "Put what the extra work was in the note" in page
+    assert "Approval is blocked" not in page
+    assert 'name="decision" value="approve"' in page         # the button is live
 
-    resp = client.post(f"/invoice/{invoice_id}/decide", follow_redirects=False,
-                       data={"decision": "approve", "actor": "Zack"})
+    client.post(f"/invoice/{invoice_id}/decide", follow_redirects=False,
+                data={"decision": "approve", "actor": "Zack",
+                      "note": "Extra: rotted decking, 12 sheets"})
     session = SessionLocal()
-    assert session.get(Invoice, invoice_id).approval_status != "approved"
+    assert session.get(Invoice, invoice_id).approval_status == "approved"
     session.close()
 
 

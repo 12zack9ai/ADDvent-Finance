@@ -263,3 +263,19 @@ def test_a_draw_that_would_go_past_the_award_says_so_in_the_queue():
     assert not rows["RR-2"].ready and rows["RR-2"].tone == "bad"
     # And it is kept out of what the office is told it can pay today.
     assert checks.total_ready(list(rows.values())) == D("100000.00")
+
+
+def test_a_draw_approved_past_the_award_is_payable_and_still_marked():
+    """Loughlin & Son: $100,000 contract, four draws, one with extras. Once the
+    owner has approved the one that goes past it, the check can be cut - the
+    row still says how far past."""
+    j = job(quotes=[contract("100000.00")], invoices=[
+        invoice("75000.00", status=APPROVAL_APPROVED, days=30, number="LS-1"),
+        invoice("26805.00", status=APPROVAL_APPROVED, days=5, number="LS-4"),
+    ])
+    rows = {r.reference: r for r in checks.queue(jobs=[j], today=TODAY)}
+
+    assert "past the award" in rows["LS-4"].state
+    assert "$1,805.00" in rows["LS-4"].state
+    assert rows["LS-4"].ready and rows["LS-4"].tone == "bad"
+    assert checks.total_ready(list(rows.values())) == D("101805.00")

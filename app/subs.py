@@ -219,8 +219,8 @@ class ContractCheck:
                 f"This takes {self.position.vendor} to {_fmt(self.billed_after)} "
                 f"against a {_fmt(self.position.awarded)} contract — "
                 f"{_fmt(self.exceeds_by)} past it. That happens; extras get "
-                f"agreed on site and papered later. Say what the extra work was "
-                f"before approving it."
+                f"agreed on site and papered later. Put what the extra work was "
+                f"in the note when you approve it."
             )
         return (
             f"{_fmt(self.position.billed)} of {_fmt(self.position.awarded)} "

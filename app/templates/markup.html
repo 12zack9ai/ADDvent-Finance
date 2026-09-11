@@ -489,12 +489,14 @@
     </div>
   </div>
 
+  {% if not is_subs %}
   <div class="legend">
     <div class="item"><span class="swatch s-over"></span> Higher than quoted — quoted price shown beneath</div>
     <div class="item"><span class="swatch s-under"></span> Lower than quoted</div>
     <div class="item"><span class="swatch s-match"></span> Exactly as quoted</div>
     <div class="item"><span class="swatch s-none"></span> Not on the master quote</div>
   </div>
+  {% endif %}
 
   {% if lines | selectattr("match_method", "in", ["sku:effective","exact:effective","fuzzy:effective"]) | list %}
   <div class="warn" style="background:#eef2f8;border-left-color:#2563a8;color:#1e3a5f">
@@ -505,7 +507,7 @@
   </div>
   {% endif %}
 
-  {% if invoice.lines_unmatched %}
+  {% if invoice.lines_unmatched and not is_subs %}
   <div class="warn">
     <strong>{{ invoice.lines_unmatched }} line{{ "" if invoice.lines_unmatched == 1 else "s" }}</strong>
     could not be matched to the master quote. That may be legitimate — an extra item, a
@@ -515,6 +517,15 @@
   {% endif %}
 
   <div class="foot">
+    {% if is_subs %}
+    <strong>How to read this.</strong> A subcontractor bills a lump sum. Its total was read
+    from the invoice and checked against their contract for job {{ job.job_number }}: what
+    they have been approved for so far, and what this one leaves.
+    <strong>Check the total against the original invoice before acting on it.</strong>
+    <br>
+    Generated {{ generated_at }} · source file <em>{{ invoice.document.filename }}</em>
+    {%- if quote %} · contract <em>{{ quote.document.filename }}</em>{% endif %}
+    {% else %}
     <strong>How to read this.</strong> Every unit price on the vendor's invoice was compared
     against the same item on the master quote for job {{ job.job_number }}. Prices were read
     from the documents automatically; the comparison itself is exact arithmetic.
@@ -522,6 +533,7 @@
     <br>
     Generated {{ generated_at }} · source file <em>{{ invoice.document.filename }}</em>
     {%- if quote %} · master quote <em>{{ quote.document.filename }}</em>{% endif %}
+    {% endif %}
   </div>
 
 </div>
@@ -609,6 +621,14 @@
     {% if routing.blockers %}
       <ul class="ap-blockers">
         {% for b in routing.blockers %}<li>{{ b }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+
+    {# Red like a blocker, but Approve stays live - past the contract is
+       something to approve knowingly, not something refused. #}
+    {% if routing.warnings %}
+      <ul class="ap-blockers">
+        {% for w in routing.warnings %}<li>{{ w }}</li>{% endfor %}
       </ul>
     {% endif %}
 

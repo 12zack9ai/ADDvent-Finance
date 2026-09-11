@@ -180,8 +180,13 @@ def _from_invoice(invoice: Invoice, job: Job, today: date) -> Waiting:
     # invoice itself and it is the reason this queue must not be a paying list.
     contract = subs.contract_check(job, invoice)
     if contract is not None and contract.over_contract:
-        state = f"Would go {_fmt(contract.exceeds_by)} past the award"
-        ready, tone = False, "bad"
+        if invoice.approval_status == APPROVAL_APPROVED:
+            # Approved knowingly - extras. Payable, and still marked.
+            state = f"Approved — {_fmt(contract.exceeds_by)} past the award"
+            tone = "bad"
+        else:
+            state = f"Would go {_fmt(contract.exceeds_by)} past the award"
+            ready, tone = False, "bad"
 
     return Waiting(
         payee=(invoice.vendor or "").strip() or "Unknown",
