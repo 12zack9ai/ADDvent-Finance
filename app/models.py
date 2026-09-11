@@ -11,14 +11,21 @@ result of that comparison is stored on the line as a `verdict`.
 """
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base, Money
+
+# "RE: FW: Fwd:" in front of an email subject - what the mail client added, not
+# what the sender wrote.
+_REPLY_PREFIXES = re.compile(r"^\s*(?:(?:re|fw|fwd)\s*:\s*)+", re.I)
 
 # --- verdicts -------------------------------------------------------------
 # These drive the colours on the marked-up invoice.
@@ -650,9 +657,31 @@ class Invoice(Base):
         back_populates="invoice", cascade="all, delete-orphan", order_by="InvoiceLine.line_no"
     )
 
+    # One invoice per number, per vendor, per job - but only when there IS a
+    # number. A sub billing "2nd payment" off a Word document has none, and a
+    # plain unique constraint counted two blanks as the same number: Loughlin &
+    # Son's second draw on the Mahwah roof was refused as a duplicate of the
+    # first. The same file twice is still caught by Document.sha256, and
+    # look-alikes by the job page's duplicate check (jobsummary.py).
+    # db._let_blank_invoice_numbers_repeat() moves existing databases over.
     __table_args__ = (
-        UniqueConstraint("job_id", "vendor", "invoice_number", name="uq_invoice_per_job"),
+        Index("uq_invoice_per_job", "job_id", "vendor", "invoice_number", unique=True,
+              sqlite_where=text("invoice_number != ''"),
+              postgresql_where=text("invoice_number != ''")),
     )
+
+    @property
+    def reference(self) -> str:
+        """What to call it on a list: its number, or the email it came in on.
+
+        A sub billing in draws off a Word document has no number, so four of
+        Loughlin & Son's would all read "Invoice #28", "#29"... The email they
+        came in on says which draw each one is: "FW: 2nd payment".
+        """
+        if self.invoice_number:
+            return self.invoice_number
+        subject = _REPLY_PREFIXES.sub("", (self.document.subject if self.document else "") or "")
+        return subject.strip()[:80] or f"Invoice #{self.id}"
 
     @property
     def has_overbilling(self) -> bool:

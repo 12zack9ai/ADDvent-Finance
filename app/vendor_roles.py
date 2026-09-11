@@ -119,6 +119,38 @@ def set_role(session: Session, vendor: str, role: str, *, by: str = "") -> int:
     return moved
 
 
+# --- told without being asked ------------------------------------------------------
+
+# Written on the email that brought the document in: "FW: sub invoice", or
+# "this is a sub" typed above the forwarded message. Stricter than a reply to
+# our question: unasked, "materials" or "vendor" describe half of what a sub
+# bills for, and "sub total" is printed on most invoices.
+_TOLD_SUB = re.compile(r"\bsub(?:s|contractors?)?\b(?![\s-]*totals?\b)", re.I)
+_TOLD_SUPPLIER = re.compile(r"\bsuppliers?\b", re.I)
+
+
+def told_in(document) -> str:
+    """"sub" or "supplier" when somebody in the company wrote it on the email."""
+    if document.source != "email":
+        return ""
+    if not settings.may_email(mail_send.reply_address(document.sender)):
+        return ""                   # a vendor's own description is not our decision
+    said = "\n".join([document.subject or "", strip_quoted_reply(document.body_text or "")])
+    sub, supplier = bool(_TOLD_SUB.search(said)), bool(_TOLD_SUPPLIER.search(said))
+    if sub == supplier:
+        return ""                   # neither, or both: ask instead
+    return SUB if sub else SUPPLIER
+
+
+def decide_from_email(session: Session, document, vendor: str) -> str:
+    """Apply what the email said, if it said. Returns the role applied, or ""."""
+    role = told_in(document)
+    if not role or not norm_vendor(vendor):
+        return ""
+    set_role(session, vendor, role, by=document.sender or "")
+    return role
+
+
 # --- asking -------------------------------------------------------------------
 
 def _who_to_ask(document) -> str:

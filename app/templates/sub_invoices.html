@@ -127,7 +127,7 @@
       {% for inv in p.invoices %}
       <tr>
         <td><a href="/invoice/{{ inv.id }}" style="font-weight:700">
-          {{ inv.invoice_number or ("Invoice #" ~ inv.id) }}</a></td>
+          {{ inv.reference }}</a></td>
         <td class="muted" data-l="Date">{{ inv.invoice_date or "—" }}</td>
         <td class="r" data-l="Amount" style="font-weight:700">{{ inv.total | money }}</td>
         <td class="r" data-l="Vs. contract">

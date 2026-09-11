@@ -61,9 +61,15 @@ def _questions(sent):
 
 
 def _file(doc_type: str, job: str, vendor: str, tag: str, *, sender: str = ZACK,
-          source: str = "email"):
+          source: str = "email", number: str | None = None,
+          subject: str | None = None, body: str = ""):
+    # The job number rides at the bottom of the body, so a test can write any
+    # subject and note it likes above it.
+    subject = f"Fwd: {job} {doc_type}" if subject is None else subject
+    body = f"{body}\n\njob {job}"
     payload = {
-        "doc_type": doc_type, "vendor": vendor, "document_number": f"{tag}",
+        "doc_type": doc_type, "vendor": vendor,
+        "document_number": tag if number is None else number,
         "document_date": "2026-09-11", "total": "5000", "subtotal": "5000",
         "job_number_hint": "",
         "lines": [{"line_no": 1, "description": "Gutters and leaders, install",
@@ -74,7 +80,7 @@ def _file(doc_type: str, job: str, vendor: str, tag: str, *, sender: str = ZACK,
     with SessionLocal() as session:
         doc = services.ingest_file(
             session, path, f"{tag}.pdf", source=source, sender=sender,
-            subject=f"Fwd: {job} {doc_type}", message_id=f"<{tag}@icloud.com>",
+            subject=subject, body=body, message_id=f"<{tag}@icloud.com>",
             extraction=ExtractionResult(payload=payload, model="test"),
         )
         session.commit()
@@ -197,6 +203,84 @@ def test_subs_opens_on_one_folder_per_job_like_the_invoices_page(outbox):
 
     inside = client.get("/sub-invoices?job=265714").text
     assert "Folder Gutters Inc" in inside and "fg-1" in inside
+
+
+def test_a_subs_next_draw_without_an_invoice_number_is_filed(outbox):
+    """Loughlin & Son's "2nd payment" on the Mahwah roof had no invoice number,
+    and neither did the first, so it was refused as a duplicate of it."""
+    _file("invoice", "265721", "Loughlin Draws Inc", "draw-1", number="")
+    _file("invoice", "265721", "Loughlin Draws Inc", "draw-2", number="")
+    _file("invoice", "265721", "Loughlin Draws Inc", "draw-3", number="")
+
+    assert len(_invoices("Loughlin Draws Inc")) == 3
+
+
+def test_a_sub_billing_in_draws_against_one_quote(outbox):
+    """Loughlin & Son: one quote, then a deposit and three more payments, none
+    with an invoice number - "one quote sent and 4 invoices, only one made it
+    in". All four land on Subs under the job, against the quote as their
+    contract, each named by the email it came in on."""
+    job = "265726"
+    _file("quote", job, "Draw Roofing LLC", "dr-q", subject="FW: sub quote, Mahwah roof")
+    for tag, subject in (("dr-1", "FW: Deposit"), ("dr-2", "FW: 2nd payment"),
+                         ("dr-3", "FW: 3rd payment"), ("dr-4", "RE: FW: Final payment")):
+        _file("invoice", job, "Draw Roofing LLC", tag, number="", subject=subject)
+
+    assert _questions(outbox) == []                      # the forward said "sub"
+    assert [flag for _id, flag in _invoices("Draw Roofing LLC")] == [True] * 4
+    page = client.get(f"/sub-invoices?job={job}").text
+    for label in ("Deposit", "2nd payment", "3rd payment", "Final payment"):
+        assert f"{label}</a>" in page, label
+    assert "FW:" not in page and "RE:" not in page
+    assert "None on file" not in page                    # the quote is the contract
+
+
+# --- told on the email, without being asked -------------------------------------------
+
+def test_writing_sub_on_the_forward_files_it_as_a_sub_without_asking(outbox):
+    """Zack: "i emailed the word sub invoice and it still put it into the
+    vendor invoice"."""
+    _file("invoice", "265722", "Told Sub Roofing LLC", "ts-1", subject="FW: sub invoice")
+
+    assert _questions(outbox) == []
+    assert _invoices("Told Sub Roofing LLC")[0][1] is True
+    with SessionLocal() as session:
+        assert vendor_roles.role_of(session, "Told Sub Roofing LLC") == vendor_roles.SUB
+
+
+def test_a_note_above_the_forward_counts_and_the_forwarded_text_does_not(outbox):
+    _file("invoice", "265723", "Note Sub LLC", "ns-1", subject="FW: deposit",
+          body="this one is a sub\n\n-----Original Message-----\nFrom: Billing\nSee attached")
+    _file("invoice", "265723", "Below The Line Co", "bl-1", subject="FW: deposit",
+          body="see attached\n\n-----Original Message-----\nFrom: Billing\nSub floor repair")
+
+    assert _invoices("Note Sub LLC")[0][1] is True
+    assert _invoices("Below The Line Co")[0][1] is False
+    assert [str(q["Subject"]) for q in _questions(outbox)] == ["Sub or supplier? Below The Line Co"]
+
+
+def test_writing_supplier_on_the_forward_keeps_it_with_the_supplier_bills(outbox):
+    _file("invoice", "265727", "Told Supplier Co", "tsu-1", subject="FW: supplier invoice")
+
+    assert _questions(outbox) == []
+    with SessionLocal() as session:
+        assert vendor_roles.role_of(session, "Told Supplier Co") == vendor_roles.SUPPLIER
+
+
+def test_sub_total_on_the_email_is_not_the_answer(outbox):
+    _file("invoice", "265724", "Totals Only Co", "to-1", subject="FW: Sub total due")
+    _file("invoice", "265724", "Hyphen Totals Co", "ht-1", subject="FW: sub-total attached")
+
+    assert len(_questions(outbox)) == 2
+    assert _invoices("Totals Only Co")[0][1] is False
+
+
+def test_a_vendor_calling_itself_a_sub_is_not_our_decision(outbox):
+    _file("invoice", "265725", "Self Styled Subs", "ss-1", subject="Sub invoice",
+          sender="Billing <billing@selfstyled.example>")
+
+    assert len(_questions(outbox)) == 1
+    assert _invoices("Self Styled Subs")[0][1] is False
 
 
 def test_a_sub_without_a_contract_is_never_blocked_as_over_it(outbox):

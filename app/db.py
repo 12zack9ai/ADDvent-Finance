@@ -7,6 +7,8 @@ $4,182.5999999. Never use Float for money here.
 from __future__ import annotations
 
 import logging
+import re
+import sqlite3
 
 from decimal import Decimal, InvalidOperation
 from typing import Optional
@@ -201,6 +203,7 @@ def init_db() -> None:
 
     Base.metadata.create_all(engine)
     _add_missing_columns()
+    _let_blank_invoice_numbers_repeat()
 
 
 def _add_missing_columns() -> None:
@@ -253,3 +256,100 @@ def _sql_literal(value: str) -> str:
     """Quote a default for inline DDL. Values are ours, never user input."""
     escaped = value.replace("'", "''")
     return f"'{escaped}'"
+
+
+# The invoice table as it shipped: one invoice per job, vendor and number, with
+# a blank number counting as a number.
+_BLANKS_COUNT_AS_A_NUMBER = re.compile(
+    r',\s*CONSTRAINT\s+"?uq_invoice_per_job"?\s+UNIQUE\s*'
+    r'\(\s*job_id\s*,\s*vendor\s*,\s*invoice_number\s*\)',
+    re.IGNORECASE,
+)
+_INVOICE_TABLE = re.compile(r'^\s*CREATE\s+TABLE\s+"?invoice"?(?=\s*\()', re.IGNORECASE)
+
+
+def _let_blank_invoice_numbers_repeat() -> None:
+    """Rebuild the invoice table once, so invoices without a number can repeat.
+
+    Loughlin & Son bill each draw on the Mahwah roof ("2nd payment") off a Word
+    document with no invoice number. UNIQUE(job_id, vendor, invoice_number)
+    counted two blanks as the same number, so every draw after the first was
+    refused with an IntegrityError and not filed. The model now declares a
+    unique index that skips blank numbers, but SQLite cannot drop a table
+    constraint - so a database already in service is moved over by the rebuild
+    SQLite documents (create, copy, drop, rename), in one transaction, after
+    copying the file aside.
+
+    Runs on every boot and does nothing once the old constraint is gone. A
+    failure rolls back and leaves the app exactly as it was, rather than
+    keeping it from starting.
+    """
+    if engine.dialect.name != "sqlite":
+        return
+
+    raw = engine.raw_connection()
+    con = raw.driver_connection
+    try:
+        row = con.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'invoice'"
+        ).fetchone()
+        if row is None or "uq_invoice_per_job" not in row[0]:
+            return
+        sql = row[0]
+        if not (_BLANKS_COUNT_AS_A_NUMBER.search(sql) and _INVOICE_TABLE.match(sql)):
+            log.error("SCHEMA: invoice.uq_invoice_per_job is in a form this cannot "
+                      "rewrite - invoices without a number still collide")
+            return
+
+        rebuilt = _INVOICE_TABLE.sub("CREATE TABLE invoice_rebuilt",
+                                     _BLANKS_COUNT_AS_A_NUMBER.sub("", sql, count=1), count=1)
+        indexes = [r[0] for r in con.execute(
+            "SELECT sql FROM sqlite_master "
+            "WHERE type = 'index' AND tbl_name = 'invoice' AND sql IS NOT NULL")]
+        _copy_aside(con, "before-blank-invoice-numbers")
+
+        level = con.isolation_level
+        foreign_keys = con.execute("PRAGMA foreign_keys").fetchone()[0]
+        con.isolation_level = None            # BEGIN and COMMIT are ours, not the driver's
+        if foreign_keys:
+            con.execute("PRAGMA foreign_keys = OFF")
+        try:
+            con.execute("BEGIN IMMEDIATE")
+            before = con.execute("SELECT COUNT(*) FROM invoice").fetchone()[0]
+            con.execute(rebuilt)
+            con.execute("INSERT INTO invoice_rebuilt SELECT * FROM invoice")
+            con.execute("DROP TABLE invoice")
+            con.execute("ALTER TABLE invoice_rebuilt RENAME TO invoice")
+            for ddl in indexes:
+                con.execute(ddl)
+            con.execute("CREATE UNIQUE INDEX uq_invoice_per_job ON invoice "
+                        "(job_id, vendor, invoice_number) WHERE invoice_number != ''")
+            after = con.execute("SELECT COUNT(*) FROM invoice").fetchone()[0]
+            if after != before:
+                raise RuntimeError(f"copied {after} of {before} invoices")
+            con.execute("COMMIT")
+            log.warning("SCHEMA: invoice rebuilt (%d rows) - invoices without a "
+                        "number no longer collide", after)
+        except Exception as exc:              # noqa: BLE001
+            if con.in_transaction:
+                con.execute("ROLLBACK")
+            log.error("SCHEMA: invoice rebuild failed and was rolled back: %s", exc)
+        finally:
+            if foreign_keys:
+                con.execute("PRAGMA foreign_keys = ON")
+            con.isolation_level = level
+    finally:
+        raw.close()
+
+
+def _copy_aside(con: sqlite3.Connection, label: str) -> None:
+    """Copy the database file aside before a change that cannot be undone."""
+    path = engine.url.database
+    if not path or path == ":memory:":
+        return
+    dest = sqlite3.connect(f"{path}.{label}")
+    try:
+        con.backup(dest)
+    finally:
+        dest.close()
+    log.warning("SCHEMA: copied the database to %s.%s first", path, label)

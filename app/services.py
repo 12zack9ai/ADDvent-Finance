@@ -784,11 +784,17 @@ def ingest_file(
 
 def _ask_sub_or_supplier(session: Session, job: Job, document: Document,
                          result: ExtractionResult) -> None:
-    """The first document from a vendor nobody has classified asks the question."""
+    """The first document from a vendor nobody has classified asks the question.
+
+    Unless the email already answered it - Zack forwarding "sub invoice" should
+    not then be asked whether it is a sub.
+    """
     vendor = (result.payload.get("vendor") or "").strip()
     if vendor_roles.role_of(session, vendor) or vendor_roles.holds_contract(job, vendor):
         return
     try:
+        if vendor_roles.decide_from_email(session, document, vendor):
+            return
         vendor_roles.ask(session, document, vendor)
     except Exception as exc:  # noqa: BLE001 - a question must never cost a document
         log.warning("could not ask whether %s is a sub: %s", vendor, exc)
