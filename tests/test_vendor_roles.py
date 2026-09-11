@@ -426,7 +426,11 @@ def test_job_costing_opens_on_its_own_list_and_a_job_opens_its_report(outbox):
     job = "265740"
     _file("invoice", job, "Costing Supply Co", "jc-1", subject="FW: supplier invoice")
 
-    assert 'href="/costing"' in client.get("/").text
+    # The front door's Job costing card itself - the nav links to /costing too,
+    # so "the page mentions /costing" would pass with the card still wrong.
+    home = client.get("/").text
+    card = home.split("<h2>Job costing</h2>", 1)[0].rsplit('<a class="prog"', 1)[1]
+    assert card.startswith(' href="/costing"')
     listing = client.get("/costing").text
     assert f'href="/job/{job}/costing"' in listing
     assert f'href="/job/{job}"' not in listing
