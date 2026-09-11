@@ -24,7 +24,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app import jobnimbus, jobnum, mail_send, pricewatch, segment, trust
+from app import jobnimbus, jobnum, mail_send, pricewatch, segment, trust, vendor_roles
 from app.config import settings
 
 log = logging.getLogger(__name__)
@@ -166,7 +166,10 @@ def create_quote(
         tax=to_decimal(payload.get("tax")),
         freight=to_decimal(payload.get("freight")),
         total=to_decimal(payload.get("total")),
-        is_subcontract=is_subcontract,
+        # The department it came in through, or a vendor already confirmed as
+        # a sub - whose quote is what they were awarded.
+        is_subcontract=is_subcontract or vendor_roles.role_of(
+            session, (payload.get("vendor") or "").strip()) == vendor_roles.SUB,
     )
     session.add(quote)
     session.flush()
@@ -390,6 +393,7 @@ def create_invoice(
     session.flush()
 
     invoice.lines = _apply_lines(result, lambda **kw: InvoiceLine(invoice_id=invoice.id, **kw))
+    invoice.is_subcontract = vendor_roles.is_sub_invoice(session, job, vendor)
     session.flush()
 
     recompare_invoice(session, job, invoice)
@@ -771,8 +775,23 @@ def ingest_file(
         if invoice.quote_id is None:
             chase_quote(session, job, invoice)
 
+    if result.doc_type in ("quote", "invoice"):
+        _ask_sub_or_supplier(session, job, document, result)
+
     session.flush()
     return document
+
+
+def _ask_sub_or_supplier(session: Session, job: Job, document: Document,
+                         result: ExtractionResult) -> None:
+    """The first document from a vendor nobody has classified asks the question."""
+    vendor = (result.payload.get("vendor") or "").strip()
+    if vendor_roles.role_of(session, vendor) or vendor_roles.holds_contract(job, vendor):
+        return
+    try:
+        vendor_roles.ask(session, document, vendor)
+    except Exception as exc:  # noqa: BLE001 - a question must never cost a document
+        log.warning("could not ask whether %s is a sub: %s", vendor, exc)
 
 
 def _screen(session: Session, document: Document, result: ExtractionResult) -> None:

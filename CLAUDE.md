@@ -222,6 +222,29 @@ with (`__NEXT_DATA__`), then files it through `ingest_file` exactly like a PDF
 Skipped mail is now logged with its reason (`mail: skipped …`), so a message
 with nothing to read no longer disappears into "1 skipped".
 
+## Sub or supplier: asked once per vendor
+
+Zack, 2026-09-11, after Superior Seamless Gutters' invoice landed with the
+supplier bills instead of on Subs: *"if the email doesn't know which it is it
+shouldn't hesitate responding asking the question it needed."*
+(`app/vendor_roles.py`)
+
+- An invoice is a sub's (`Invoice.is_subcontract`) when the vendor holds a
+  subcontract on the job, **or** has been confirmed as a sub (`VendorRole`).
+  That mark puts it on Subs, in the check queue, and in the subcontract line
+  of job costing. A sub with no contract on file shows "None on file", never
+  an overage, and the contract check is not run.
+- The first quote or invoice from an unclassified vendor emails one question,
+  "Sub or supplier? <vendor>", straight back to whoever forwarded it. If the
+  vendor sent it themselves, it goes to `ALERT_EMAIL`. Uploads are asked on the
+  page instead. Once per vendor; if the email fails to send, the next document
+  tries again.
+- A one-word reply ("sub" / "supplier") is tied back by our Message-ID and read
+  automatically. Unclear replies are never guessed at. The invoice page has the
+  same two buttons. The answer re-marks every invoice from that vendor, and a
+  sub's quotes become their contract. A contract on the job beats a "supplier"
+  answer.
+
 ## Nothing sent to the mailbox goes unread
 
 Zack, 2026-09-11: a quote forwarded at 7:04 was read at 7:05 and skipped, and
@@ -365,5 +388,5 @@ what was asked and what came back, grouped by vendor.
 ## Before pushing
 
 ```
-cd /home/user/finance-automation && .venv/bin/python -m pytest -q    # 776 passing as of 2026-09-11
+cd /home/user/finance-automation && .venv/bin/python -m pytest -q    # 787 passing as of 2026-09-11
 ```

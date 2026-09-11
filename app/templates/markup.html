@@ -216,6 +216,12 @@
   .vsame input{max-width:140px;font-size:8pt}
   .vsame button,.vsame-undo button{font-size:7.6pt;cursor:pointer}
   .vsame-undo{margin-top:3px}
+  .role-box{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;
+            background:#f4f7fb;border:1px solid #dfe3e9;border-radius:10px;padding:10px 14px;font-size:9.4pt}
+  .role-box form{display:inline}
+  .role-choices{display:flex;gap:8px;flex-wrap:wrap}
+  .role-box button{font-size:9pt;cursor:pointer;padding:4px 12px}
+  @media print{.role-box{display:none}}
   @media print{.vsame,.vsame-undo{display:none}}
   .vprice{font-weight:700;padding:5px 7px !important}
   .vprice .was{display:block;font-size:7.6pt;font-weight:700;margin-top:2px;white-space:nowrap}
@@ -513,6 +519,39 @@
         <input type="text" name="note" placeholder="How you confirmed it (who you spoke to)" required>
         <button type="submit">I confirmed this is real</button>
       </form>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% if not print_mode and invoice.vendor %}
+<div style="max-width:8.5in;margin:14px auto 0;padding:0 22px">
+  {# Sub or supplier: asked once per vendor, by email when it arrives, and here. #}
+  <div class="role-box">
+    {% if vendor_role %}
+      <span><strong>{{ invoice.vendor }}</strong> is a {{ "subcontractor" if vendor_role == "sub" else "supplier" }}{% if vendor_role == "sub" %}: their invoices go to Subs and raise a check request{% endif %}.</span>
+      <form method="post" action="/vendor-role">
+        <input type="hidden" name="vendor" value="{{ invoice.vendor }}">
+        <input type="hidden" name="role" value="{{ 'supplier' if vendor_role == 'sub' else 'sub' }}">
+        <input type="hidden" name="next" value="/invoice/{{ invoice.id }}">
+        <button type="submit">Change to {{ "supplier" if vendor_role == "sub" else "subcontractor" }}</button>
+      </form>
+    {% else %}
+      <span><strong>Is {{ invoice.vendor }} a subcontractor or a supplier?</strong> Answer once; every invoice from them follows.</span>
+      <span class="role-choices">
+        <form method="post" action="/vendor-role">
+          <input type="hidden" name="vendor" value="{{ invoice.vendor }}">
+          <input type="hidden" name="role" value="sub">
+          <input type="hidden" name="next" value="/invoice/{{ invoice.id }}">
+          <button type="submit">Subcontractor</button>
+        </form>
+        <form method="post" action="/vendor-role">
+          <input type="hidden" name="vendor" value="{{ invoice.vendor }}">
+          <input type="hidden" name="role" value="supplier">
+          <input type="hidden" name="next" value="/invoice/{{ invoice.id }}">
+          <button type="submit">Supplier</button>
+        </form>
+      </span>
     {% endif %}
   </div>
 </div>

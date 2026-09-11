@@ -73,6 +73,8 @@ class Position:
     @property
     def overage(self) -> Decimal:
         """Approved beyond the award. Real, and not necessarily wrong."""
+        if not self.has_contract:
+            return ZERO             # no award to be past - "no contract on file"
         return max(self.billed - self.awarded, ZERO)
 
     @property
@@ -82,6 +84,8 @@ class Position:
 
     @property
     def would_exceed(self) -> Decimal:
+        if not self.has_contract:
+            return ZERO
         return max(self.committed - self.awarded, ZERO)
 
     @property
@@ -97,6 +101,8 @@ class Position:
         two invoices in the queue are two claims, and counting each against the
         other would condemn both on the strength of money nobody has agreed to.
         """
+        if not self.has_contract:
+            return ZERO
         after = self.billed + (invoice.total or ZERO)
         return max(after - self.awarded, ZERO)
 
@@ -133,6 +139,19 @@ def positions(job: Job) -> list[Position]:
             found.append(existing)
         existing.subcontract = existing.subcontract or contract
         existing.contract += contract.total or ZERO
+
+    # A sub nobody has uploaded a contract for, known because somebody said so
+    # (vendor_roles.py) and their invoices carry the mark. Listed, so those
+    # invoices reach the Subs page and the check queue; no contract on file
+    # means no ceiling to check against, never an overage.
+    for invoice in job.invoices:
+        if not getattr(invoice, "is_subcontract", False):
+            continue
+        if invoice.approval_status == APPROVAL_REJECTED:
+            continue
+        if not any(_same(p.vendor, invoice.vendor) for p in found):
+            found.append(Position(vendor=(invoice.vendor or "").strip()
+                                  or "Unknown subcontractor"))
 
     if not found:
         return []

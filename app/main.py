@@ -23,6 +23,7 @@ from app import (
     accounting, alerts, auth, backup, cashflow, cashflow_pdf, checks, costing,
     disputes, fmt,
     invoice_pdf, jobnimbus, jobsummary, pricewatch, purchases, scheduler, subs, trust,
+    vendor_roles,
     watchdog,
 )
 from app.config import settings
@@ -587,9 +588,12 @@ def _subcontract_jobs(session: Session) -> list[Job]:
     """
     return session.scalars(
         select(Job)
-        .join(Quote, Quote.job_id == Job.id)
-        .where(Quote.is_subcontract == True, Quote.is_master == True)  # noqa: E712
-        .distinct()
+        .where(or_(
+            Job.id.in_(select(Quote.job_id).where(
+                Quote.is_subcontract == True, Quote.is_master == True)),  # noqa: E712
+            # A confirmed sub with no contract uploaded: known by their invoices.
+            Job.id.in_(select(Invoice.job_id).where(Invoice.is_subcontract == True)),  # noqa: E712
+        ))
         .options(
             selectinload(Job.quotes),
             selectinload(Job.invoices),
@@ -1010,7 +1014,13 @@ def _render_markup(request: Request, invoice: Invoice, print_mode: bool) -> str:
     quote_choices = [] if print_mode else [
         ql for q in invoice.job.masters_for_vendor(invoice.vendor) for ql in q.lines
     ]
+    # Sub or supplier, for the one-click question on the page.
+    owner = Session.object_session(invoice)
+    vendor_role = "" if print_mode or owner is None else (
+        vendor_roles.role_of(owner, invoice.vendor)
+        or ("sub" if invoice.is_subcontract else ""))
     return templates.get_template("markup.html").render(
+        vendor_role=vendor_role,
         quote_choices=quote_choices,
         request=request,
         invoice=invoice,
@@ -1104,6 +1114,25 @@ def not_same_item(invoice_id: int, line_id: int, session: Session = Depends(get_
     recompare_job(session, invoice.job)
     session.commit()
     return _redirect(f"/invoice/{invoice.id}", ok="No longer paired with the quote.")
+
+
+@app.post("/vendor-role")
+def decide_vendor_role(
+    vendor: str = Form(...),
+    role: str = Form(...),
+    next: str = Form("/incoming"),
+    actor: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    """Sub or supplier, answered on the page instead of by email reply."""
+    back = next if next.startswith("/") and not next.startswith("//") else "/incoming"
+    if role not in (vendor_roles.SUB, vendor_roles.SUPPLIER) or not vendor.strip():
+        return _redirect(back, err="Choose subcontractor or supplier.")
+    moved = vendor_roles.set_role(session, vendor, role, by=_actor(actor))
+    session.commit()
+    what = "a subcontractor" if role == vendor_roles.SUB else "a supplier"
+    tail = f" - {moved} invoice{'' if moved == 1 else 's'} moved." if moved else "."
+    return _redirect(back, ok=f"{vendor.strip()} is {what} from now on{tail}")
 
 
 @app.get("/compare/{a_id}/{b_id}", response_class=HTMLResponse)

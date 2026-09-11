@@ -43,7 +43,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app import alerts, mail_send, paylink
+from app import alerts, mail_send, paylink, vendor_roles
 from app.mail_types import ALLOWED_SUFFIXES, MAX_ATTACHMENT_BYTES, MailboxError, PollResult
 from app.models import Document, MailSeen, utcnow
 from app.services import (
@@ -424,6 +424,9 @@ def _process(session: Session, message: Message, result: PollResult) -> bool:
     answered = _apply_job_answer(session, references, subject, body)
     for filed in answered:
         result.filed.append(filed)
+    # Or to "sub or supplier?" - tied back the same way, by our Message-ID.
+    for decided in vendor_roles.apply_answer(session, references, body, by=sender):
+        result.filed.append(decided)
 
     for filename, content in _attachments(message):
         found_any = True

@@ -73,15 +73,21 @@
   </div>
 
   <div class="substrip">
+    {% if p.has_contract %}
     <div><span class="sk">Contract</span>
       <span class="sv">{{ p.awarded | money }}</span>
       <span class="sn">{% if p.change_orders %}incl. {{ p.change_orders | money }} extras{% else %}as awarded{% endif %}</span></div>
+    {% else %}
+    <div><span class="sk">Contract</span>
+      <span class="sv">None on file</span>
+      <span class="sn"><a href="/upload?sub=1">upload it</a> to track their total</span></div>
+    {% endif %}
     <div><span class="sk">Billed</span>
       <span class="sv">{{ p.billed | money }}</span>
       <span class="sn">{{ p.paid | money }} of it paid</span></div>
     <div><span class="sk">Remaining</span>
-      <span class="sv">{{ p.remaining | money }}</span>
-      <span class="sn">left on the contract</span></div>
+      <span class="sv">{{ p.remaining | money if p.has_contract else "—" }}</span>
+      <span class="sn">{{ "left on the contract" if p.has_contract else "no contract to count down" }}</span></div>
     <div><span class="sk">Under review</span>
       <span class="sv">{{ p.pending | money }}</span>
       <span class="sn">{% if p.open_invoices %}{{ p.open_invoices|length }} invoice{{ "" if p.open_invoices|length == 1 else "s" }} waiting{% else %}nothing outstanding{% endif %}</span></div>

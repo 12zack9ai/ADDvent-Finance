@@ -191,7 +191,10 @@ def test_the_7_04_quote_is_filed_now(mailbox, sent):
 
     assert any("job 265501" in item for item in result.filed)
     assert _row("<q1@icloud.com>").outcome == "filed"
-    assert sent == []                                # nothing to alert about
+    # Filed, so no "not filed" alert - only the one-time question about a
+    # vendor nobody has classified yet (vendor_roles.py).
+    assert not [m for m in sent if "Not filed" in str(m["Subject"])]
+    assert [m for m in sent if str(m["Subject"]).startswith("Sub or supplier?")]
 
 
 def test_a_message_not_filed_is_recorded_and_emailed_about_once(mailbox, sent):

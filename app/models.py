@@ -589,6 +589,10 @@ class Invoice(Base):
     # How that master was chosen: "vendor" (name matched), "sole" (only master
     # on the job, names differ), or "none".
     quote_match: Mapped[str] = mapped_column(String(16), default="none")
+    # A subcontractor's invoice: the vendor holds a subcontract on this job, or
+    # has been confirmed as a sub (vendor_roles.py). Puts it on the Subs page,
+    # in the check queue and in the subcontract line of job costing.
+    is_subcontract: Mapped[bool] = mapped_column(default=False, server_default="0", index=True)
 
     vendor: Mapped[str] = mapped_column(String(255), default="")
     invoice_number: Mapped[str] = mapped_column(String(128), default="", index=True)
@@ -686,6 +690,26 @@ class InvoiceLine(Base):
 
     invoice: Mapped[Invoice] = relationship(back_populates="lines")
     quote_line: Mapped[Optional[QuoteLine]] = relationship()
+
+
+class VendorRole(Base):
+    """Whether a vendor is a subcontractor or a supplier, once somebody has said.
+
+    One row per vendor. `role` is "sub" or "supplier", or "" while the question
+    is out - emailed once, and `ask_message_id` is how the reply finds its way
+    back here. See vendor_roles.py.
+    """
+
+    __tablename__ = "vendor_role"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    vendor: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(16), default="")
+    decided_by: Mapped[str] = mapped_column(String(128), default="")
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    asked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    asked_to: Mapped[str] = mapped_column(String(255), default="")
+    ask_message_id: Mapped[str] = mapped_column(String(512), default="", index=True)
 
 
 class MailSeen(Base):
