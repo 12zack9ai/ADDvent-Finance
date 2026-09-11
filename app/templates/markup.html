@@ -241,7 +241,13 @@
 {% if not print_mode %}
 <div class="toolbar">
   <div>
+    {# A sub's invoice goes back to Subs, a supplier's to the job's invoices -
+       two departments, never one leading into the other. #}
+    {% if is_subs %}
+    <a href="/sub-invoices?job={{ job.job_number }}">&larr; Subs &middot; Job {{ job.job_number }}</a>
+    {% else %}
     <a href="/job/{{ job.job_number }}">&larr; Job {{ job.job_number }}</a>
+    {% endif %}
   </div>
   <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
     <a href="/document/{{ invoice.document_id }}/file" target="_blank">Original invoice</a>

@@ -112,13 +112,16 @@ def _job_with_a_sub() -> str:
     return number
 
 
-def test_a_subcontractors_invoice_is_marked_as_one_on_the_job_page():
+def test_a_subcontractors_invoice_is_kept_on_subs_not_with_the_supplier_invoices():
+    """It used to sit in the job's invoice table marked "sub". Zack: "they
+    should act the same but are two separate entities." Falcon holds a
+    contract on the job, so FAL-1 is the Subs page's even though nothing marked
+    the invoice itself."""
     number = _job_with_a_sub()
     body = client.get(f"/job/{number}").text
-    row = body.split("FAL-1", 1)[1][:400]
-    assert ">sub<" in row
-    other = body.split("NC-1", 1)[1][:400]
-    assert ">sub<" not in other
+    assert "NC-1" in body
+    assert "FAL-1" not in body
+    assert "FAL-1" in client.get(f"/sub-invoices?job={number}").text
 
 
 def test_the_job_page_links_to_that_job_s_subcontractor_invoices():

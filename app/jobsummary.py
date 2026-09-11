@@ -288,8 +288,21 @@ def _counts(invoice: Invoice) -> bool:
 
 
 def build(job: Job) -> Summary:
-    """Add the job up, then check the total against what was authorised."""
-    invoices = [i for i in job.invoices if _counts(i)]
+    """Add the job up, then check the total against what was authorised.
+
+    The supplier side only. A sub's contract and invoices are added up on the
+    Subs page (subs.py); counted here too, a $25,000 draw read as $25,000 "not
+    on the quote" against the shingle supplier's quote.
+    """
+    contracts = getattr(job, "subcontracts", None) or []
+
+    def _subs(invoice) -> bool:
+        # The same test as vendor_roles.is_subs, on whatever a caller passes.
+        return bool(getattr(invoice, "is_subcontract", False)) or any(
+            q.vendor and invoice.vendor and vendor_matches(q.vendor, invoice.vendor)
+            for q in contracts)
+
+    invoices = [i for i in job.invoices if _counts(i) and not _subs(i)]
     summary = Summary(invoice_count=len(invoices))
 
     rolls: list[VendorRoll] = []
@@ -303,6 +316,8 @@ def build(job: Job) -> Summary:
         return roll
 
     for quote in job.masters:
+        if getattr(quote, "is_subcontract", False):
+            continue                      # a sub's contract: the Subs page's
         roll = roll_for(quote.vendor)
         roll.has_quote = True
         roll.quoted += quote.total or ZERO

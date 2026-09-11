@@ -4,7 +4,9 @@
 {% block content %}
 <div class="pagehead">
   <div>
-    {% if only_job %}<div class="muted"><a href="/job/{{ only_job }}">Job {{ only_job }}</a> &rsaquo;</div>{% endif %}
+    {# Back goes to Subs, never to the supplier side. Zack: "they should act
+       the same but are two separate entities." #}
+    {% if only_job %}<div class="muted"><a href="/sub-invoices">Subs</a> &rsaquo;</div>{% endif %}
     <h1>Subcontractor invoices</h1>
     <p class="sub">Billed against what they were awarded.
       {%- if only_job %} Job {{ only_job }} only &mdash;
@@ -68,11 +70,11 @@
     </div>
     <div class="folder-name">{{ f.job.name or "No job name" }}</div>
     <div class="folder-meta">
-      {{ f.positions|length }} sub{{ "" if f.positions|length == 1 else "s" }} · {{ f.billed | money }} billed
+      {{ f.positions|length }} sub{{ "" if f.positions|length == 1 else "s" }} · {{ f.invoiced | money }} invoiced
     </div>
     <div class="folder-tags">
       <span class="chip c-info">{{ f.vendors | join(", ") }}</span>
-      {% if f.waiting %}<span class="chip c-over">{{ f.waiting }} to look at</span>{% endif %}
+      {% if f.waiting %}<span class="chip c-over">{{ f.waiting }} to look at · {{ f.pending | money }}</span>{% endif %}
       {% if f.overage %}<span class="chip c-warn">{{ f.overage | money }} over contract</span>{% endif %}
       {% if f.no_contract %}<span class="chip c-none">no contract on file</span>{% endif %}
     </div>
@@ -88,7 +90,6 @@
   <div class="sub-head">
     <div>
       <strong style="font-size:1.05rem">{{ p.vendor }}</strong>
-      <a href="/job/{{ job.job_number }}" class="muted">job {{ job.job_number }}</a>
       {% if p.overage %}
         <span class="chip c-over">{{ p.overage | money }} over contract</span>
       {% endif %}

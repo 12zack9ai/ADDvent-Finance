@@ -87,18 +87,6 @@
   {% endif %}
 {% endfor %}
 
-{% for p in subs %}
-  {% for inv in p.open_invoices %}
-    {% if p.would_exceed_with(inv) %}
-      {% set _ = needs.append({
-          "what": p.vendor ~ " would go past their contract",
-          "sub": (inv.invoice_number or inv.id) ~ " · " ~
-                 (p.would_exceed_with(inv) | money) ~ " past the award",
-          "go": "Review", "href": "/invoice/" ~ inv.id }) %}
-    {% endif %}
-  {% endfor %}
-{% endfor %}
-
 {% if proposed %}
   {% set _ = needs.append({
       "what": proposed|length ~ " change order" ~ ("" if proposed|length == 1 else "s") ~ " to approve",
@@ -168,8 +156,7 @@
         <td style="padding-left:20px">
           <a href="/invoice/{{ inv.id }}" style="font-weight:700">
             {{ inv.invoice_number or ("Invoice #" ~ inv.id) }}</a></td>
-        <td data-l="Vendor">{{ inv.vendor or "—" }}
-          {% if inv.id in sub_ids %}<span class="chip c-info">sub</span>{% endif %}</td>
+        <td data-l="Vendor">{{ inv.vendor or "—" }}</td>
         <td class="muted" data-l="Date">{{ inv.invoice_date or "—" }}</td>
         <td class="r" data-l="Total" style="font-weight:700">{{ inv.total | money }}</td>
         <td class="r" data-l="Vs. quote">
@@ -304,23 +291,14 @@
 {% if subs %}
 <details class="more" id="subs">
   <summary>Subcontractors <span class="more-count">{{ subs|length }}</span></summary>
+  {# The supplier side of the job. A sub's contract and invoices are kept in
+     Subs - one click across, never mixed in. Zack: "they should act the same
+     but are two separate entities." #}
   <div class="more-body">
-    {% for p in subs %}
-    <div class="substrip" style="margin-top:12px">
-      <div><span class="sk">{{ p.vendor }}</span>
-        <span class="sv">{{ p.awarded | money }}</span><span class="sn">contract</span></div>
-      <div><span class="sk">Billed</span>
-        <span class="sv">{{ p.billed | money }}</span>
-        <span class="sn">{{ p.percent_drawn or 0 }}% drawn</span></div>
-      <div><span class="sk">Remaining</span>
-        <span class="sv">{{ p.remaining | money }}</span><span class="sn">on the contract</span></div>
-      <div><span class="sk">Under review</span>
-        <span class="sv">{{ p.pending | money }}</span><span class="sn">not decided</span></div>
-    </div>
-    {% endfor %}
-    <p class="muted" style="margin-top:12px">
-      <a href="/sub-invoices?job={{ job.job_number }}">This job's subcontractor invoices</a>
-      &middot; <a href="/sub-invoices">every job</a></p>
+    <p style="margin:0">{{ subs | map(attribute="vendor") | join(", ") }} &mdash;
+      their contracts and invoices are kept in Subs.</p>
+    <p style="margin-top:12px">
+      <a class="btn ghost" href="/sub-invoices?job={{ job.job_number }}">Open this job in Subs &rarr;</a></p>
   </div>
 </details>
 {% endif %}

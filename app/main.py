@@ -203,7 +203,7 @@ async def _startup() -> None:
 # Bump when the matcher changes in a way that should re-price what is already
 # filed. The marker on the data disk makes it once per change, not once per
 # boot - a boot must never be the thing that moves money around.
-RECHECK_VERSION = "2026-09-10-colours"
+RECHECK_VERSION = "2026-09-11-subs-apart"
 
 
 def _recheck_once() -> None:
@@ -612,14 +612,17 @@ def home(request: Request, session: Session = Depends(get_session)):
     still waiting, not how many subs there are.
     """
     jobs = session.scalar(select(func.count(Job.id))) or 0
-    invoices = session.scalar(select(func.count(Invoice.id))) or 0
+    # The Invoices card counts supplier invoices; the Subs card has its own.
+    supplier = Invoice.is_subcontract == False  # noqa: E712
+    invoices = session.scalar(select(func.count(Invoice.id)).where(supplier)) or 0
 
     overbilled = session.scalar(
-        select(func.sum(Invoice.overbilled_amount)).where(Invoice.overbilled_amount > 0)
+        select(func.sum(Invoice.overbilled_amount))
+        .where(Invoice.overbilled_amount > 0, supplier)
     )
     waiting = session.scalar(
         select(func.count(Invoice.id))
-        .where(Invoice.approval_status.in_([APPROVAL_PENDING, APPROVAL_HELD]))
+        .where(Invoice.approval_status.in_([APPROVAL_PENDING, APPROVAL_HELD]), supplier)
     ) or 0
     inbox = session.scalar(
         select(func.count(Document.id))
@@ -767,14 +770,17 @@ def job_detail(job_number: str, request: Request, session: Session = Depends(get
     if job is None:
         return _redirect("/jobs", err=f"No job {job_number}.")
 
-    invoices = sorted(job.invoices, key=lambda i: (i.invoice_date or i.created_at.date(), i.id))
-    superseded = [q for q in job.quotes if not q.is_master]
+    # The supplier side of the job. A sub's invoices and contract live on the
+    # Subs page; this page links across to them rather than mixing them in.
+    invoices = sorted((i for i in job.invoices if not vendor_roles.is_subs(i)),
+                      key=lambda i: (i.invoice_date or i.created_at.date(), i.id))
+    superseded = [q for q in job.quotes if not q.is_master and not q.is_subcontract]
     positions = subs.positions(job)
 
     return templates.TemplateResponse(request, "job.html", _ctx(
         request, session,
         job=job,
-        masters=job.masters,
+        masters=_supplier_quotes(job),
         superseded=superseded,
         invoices=invoices,
         # The strip at the top: the job added up, and the arithmetic that
@@ -784,11 +790,6 @@ def job_detail(job_number: str, request: Request, session: Session = Depends(get
         can_send_mail=settings.can_send_mail(),
         jobnimbus_on=jobnimbus.configured(),
         subs=positions,
-        # Which rows in the invoice table are a subcontractor's rather than a
-        # supply house's. They arrive through the identical pipeline and sit in
-        # the same table, so without this the two departments are
-        # indistinguishable on the one page that shows both.
-        sub_ids={inv.id for p in positions for inv in p.invoices},
         require_receipt=settings.require_receipt,
         outcomes=JOB_OUTCOMES,
     ))
@@ -1021,6 +1022,7 @@ def _render_markup(request: Request, invoice: Invoice, print_mode: bool) -> str:
         or ("sub" if invoice.is_subcontract else ""))
     return templates.get_template("markup.html").render(
         vendor_role=vendor_role,
+        is_subs=vendor_roles.is_subs(invoice),
         quote_choices=quote_choices,
         request=request,
         invoice=invoice,
@@ -2092,10 +2094,15 @@ class Folder:
         return bool(self.needs_review or self.untrusted)
 
 
+def _supplier_quotes(job: Job) -> list[Quote]:
+    """The job's live quotes, less any sub's contract - those are the Subs page's."""
+    return [q for q in job.masters if not q.is_subcontract]
+
+
 def _folder(job: Job) -> Folder:
-    folder = Folder(job=job, has_quote=bool(job.masters))
+    folder = Folder(job=job, has_quote=bool(_supplier_quotes(job)))
     for invoice in job.invoices:
-        if invoice.approval_status == APPROVAL_REJECTED:
+        if invoice.approval_status == APPROVAL_REJECTED or vendor_roles.is_subs(invoice):
             continue
         folder.invoice_count += 1
         folder.billed += invoice.total or ZERO
@@ -2130,6 +2137,16 @@ class SubFolder:
         return sum((p.billed for p in self.positions), ZERO)
 
     @property
+    def pending(self) -> Decimal:
+        return sum((p.pending for p in self.positions), ZERO)
+
+    @property
+    def invoiced(self) -> Decimal:
+        """Everything they have billed, approved or not. Zack saw "$0 billed"
+        on a folder holding a $25,000 draw nobody had approved yet."""
+        return self.billed + self.pending
+
+    @property
     def overage(self) -> Decimal:
         return sum((p.overage for p in self.positions), ZERO)
 
@@ -2159,7 +2176,7 @@ class QuotedJob:
 
 
 def _quoted(job: Job) -> QuotedJob:
-    live = job.masters
+    live = _supplier_quotes(job)
     vendors = list(dict.fromkeys((q.vendor or "Unknown vendor").strip() for q in live))
     return QuotedJob(
         job=job,
@@ -2205,9 +2222,12 @@ def incoming(request: Request, session: Session = Depends(get_session)):
     So: folders, and the ones with something waiting come first and carry a
     mark. Everything else is ordered by what happened most recently.
     """
+    # Supplier invoices only. A sub's invoices are the Subs page's - Zack found
+    # one of Loughlin & Son's sitting here after he had marked them a sub.
     jobs = session.scalars(
         select(Job)
         .join(Invoice, Invoice.job_id == Job.id)
+        .where(Invoice.is_subcontract == False)  # noqa: E712
         .distinct()
         .options(
             selectinload(Job.invoices).selectinload(Invoice.document),
@@ -2215,7 +2235,9 @@ def incoming(request: Request, session: Session = Depends(get_session)):
         )
     ).all()
 
-    folders = [_folder(job) for job in jobs]
+    # A job whose only invoices turn out to be a sub's has no folder here.
+    folders = [f for f in (_folder(job) for job in jobs)
+               if any(not vendor_roles.is_subs(i) for i in f.job.invoices)]
     # Anything waiting on a person first, then by the most recent arrival.
     # Within "waiting", the job with the most waiting is the worse problem.
     folders.sort(key=lambda f: (-f.untrusted, -f.needs_review, -f.over_quote,
@@ -2227,7 +2249,7 @@ def incoming(request: Request, session: Session = Depends(get_session)):
     # own section below the folders, so a quote sits ready without burying the
     # jobs that have something waiting on a person - his worry the day before
     # was "to not drown that area". The first invoice moves it up.
-    has_invoice = {job.id for job in jobs}
+    has_invoice = {f.job.id for f in folders}
     quoted_jobs = session.scalars(
         select(Job)
         .join(Quote, Quote.job_id == Job.id)
@@ -2235,7 +2257,7 @@ def incoming(request: Request, session: Session = Depends(get_session)):
         .options(selectinload(Job.quotes))
     ).all()
     waiting = [_quoted(job) for job in quoted_jobs
-               if job.id not in has_invoice and job.masters]
+               if job.id not in has_invoice and _supplier_quotes(job)]
     waiting.sort(key=lambda w: w.latest or datetime.min, reverse=True)
 
     stuck = session.scalar(
@@ -2244,7 +2266,8 @@ def incoming(request: Request, session: Session = Depends(get_session)):
     ) or 0
     unreviewed = session.scalar(
         select(func.count(Invoice.id))
-        .where(Invoice.approval_status.in_([APPROVAL_PENDING, APPROVAL_HELD]))
+        .where(Invoice.approval_status.in_([APPROVAL_PENDING, APPROVAL_HELD]),
+               Invoice.is_subcontract == False)  # noqa: E712
     ) or 0
 
     return templates.TemplateResponse(request, "incoming.html", _ctx(

@@ -62,7 +62,7 @@ def _questions(sent):
 
 def _file(doc_type: str, job: str, vendor: str, tag: str, *, sender: str = ZACK,
           source: str = "email", number: str | None = None,
-          subject: str | None = None, body: str = ""):
+          subject: str | None = None, body: str = "", sub_dept: bool = False):
     # The job number rides at the bottom of the body, so a test can write any
     # subject and note it likes above it.
     subject = f"Fwd: {job} {doc_type}" if subject is None else subject
@@ -81,6 +81,7 @@ def _file(doc_type: str, job: str, vendor: str, tag: str, *, sender: str = ZACK,
         doc = services.ingest_file(
             session, path, f"{tag}.pdf", source=source, sender=sender,
             subject=subject, body=body, message_id=f"<{tag}@icloud.com>",
+            is_subcontract=sub_dept,
             extraction=ExtractionResult(payload=payload, model="test"),
         )
         session.commit()
@@ -281,6 +282,80 @@ def test_a_vendor_calling_itself_a_sub_is_not_our_decision(outbox):
 
     assert len(_questions(outbox)) == 1
     assert _invoices("Self Styled Subs")[0][1] is False
+
+
+# --- two departments, kept apart -------------------------------------------------------
+
+def test_a_subs_invoice_is_on_subs_and_never_with_the_supplier_invoices(outbox):
+    """Zack: "one invoice sits in vendor still... it says i already marked it
+    as a sub.... so why is it in there still" - and "they should act the same
+    but are two separate entities." """
+    job, sub_only = "265730", "265731"
+    _file("invoice", job, "Split Supply Co", "sp-1", subject="FW: supplier invoice")
+    _file("invoice", job, "Split Roofing Sub LLC", "sp-2", number="", subject="FW: sub - Deposit")
+    _file("invoice", sub_only, "Split Roofing Sub LLC", "sp-3", number="", subject="FW: 2nd payment")
+    (supplier_id, _), = _invoices("Split Supply Co")
+    sub_ids = [i for i, flagged in _invoices("Split Roofing Sub LLC") if flagged]
+    assert len(sub_ids) == 2
+
+    supplier_side = client.get(f"/job/{job}").text
+    assert f'href="/invoice/{supplier_id}"' in supplier_side
+    assert not any(f'href="/invoice/{i}"' in supplier_side for i in sub_ids)
+    assert f'href="/sub-invoices?job={job}"' in supplier_side      # one click across
+    # Its totals are the supplier's $5,000, not $10,000 with the sub's draw in.
+    assert "$10,000.00" not in supplier_side
+
+    incoming = client.get("/incoming").text
+    assert f'href="/job/{job}"' in incoming
+    assert f'href="/job/{sub_only}"' not in incoming                # nothing of theirs there
+
+    subs_side = client.get(f"/sub-invoices?job={job}").text
+    assert f'href="/invoice/{sub_ids[0]}"' in subs_side
+    assert f'href="/invoice/{supplier_id}"' not in subs_side
+
+
+def test_back_from_a_subs_invoice_goes_to_subs_and_a_suppliers_to_the_job(outbox):
+    """Zack: "when im in subs and click the back button to exit that job it
+    brings me back to vendor dash instead of the sub dash." """
+    job = "265732"
+    _file("invoice", job, "Back Supply Co", "bk-1", subject="FW: supplier invoice")
+    _file("invoice", job, "Back Roofing Sub LLC", "bk-2", subject="FW: sub invoice")
+    (supplier_id, _), = _invoices("Back Supply Co")
+    (sub_id, _), = _invoices("Back Roofing Sub LLC")
+
+    assert f'<a href="/sub-invoices?job={job}">&larr; Subs' in client.get(f"/invoice/{sub_id}").text
+    assert f'<a href="/job/{job}">&larr; Job' in client.get(f"/invoice/{supplier_id}").text
+
+    one_job = client.get(f"/sub-invoices?job={job}").text
+    assert '<a href="/sub-invoices">Subs</a>' in one_job
+    assert f'href="/job/{job}"' not in one_job
+
+
+def test_a_draw_waiting_for_approval_is_not_shown_as_nothing_billed(outbox):
+    """Zack: "it counts it at zero. when invoice is for 25,000" - the folder
+    said "$0 billed" because billed meant approved, and nobody had yet."""
+    job = "265733"
+    _file("invoice", job, "Zero Roofing Sub LLC", "zr-1", number="", subject="FW: sub - Deposit")
+
+    folder = client.get("/sub-invoices").text.split(f'href="/sub-invoices?job={job}"', 1)[1][:1500]
+    assert "$5,000.00 invoiced" in folder
+    assert "1 to look at · $5,000.00" in folder
+    assert "$0.00" not in folder
+
+
+def test_a_contract_uploaded_after_the_invoice_takes_the_invoice_to_subs(outbox):
+    """A sub's invoice filed before their contract stayed with the supplier
+    invoices, marked as nobody's, until something re-read it."""
+    job = "265734"
+    _file("invoice", job, "Late Contract Roofing", "lc-1", subject="FW: invoice")
+    assert _invoices("Late Contract Roofing")[0][1] is False
+
+    _file("quote", job, "Late Contract Roofing", "lc-q", subject="FW: contract", sub_dept=True)
+
+    (invoice_id, flagged), = _invoices("Late Contract Roofing")
+    assert flagged is True
+    assert f'href="/invoice/{invoice_id}"' not in client.get(f"/job/{job}").text
+    assert f'href="/invoice/{invoice_id}"' in client.get(f"/sub-invoices?job={job}").text
 
 
 def test_a_sub_without_a_contract_is_never_blocked_as_over_it(outbox):

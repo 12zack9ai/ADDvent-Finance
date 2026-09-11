@@ -78,6 +78,14 @@ def is_sub_invoice(session: Session, job: Job, vendor: str) -> bool:
     return holds_contract(job, vendor) or role_of(session, vendor) == SUB
 
 
+def is_subs(invoice: Invoice) -> bool:
+    """Whether a page should show this invoice in Subs rather than with the
+    supplier invoices. The mark, or a contract on the job - the same two things
+    the Subs page itself goes by (subs.positions), so an invoice is on exactly
+    one side, never both and never neither."""
+    return bool(invoice.is_subcontract) or holds_contract(invoice.job, invoice.vendor)
+
+
 def set_role(session: Session, vendor: str, role: str, *, by: str = "") -> int:
     """Record the answer and apply it everywhere. Returns invoices that moved."""
     from app.services import recompare_job     # services imports this module

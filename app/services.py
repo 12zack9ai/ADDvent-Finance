@@ -412,6 +412,9 @@ def recompare_invoice(session: Session, job: Job, invoice: Invoice) -> None:
     whichever quote happened to arrive first would report half the invoice as
     unquoted material.
     """
+    # Sub or supplier, decided again with the quotes: a sub's contract uploaded
+    # after their first invoice has to take that invoice across to Subs.
+    invoice.is_subcontract = vendor_roles.is_sub_invoice(session, job, invoice.vendor)
     masters = job.masters_for_vendor(invoice.vendor)
     master = masters[0] if masters else None
     how = "vendor" if masters else "none"
