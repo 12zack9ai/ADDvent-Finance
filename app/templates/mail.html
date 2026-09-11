@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Mail received · {{ site_name }}{% endblock %}
+
+{% block content %}
+<div class="pagehead">
+  <div>
+    <h1>Mail received</h1>
+    <p class="sub">
+      Every email to the finance mailbox in the last 30 days, and what happened to it.
+      Anything not filed is emailed to {{ alert_to or "the alert address" }} the moment
+      it's found, and the mailbox is checked back over the last week every hour{% if poller.last_sweep %}
+      (last {{ poller.last_sweep[:16].replace("T", " ") }} UTC){% endif %}.
+    </p>
+  </div>
+  <a class="btn ghost" href="/incoming">Invoices</a>
+</div>
+
+{% if missed %}
+<div class="panel" style="border-left:4px solid var(--over-line)">
+  <strong>{{ missed }} not filed.</strong>
+  Forward {{ "it" if missed == 1 else "each one" }} again with the quote or invoice attached as a PDF,
+  or <a href="/upload">upload it</a>.
+</div>
+{% endif %}
+
+<div class="panel">
+  {% if not rows %}
+    <div class="empty">
+      <div class="big">Nothing yet.</div>
+      Emails show here as the mailbox is read.
+    </div>
+  {% else %}
+  <div style="overflow-x:auto">
+    <table>
+      <thead>
+        <tr><th>Received</th><th>From</th><th>Subject</th><th>What happened</th></tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="muted" data-l="Received" style="white-space:nowrap">
+            {{ (r.received_at or r.first_seen).strftime("%d %b %H:%M") }}</td>
+          <td data-l="From">{{ r.sender or "—" }}</td>
+          <td data-l="Subject">{{ r.subject or "(no subject)" }}</td>
+          <td data-l="What happened">
+            {% if r.outcome == "filed" %}<span class="chip c-ok">filed</span>
+            {% elif r.outcome == "duplicate" %}<span class="chip c-none">already had it</span>
+            {% elif r.outcome == "automatic" %}<span class="chip c-none">automatic mail</span>
+            {% elif r.outcome == "error" %}<span class="chip c-over">couldn't read</span>
+            {% else %}<span class="chip c-over">not filed</span>{% endif %}
+            {% if r.outcome not in ("filed", "duplicate", "automatic") %}
+              <div class="muted" style="margin-top:4px">{{ r.reason }}</div>
+              {% if r.alerted_at %}<div class="muted" style="margin-top:2px">Emailed about it {{ r.alerted_at.strftime("%d %b %H:%M") }}</div>{% endif %}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

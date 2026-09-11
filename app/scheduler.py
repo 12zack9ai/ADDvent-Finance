@@ -28,6 +28,10 @@ log = logging.getLogger(__name__)
 _BACKOFF_AFTER = 3
 _BACKOFF_FACTOR = 4
 
+# The background check (mail_imap.sweep_once) on the first poll and every
+# twelfth after it: hourly at the five-minute poll.
+_SWEEP_EVERY = 12
+
 _task: Optional[asyncio.Task] = None
 _state: dict[str, Any] = {
     "enabled": False,
@@ -38,6 +42,8 @@ _state: dict[str, Any] = {
     "last_error": "",
     "runs": 0,
     "consecutive_failures": 0,
+    "last_sweep": None,
+    "last_sweep_summary": "",
 }
 
 
@@ -45,7 +51,18 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _poll_blocking() -> str:
+def _log_items(result, label: str) -> None:
+    for item in result.filed:
+        log.info("%s: filed %s", label, item)
+    # Why a message was passed over. Without this an email with nothing to
+    # read vanished into "1 skipped" and nobody could say which, or why.
+    for item in result.skipped:
+        log.info("%s: skipped %s", label, item)
+    for item in result.errors:
+        log.warning("%s: %s", label, item)
+
+
+def _poll_blocking(sweep: bool = False) -> str:
     """One poll, on a worker thread. Own session; never reuse a request's."""
     from app.db import SessionLocal
     from app.mailbox import poll_once
@@ -53,14 +70,18 @@ def _poll_blocking() -> str:
     session = SessionLocal()
     try:
         result = poll_once(session, limit=25)
-        for item in result.filed:
-            log.info("mail: filed %s", item)
-        # Why a message was passed over. Without this an email with nothing to
-        # read vanished into "1 skipped" and nobody could say which, or why.
-        for item in result.skipped:
-            log.info("mail: skipped %s", item)
-        for item in result.errors:
-            log.warning("mail: %s", item)
+        _log_items(result, "mail")
+        if sweep and settings.active_mail_backend() == "imap":
+            from app.mail_imap import sweep_once
+            try:
+                swept = sweep_once(session)
+                _log_items(swept, "mail sweep")
+                _state["last_sweep"] = _now()
+                _state["last_sweep_summary"] = swept.summary()
+                log.info("mail sweep: %s", swept.summary())
+            except Exception as exc:  # noqa: BLE001 - the sweep must never cost the poll
+                session.rollback()
+                log.warning("mail sweep failed: %s", exc)
         return result.summary()
     finally:
         session.close()
@@ -75,7 +96,8 @@ async def _loop() -> None:
         _state["last_attempt"] = _now()
         _state["runs"] += 1
         try:
-            summary = await asyncio.to_thread(_poll_blocking)
+            summary = await asyncio.to_thread(
+                _poll_blocking, _state["runs"] % _SWEEP_EVERY == 1)
             _state["last_success"] = _now()
             _state["last_summary"] = summary
             _state["last_error"] = ""
@@ -157,4 +179,6 @@ def status() -> dict[str, Any]:
         "consecutive_failures": _state["consecutive_failures"],
         "last_summary": _state["last_summary"],
         "last_error": _state["last_error"],
+        "last_sweep": _state["last_sweep"].isoformat() if _state["last_sweep"] else None,
+        "last_sweep_summary": _state["last_sweep_summary"],
     }

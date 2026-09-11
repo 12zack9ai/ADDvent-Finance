@@ -688,6 +688,33 @@ class InvoiceLine(Base):
     quote_line: Mapped[Optional[QuoteLine]] = relationship()
 
 
+class MailSeen(Base):
+    """Every email the mailbox reader has looked at, and what became of it.
+
+    Zack's 7:04 quote on 2026-09-11 was read at 7:05 and skipped, and the only
+    trace was "1 skipped" in a log. One row per message now - filed, skipped,
+    automatic, a duplicate, or an error, with the reason - so /mail can show
+    it, a miss can be emailed about once, and the hourly sweep knows what it
+    has already settled. `reader_version` is the reader that decided: when the
+    reader learns to read something it used to skip, older skips are read again.
+    """
+
+    __tablename__ = "mail_seen"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    message_key: Mapped[str] = mapped_column(String(512), unique=True, index=True)
+    folder: Mapped[str] = mapped_column(String(128), default="")
+    sender: Mapped[str] = mapped_column(String(255), default="")
+    subject: Mapped[str] = mapped_column(String(500), default="")
+    received_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    outcome: Mapped[str] = mapped_column(String(16), default="", index=True)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    reader_version: Mapped[int] = mapped_column(Integer, default=0)
+    first_seen: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_seen: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    alerted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
 class ItemMatch(Base):
     """A person said: this invoice item is that quote line.
 

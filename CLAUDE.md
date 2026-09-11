@@ -222,6 +222,26 @@ with (`__NEXT_DATA__`), then files it through `ingest_file` exactly like a PDF
 Skipped mail is now logged with its reason (`mail: skipped …`), so a message
 with nothing to read no longer disappears into "1 skipped".
 
+## Nothing sent to the mailbox goes unread
+
+Zack, 2026-09-11: a quote forwarded at 7:04 was read at 7:05 and skipped, and
+four hours later nobody knew. Two causes, both fixed in `app/mail_imap.py`:
+
+- **Apple Mail attaches a forwarded PDF "inline"** (with a Content-ID), and
+  the reader skipped every inline part as a signature logo. A PDF is now always
+  read; an embedded part is skipped only if it is an image under 60 KB.
+- **The poll only sees UNREAD mail in the Inbox.** Mail somebody opened first,
+  or mail an older reader skipped, was gone for good. `sweep_once` runs on the
+  first poll and hourly after it: it looks back 7 days over the Inbox (read
+  messages) and the Processed folder, and reads again anything never filed.
+  Bump `READER_VERSION` when the reader learns something, so old skips get
+  another look.
+
+Every message looked at is a `MailSeen` row: filed, skipped, automatic,
+duplicate or error, with the reason. `/mail` lists the last 30 days, linked
+from the Invoices page. Anything skipped or failed is emailed to `ALERT_EMAIL`
+once, never to the mailbox itself, and marked `Auto-Submitted`.
+
 **Quote-only jobs stay off the Invoices page.** Zack, 2026-09-10: *"i like it
 in the jobs. the quote should be pulled in when we get invoices to not drown
 that area."* A job with just a quote is on **Jobs**; it joins **Invoices** with
@@ -342,5 +362,5 @@ what was asked and what came back, grouped by vendor.
 ## Before pushing
 
 ```
-cd /home/user/finance-automation && .venv/bin/python -m pytest -q    # 761 passing as of 2026-09-11
+cd /home/user/finance-automation && .venv/bin/python -m pytest -q    # 773 passing as of 2026-09-11
 ```

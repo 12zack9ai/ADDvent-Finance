@@ -27,12 +27,15 @@ the job number.
 from __future__ import annotations
 
 import email
+import hashlib
 import imaplib
 import logging
 import re
 import tempfile
+from datetime import date, datetime, timedelta
 from email.header import decode_header, make_header
 from email.message import Message
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Iterator, Optional
 
@@ -40,9 +43,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app import mail_send, paylink
+from app import alerts, mail_send, paylink
 from app.mail_types import ALLOWED_SUFFIXES, MAX_ATTACHMENT_BYTES, MailboxError, PollResult
-from app.models import Document, utcnow
+from app.models import Document, MailSeen, utcnow
 from app.services import (
     ST_NEEDS_JOB, DuplicateDocument, IngestError, file_stored_document,
     ingest_file, ingest_scan, parse_job_answer,
@@ -120,18 +123,27 @@ def _attachments(message: Message) -> Iterator[tuple[str, bytes]]:
         # filename, so the suffix test alone lets every one of them through -
         # and each would be sent to Claude, paid for, and filed as "not a quote
         # or invoice". Embedded images carry a Content-ID so the HTML body can
-        # reference them, or are marked inline. Neither is an attachment.
-        if part.get("Content-ID"):
-            continue
+        # reference them, or are marked inline.
+        #
+        # But a PDF is never a logo. Apple Mail - every iPhone - attaches a
+        # forwarded PDF "inline" so it shows inside the message, and treating
+        # that as a logo threw away Zack's quote on 2026-09-11. So an embedded
+        # part is passed over only when it is an image small enough to be one.
         disposition = (part.get_content_disposition() or "").lower()
-        if disposition == "inline":
-            continue
+        embedded = bool(part.get("Content-ID")) or disposition == "inline"
+        is_pdf = Path(filename).suffix.lower() == ".pdf"
         try:
             content = part.get_payload(decode=True) or b""
         except Exception:  # noqa: BLE001
             continue
+        if embedded and not is_pdf and len(content) < _LOGO_BYTES:
+            continue
         if content and len(content) <= MAX_ATTACHMENT_BYTES:
             yield filename, content
+
+
+# A signature logo is a few KB; a photo of a receipt or a quote is hundreds.
+_LOGO_BYTES = 60 * 1024
 
 
 class ImapMailbox:
@@ -187,6 +199,28 @@ class ImapMailbox:
         if status != "OK" or not data or not isinstance(data[0], tuple):
             return None
         return email.message_from_bytes(data[0][1])
+
+    def select_folder(self, name: str) -> bool:
+        status, _ = self.conn.select(f'"{name}"' if " " in name else name)
+        return status == "OK"
+
+    def ids_since(self, days: int, seen_only: bool = False) -> list[bytes]:
+        """Messages in the selected folder that arrived in the last `days` days."""
+        day = date.today() - timedelta(days=days)
+        since = f"{day.day:02d}-{_MONTHS[day.month - 1]}-{day.year}"
+        criteria = ("SEEN", "SINCE", since) if seen_only else ("SINCE", since)
+        status, data = self.conn.search(None, *criteria)
+        if status != "OK":
+            raise MailboxError("Could not list recent messages.")
+        return data[0].split()
+
+    def message_key(self, msg_id: bytes) -> str:
+        """Just enough of the headers to know the message, without its attachments."""
+        status, data = self.conn.fetch(
+            msg_id, "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID FROM DATE SUBJECT)])")
+        if status != "OK" or not data or not isinstance(data[0], tuple):
+            return ""
+        return _message_key(email.message_from_bytes(data[0][1]))
 
     def ensure_folder(self, name: str) -> bool:
         try:
@@ -364,6 +398,213 @@ def _file_pay_link(session: Session, message: Message, result: PollResult, *,
     return False, retry
 
 
+def _process(session: Session, message: Message, result: PollResult) -> bool:
+    """Everything done with one message short of moving it.
+
+    Returns False when the message should stay where it is and be tried again.
+    """
+    subject = _decode(message.get("Subject"))
+    sender = _decode(message.get("From"))
+    body = _body_text(message)
+    message_id = (message.get("Message-ID") or "").strip()
+    references = " ".join(filter(None, [
+        message.get("In-Reply-To") or "", message.get("References") or "",
+    ]))
+
+    if is_automatic(message):
+        result.skipped.append(f"{subject or '(no subject)'} (automatic mail)")
+        return True
+
+    handled_all = True
+    found_any = False
+
+    # Is this the answer to a job number we asked for? A reply carries
+    # the original Message-ID in In-Reply-To, so the answer can be tied
+    # back to the exact document rather than guessed at by subject line.
+    answered = _apply_job_answer(session, references, subject, body)
+    for filed in answered:
+        result.filed.append(filed)
+
+    for filename, content in _attachments(message):
+        found_any = True
+        with tempfile.NamedTemporaryFile(
+            suffix=Path(filename).suffix, delete=False
+        ) as tmp:
+            tmp.write(content)
+            tmp_path = Path(tmp.name)
+        try:
+            # A scanned attachment may hold several invoices.
+            docs = ingest_scan(
+                session, tmp_path, filename,
+                source="email", sender=sender, subject=subject, body=body,
+                message_id=message_id,
+            )
+            session.commit()
+            if len(docs) > 1:
+                result.filed.append(
+                    f"{filename} -> {len(docs)} documents found and split")
+            for doc in docs:
+                where = f"job {doc.job.job_number}" if doc.job else "the Inbox"
+                result.filed.append(f"{doc.filename} -> {where} ({doc.status})")
+
+                # Nothing said which job this is. Ask, once.
+                asked = _ask_about(session, doc)
+                if asked:
+                    result.skipped.append(
+                        f"{doc.filename} - asked {asked} for the job number")
+        except DuplicateDocument:
+            session.rollback()
+            result.skipped.append(f"{filename} (already received)")
+        except (IngestError, Exception) as exc:  # noqa: BLE001
+            session.rollback()
+            result.errors.append(f"{filename}: {exc}")
+            handled_all = False
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    if not found_any:
+        # Nothing attached - but a QuickBooks Online vendor sends a
+        # "View and pay" link instead, and the invoice is on that page.
+        found_any, retry = _file_pay_link(
+            session, message, result, sender=sender, subject=subject,
+            body=body, message_id=message_id,
+        )
+        if retry:
+            handled_all = False
+
+    if not found_any:
+        result.skipped.append(
+            f"{subject or '(no subject)'} (no attachment and no invoice link)")
+
+    return handled_all
+
+
+# --- the background check ----------------------------------------------------
+#
+# Zack, 2026-09-11: "i sent an email at 7:04 new quote came in. it was not
+# uploaded. we need to implement some sort of background check on these so no
+# invoice or quote gets missed. its now 4 hours later and still not uploaded."
+#
+# It was read at 7:05 and skipped - an iPhone attaches a PDF "inline", and the
+# reader took it for a signature logo - and nothing said so. Now:
+#
+#   * every message looked at is recorded (MailSeen), and /mail lists them;
+#   * anything not filed is emailed to ALERT_EMAIL at once, with the reason;
+#   * the poll only sees UNREAD mail in the Inbox, so a message somebody opened
+#     first, or one skipped by a reader since improved, was gone for good.
+#     sweep_once looks back SWEEP_DAYS over the Inbox and the Processed folder
+#     and reads again anything that was never filed.
+
+# Bump when the reader learns to read something it used to skip, so the sweep
+# reads those skips again. 2: inline PDFs, and QuickBooks pay links.
+READER_VERSION = 2
+SWEEP_DAYS = 7
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+_SETTLED = ("filed", "duplicate", "automatic")
+
+
+def _message_key(message: Message) -> str:
+    """The Message-ID, or for the rare message without one, a stand-in built
+    from the headers that identify it."""
+    key = (message.get("Message-ID") or "").strip()
+    if key:
+        return key[:512]
+    basis = "|".join(
+        (message.get("From") or "", message.get("Date") or "", message.get("Subject") or ""))
+    return "noid:" + hashlib.sha256(basis.encode("utf-8", "replace")).hexdigest()
+
+
+def _received(message: Message) -> Optional[datetime]:
+    try:
+        return parsedate_to_datetime(message.get("Date") or "")
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
+def _outcome(result: PollResult, marks: tuple[int, int, int]) -> tuple[str, str]:
+    """What became of one message, from what the poll recorded while reading it."""
+    filed = result.filed[marks[0]:]
+    skipped = result.skipped[marks[1]:]
+    errors = result.errors[marks[2]:]
+    if errors:
+        return "error", "; ".join(errors)
+    if filed:
+        return "filed", "; ".join(filed)
+    if skipped and all(s.endswith("(automatic mail)") for s in skipped):
+        return "automatic", "; ".join(skipped)
+    if skipped and all(s.endswith("(already received)") for s in skipped):
+        return "duplicate", "; ".join(skipped)
+    return "skipped", "; ".join(skipped) or "nothing in it could be read"
+
+
+def _record(session: Session, message: Message, folder: str,
+            outcome: str, reason: str) -> MailSeen:
+    key = _message_key(message)
+    row = session.scalar(select(MailSeen).where(MailSeen.message_key == key))
+    if row is None:
+        row = MailSeen(message_key=key)
+        session.add(row)
+    row.folder = folder
+    row.sender = _decode(message.get("From"))[:255]
+    row.subject = _decode(message.get("Subject"))[:500]
+    row.received_at = _received(message)
+    row.outcome = outcome
+    row.reason = reason[:4000]
+    row.reader_version = READER_VERSION
+    row.last_seen = utcnow()
+    session.commit()
+    return row
+
+
+def _alert_if_missed(session: Session, row: MailSeen) -> None:
+    """Email ALERT_EMAIL about a message that was not filed - once per message."""
+    if row.outcome not in ("skipped", "error") or row.alerted_at is not None:
+        return
+    to = alerts.where_to()
+    if not to or not settings.can_send_mail():
+        return
+    # Never to the mailbox being read: the alert would arrive, not be filed,
+    # and alert again.
+    _, _, _, _, own = settings.smtp_settings()
+    if own and to.strip().lower() == own.strip().lower():
+        return
+    when = row.received_at.strftime("%a %d %b %Y %H:%M") if row.received_at else "unknown"
+    body = "\n".join([
+        "An email to the finance mailbox was not filed.",
+        "",
+        f"From: {row.sender or 'unknown'}",
+        f"Subject: {row.subject or '(no subject)'}",
+        f"Received: {when}",
+        f"Why: {row.reason}",
+        "",
+        "What to do: forward it again with the quote or invoice attached as a PDF,",
+        f"or upload it at {settings.base_url}/upload.",
+        "",
+        f"Every email the app has seen is listed at {settings.base_url}/mail.",
+    ])
+    msg = alerts._compose(
+        to, f"[{settings.site_name}] Not filed: {row.subject or '(no subject)'}", body)
+    msg["Auto-Submitted"] = "auto-generated"   # read back by is_automatic, never re-alerted
+    try:
+        mail_send.send(msg)
+    except mail_send.SendError as exc:
+        log.warning("could not send the not-filed alert for %s: %s", row.message_key, exc)
+        return
+    row.alerted_at = utcnow()
+    session.commit()
+
+
+def _handle(session: Session, message: Message, result: PollResult, *, folder: str) -> bool:
+    """Read one message, record what became of it, and speak up if it was missed."""
+    marks = (len(result.filed), len(result.skipped), len(result.errors))
+    handled = _process(session, message, result)
+    outcome, reason = _outcome(result, marks)
+    row = _record(session, message, folder, outcome, reason)
+    _alert_if_missed(session, row)
+    return handled
+
+
 def poll_once(session: Session, limit: int = 25) -> PollResult:
     """Read new mail, ingest every usable attachment, then file the message away.
 
@@ -378,87 +619,64 @@ def poll_once(session: Session, limit: int = 25) -> PollResult:
         message_ids = mailbox.unread_ids(limit)
         result.messages_seen = len(message_ids)
 
-        for msg_id in message_ids:
+        # Highest number first: filing a message away can renumber the ones
+        # after it, and working backwards means that never matters.
+        for msg_id in reversed(message_ids):
             message = mailbox.fetch(msg_id)
             if message is None:
                 result.errors.append(f"Message {msg_id!r} could not be fetched.")
                 continue
-
-            subject = _decode(message.get("Subject"))
-            sender = _decode(message.get("From"))
-            body = _body_text(message)
-            message_id = (message.get("Message-ID") or "").strip()
-            references = " ".join(filter(None, [
-                message.get("In-Reply-To") or "", message.get("References") or "",
-            ]))
-
-            if is_automatic(message):
-                result.skipped.append(f"{subject or '(no subject)'} (automatic mail)")
-                mailbox.file_away(msg_id, settings.mail_processed_folder)
-                continue
-
-            handled_all = True
-            found_any = False
-
-            # Is this the answer to a job number we asked for? A reply carries
-            # the original Message-ID in In-Reply-To, so the answer can be tied
-            # back to the exact document rather than guessed at by subject line.
-            answered = _apply_job_answer(session, references, subject, body)
-            for filed in answered:
-                result.filed.append(filed)
-
-            for filename, content in _attachments(message):
-                found_any = True
-                with tempfile.NamedTemporaryFile(
-                    suffix=Path(filename).suffix, delete=False
-                ) as tmp:
-                    tmp.write(content)
-                    tmp_path = Path(tmp.name)
-                try:
-                    # A scanned attachment may hold several invoices.
-                    docs = ingest_scan(
-                        session, tmp_path, filename,
-                        source="email", sender=sender, subject=subject, body=body,
-                        message_id=message_id,
-                    )
-                    session.commit()
-                    if len(docs) > 1:
-                        result.filed.append(
-                            f"{filename} -> {len(docs)} documents found and split")
-                    for doc in docs:
-                        where = f"job {doc.job.job_number}" if doc.job else "the Inbox"
-                        result.filed.append(f"{doc.filename} -> {where} ({doc.status})")
-
-                        # Nothing said which job this is. Ask, once.
-                        asked = _ask_about(session, doc)
-                        if asked:
-                            result.skipped.append(
-                                f"{doc.filename} - asked {asked} for the job number")
-                except DuplicateDocument:
-                    session.rollback()
-                    result.skipped.append(f"{filename} (already received)")
-                except (IngestError, Exception) as exc:  # noqa: BLE001
-                    session.rollback()
-                    result.errors.append(f"{filename}: {exc}")
-                    handled_all = False
-                finally:
-                    tmp_path.unlink(missing_ok=True)
-
-            if not found_any:
-                # Nothing attached - but a QuickBooks Online vendor sends a
-                # "View and pay" link instead, and the invoice is on that page.
-                found_any, retry = _file_pay_link(
-                    session, message, result, sender=sender, subject=subject,
-                    body=body, message_id=message_id,
-                )
-                if retry:
-                    handled_all = False
-
-            if not found_any:
-                result.skipped.append(
-                    f"{subject or '(no subject)'} (no attachment and no invoice link)")
-
-            if handled_all:
+            if _handle(session, message, result, folder="INBOX"):
                 mailbox.file_away(msg_id, settings.mail_processed_folder)
 
+    return result
+
+
+def _needs_another_look(session: Session, key: str) -> bool:
+    row = session.scalar(select(MailSeen).where(MailSeen.message_key == key))
+    if row is not None:
+        if row.outcome in _SETTLED:
+            return False
+        return row.reader_version < READER_VERSION or row.outcome == "error"
+    # Never recorded: filed before this log existed, or missed.
+    if session.scalar(select(Document.id).where(Document.email_message_id == key).limit(1)):
+        session.add(MailSeen(message_key=key, outcome="filed",
+                             reason="filed before the mail log existed",
+                             reader_version=READER_VERSION))
+        session.commit()
+        return False
+    return True
+
+
+def _sweep(session: Session, mailbox, result: PollResult, ids: list[bytes], *,
+           folder: str, move: bool) -> None:
+    for msg_id in reversed(ids):
+        key = mailbox.message_key(msg_id)
+        if not key or not _needs_another_look(session, key):
+            continue
+        message = mailbox.fetch(msg_id)
+        if message is None:
+            continue
+        result.messages_seen += 1
+        if _handle(session, message, result, folder=folder) and move:
+            mailbox.file_away(msg_id, settings.mail_processed_folder)
+
+
+def sweep_once(session: Session, days: int = SWEEP_DAYS) -> PollResult:
+    """The background check: nothing that reached the mailbox goes unread.
+
+    Looks back `days` over the Inbox - mail a person opened before the poll got
+    to it is still there, but no longer unread - and over the Processed folder,
+    where every skipped message was filed away. Anything never filed, or
+    skipped by an older reader, is read again. Filed mail is not touched.
+    """
+    result = PollResult()
+    with ImapMailbox() as mailbox:
+        mailbox.select_inbox()
+        _sweep(session, mailbox, result, mailbox.ids_since(days, seen_only=True),
+               folder="INBOX", move=True)
+        processed = settings.mail_processed_folder
+        if processed and mailbox.select_folder(processed):
+            _sweep(session, mailbox, result, mailbox.ids_since(days),
+                   folder=processed, move=False)
     return result

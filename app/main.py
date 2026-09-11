@@ -7,7 +7,7 @@ import logging
 import tempfile
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Optional
@@ -72,6 +72,7 @@ from app.models import (
     InvoiceLine,
     ItemMatch,
     Job,
+    MailSeen,
     Quote,
     Receipt,
     TIER_LABELS,
@@ -2072,6 +2073,25 @@ def _folder(job: Job) -> Folder:
 
 
 INCOMING_LIMIT = 60
+
+
+@app.get("/mail", response_class=HTMLResponse)
+def mail_received(request: Request, session: Session = Depends(get_session)):
+    """Every email the mailbox has looked at in the last 30 days, and what became of it."""
+    since = utcnow() - timedelta(days=30)
+    rows = session.scalars(
+        select(MailSeen)
+        .where(MailSeen.last_seen >= since)
+        .order_by(MailSeen.last_seen.desc())
+        .limit(300)
+    ).all()
+    return templates.TemplateResponse(request, "mail.html", _ctx(
+        request, session,
+        rows=rows,
+        missed=sum(1 for r in rows if r.outcome in ("skipped", "error")),
+        alert_to=alerts.where_to(),
+        poller=scheduler.status(),
+    ))
 
 
 @app.get("/incoming", response_class=HTMLResponse)
