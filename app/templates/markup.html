@@ -613,9 +613,8 @@
           {%- elif invoice.approval_status == "rejected" %}Rejected
           {%- else %}{{ routing.headline }}{% endif %}</div>
       </div>
-      <div class="ap-tier">
-        Approver required<br><strong>{{ tier_label }}</strong>
-      </div>
+      {# No "approver required" - nothing is reserved for the owner. Whoever is
+         signed in approves, and the account is recorded. #}
     </div>
 
     {% if routing.blockers %}

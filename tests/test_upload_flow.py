@@ -1546,7 +1546,7 @@ def test_a_subs_invoice_past_the_contract_is_flagged_and_can_still_be_approved(c
     invoice = session.query(Invoice).filter_by(invoice_number="REQ-9").one()
     invoice_id = invoice.id
     assert route(invoice).can_approve
-    assert route(invoice).needs_owner                       # the owner still sees it
+    assert not route(invoice).needs_owner                   # nothing is reserved for the owner
     session.close()
 
     page = client.get(f"/invoice/{invoice_id}").text

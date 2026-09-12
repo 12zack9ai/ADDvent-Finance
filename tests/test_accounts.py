@@ -155,6 +155,7 @@ def test_an_approval_is_signed_by_the_account_not_a_typed_name(outbox):
     page = client.get(f"/invoice/{invoice_id}").text
     form = page.split(f'action="/invoice/{invoice_id}/decide"', 1)[1].split("</form>", 1)[0]
     assert 'name="actor"' not in form                        # no name box to fill in
+    assert "Approver required" not in page                  # nothing waits on the owner
     assert "Sam Approver" in client.get("/incoming").text   # and it says who is signed in
 
     client.post(f"/invoice/{invoice_id}/decide", follow_redirects=False,

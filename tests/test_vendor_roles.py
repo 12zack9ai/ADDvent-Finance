@@ -483,6 +483,7 @@ def test_approvals_says_what_a_bill_was_checked_against(outbox):
     (sub_id, _), = _invoices("Paperless Roofing LLC")
 
     page = client.get("/approvals").text
+    assert "Need the owner" not in page and ">Approver<" not in page   # nothing is the owner's
     assert "no quote" in _approvals_row(page, supplier_id)
     assert "no contract" in _approvals_row(page, sub_id)
     assert "on quote" not in _approvals_row(page, supplier_id)

@@ -27,7 +27,6 @@ from app.approval import (  # noqa: E402
 from app.models import (  # noqa: E402
     CO_APPROVED,
     CO_PROPOSED,
-    TIER_OWNER,
     TIER_PM,
     ChangeOrder,
     Document,
@@ -102,24 +101,26 @@ def test_small_overage_within_tolerance_still_goes_to_the_pm():
     assert r.within_tolerance is True
 
 
-def test_large_but_clean_invoice_gets_an_owner_spot_check():
+def test_a_large_clean_invoice_is_not_sent_to_the_owner():
+    """Zack, 2026-09-12: "Nothing should be flagged for my approval at all.
+    The point is the pm or ar or ap approves it." Size alone flags nothing."""
     r = route(make(total="12000.00", over="0"))
-    assert r.action == ACTION_SPOT_CHECK
-    assert r.tier == TIER_OWNER
-    assert r.can_approve is True          # a spot check, not a blocker
+    assert r.action == ACTION_APPROVE
+    assert r.tier == TIER_PM and not r.needs_owner
+    assert r.can_approve is True
 
 
 def test_overage_beyond_tolerance_with_no_change_order_is_held():
     r = route(make(total="1000.00", over="900.00"))
-    assert r.action == ACTION_HOLD
-    assert r.tier == TIER_OWNER
+    assert r.action == ACTION_HOLD                 # still flagged
+    assert r.tier == TIER_PM and not r.needs_owner  # but not the owner's
     assert r.within_tolerance is False
 
 
-def test_no_quote_at_all_goes_to_the_owner_to_investigate():
+def test_no_quote_at_all_is_flagged_to_investigate_by_the_team():
     r = route(make(quote_id=None))
     assert r.action == ACTION_INVESTIGATE
-    assert r.tier == TIER_OWNER
+    assert r.tier == TIER_PM and not r.needs_owner
 
 
 # --- the receiving leg ----------------------------------------------------
@@ -266,9 +267,9 @@ def test_a_perfectly_priced_bill_from_an_unknown_sender_cannot_be_approved():
     ])
     r = route(invoice)
 
-    assert not r.can_approve
+    assert not r.can_approve                # blocked until somebody clears it
     assert r.untrusted
-    assert r.tier == TIER_OWNER
+    assert not r.needs_owner                # and that somebody need not be the owner
 
 
 def test_a_warning_is_shown_but_does_not_block():

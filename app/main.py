@@ -78,6 +78,7 @@ from app.models import (
     Receipt,
     TIER_LABELS,
     TIER_OWNER,
+    TIER_PM,
     utcnow,
 )
 from app.pdf import PdfUnavailable, pdf_available, render_html_to_pdf
@@ -1785,10 +1786,11 @@ def clear_trust_flags(
     session.add(Approval(
         invoice_id=invoice.id,
         decision="trust_cleared",
-        tier=TIER_OWNER,
+        # Whoever cleared it, recorded by account - nothing is the owner's alone.
+        tier=TIER_PM,
         actor=who,
         note=reason,
-        required_tier=TIER_OWNER,
+        required_tier=TIER_PM,
         variance_at_decision=invoice.overbilled_amount,
     ))
     session.commit()
@@ -2135,7 +2137,6 @@ def approvals_queue(request: Request, session: Session = Depends(get_session)):
         dept=dept,
         held=sum(1 for r in rows if r["routing"].action == ACTION_HOLD),
         blocked=sum(1 for r in rows if r["routing"].blockers),
-        owner_needed=sum(1 for r in rows if r["routing"].needs_owner),
     ))
 
 

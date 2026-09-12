@@ -30,10 +30,6 @@
     <div class="muted">Blocked — cannot be approved yet</div>
   </div>
   <div class="panel tight" style="text-align:center;margin:0">
-    <div style="font-size:24px;font-weight:800;color:var(--navy)">{{ owner_needed }}</div>
-    <div class="muted">Need the owner</div>
-  </div>
-  <div class="panel tight" style="text-align:center;margin:0">
     <div style="font-size:24px;font-weight:800;color:var(--ink)">{{ rows|length }}</div>
     <div class="muted">Total waiting</div>
   </div>
@@ -57,8 +53,7 @@
           <th>Vendor</th>
           <th class="r">Total</th>
           <th class="r">Vs. quote</th>
-          <th>What's needed</th>
-          <th class="r" style="padding-right:20px">Approver</th>
+          <th style="padding-right:20px">What's needed</th>
         </tr>
       </thead>
       <tbody>
@@ -103,14 +98,13 @@
             {% elif r.action == "investigate" %}
               <span class="chip c-none">No quote on file</span>
             {% elif r.action == "spot_check" %}
-              <span class="chip c-info">Owner spot check</span>
+              <span class="chip c-info">Worth a look</span>
             {% else %}
               <span class="chip c-ok">Ready</span>
             {% endif %}
           </td>
-          <td class="r" style="padding-right:20px">
-            {% if r.needs_owner %}<strong>Owner</strong>{% else %}PM{% endif %}
-          </td>
+          {# No approver column: nothing is reserved for the owner. Whoever is
+             signed in approves, and the account is recorded (Zack, 2026-09-12). #}
         </tr>
         {% endfor %}
       </tbody>

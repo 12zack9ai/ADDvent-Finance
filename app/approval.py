@@ -112,7 +112,7 @@ class Routing:
             return "No contract on file — the total is not checked"
         return {
             ACTION_APPROVE: "Ready to approve",
-            ACTION_SPOT_CHECK: "Ready to approve — owner spot check",
+            ACTION_SPOT_CHECK: "Ready to approve — worth a look",
             ACTION_HOLD: "Hold — billed above quote with no change order",
             ACTION_INVESTIGATE: "No quote from this supplier — price not checked",
         }[self.action]
@@ -161,14 +161,19 @@ def proposed_change_orders(invoice: Invoice) -> list[ChangeOrder]:
 def route(invoice: Invoice) -> Routing:
     """Decide what happens to this invoice next.
 
-    Mirrors the approval policy:
+    Nothing is reserved for the owner. Zack, 2026-09-12: "Nothing should be
+    flagged for my approval at all. The point is the pm or ar or ap approves
+    it. But it links their name to it based on account for back logs just in
+    case." So what is questionable is flagged - over quote, past a contract,
+    a changed price, no quote, a sender that does not add up - and whoever
+    on the team is signed in approves it, and is recorded doing so.
 
-      | Situation                                   | Who    | Action        |
-      |---------------------------------------------|--------|---------------|
-      | Within tolerance                            | PM     | Approve       |
-      | Within tolerance but over the review ceiling| Owner  | Spot check    |
-      | Over tolerance, no change order             | Owner  | Hold          |
-      | No quote/PO at all                          | Owner  | Investigate   |
+      | Situation                                   | Action        |
+      |---------------------------------------------|---------------|
+      | Within tolerance                            | Approve       |
+      | Changed price, or past a sub's contract     | Worth a look  |
+      | Over tolerance, no change order             | Hold          |
+      | No quote/PO at all                          | Investigate   |
 
     On top of that, a missing receipt confirmation blocks approval entirely -
     that is the third leg of the match, not a nice-to-have.
@@ -197,8 +202,6 @@ def route(invoice: Invoice) -> Routing:
     for flag in routing.trust_flags:
         if not flag.blocks:
             routing.reasons.append(flag.message)
-    if routing.blockers:
-        routing.tier = TIER_OWNER
 
     # --- a subcontract is a ceiling, a quote is not ------------------------
     #
@@ -218,7 +221,6 @@ def route(invoice: Invoice) -> Routing:
             # should definitely be flagged but it shouldn't refuse me."
             routing.warnings.append(routing.contract.message)
             routing.action = ACTION_SPOT_CHECK
-            routing.tier = TIER_OWNER
         else:
             routing.reasons.append(routing.contract.message)
 
@@ -244,7 +246,6 @@ def route(invoice: Invoice) -> Routing:
     changed = invoice.lines_price_changed or 0
     if changed:
         routing.action = ACTION_SPOT_CHECK
-        routing.tier = TIER_OWNER
         routing.reasons.append(
             f"{changed} item{'' if changed == 1 else 's'} not on the quote "
             f"{'is' if changed == 1 else 'are'} billed at a different price than "
@@ -254,7 +255,6 @@ def route(invoice: Invoice) -> Routing:
     # --- no quote to match against -----------------------------------------
     if invoice.quote_id is None:
         routing.action = ACTION_INVESTIGATE
-        routing.tier = TIER_OWNER
         # Deliberately not phrased as a fault. ABC quoted the roof and a couple
         # of things got picked up at New Castle because that is where they were
         # in stock - normal, and it is precisely why an invoice is never
@@ -296,7 +296,6 @@ def route(invoice: Invoice) -> Routing:
                 )
             else:
                 routing.action = ACTION_HOLD
-                routing.tier = TIER_OWNER
                 waiting = _pick_covering(routing.proposed_change_orders, variance)
                 if waiting is not None:
                     # The paperwork exists and nobody has signed it. Saying
@@ -322,15 +321,6 @@ def route(invoice: Invoice) -> Routing:
             f"{invoice.lines_unmatched} line"
             f"{'' if invoice.lines_unmatched == 1 else 's'} not on the quote; "
             "those prices were not checked."
-        )
-
-    # --- size-based spot check ---------------------------------------------
-    ceiling = Decimal(settings.owner_review_above)
-    if invoice.total is not None and invoice.total > ceiling:
-        routing.action = ACTION_SPOT_CHECK
-        routing.tier = TIER_OWNER
-        routing.reasons.append(
-            f"Invoice total is over the {_money(ceiling)} owner-review threshold."
         )
 
     return routing
