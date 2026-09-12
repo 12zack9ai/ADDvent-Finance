@@ -14,7 +14,7 @@
 
 <div class="scorecard">
   <div class="score">
-    <span class="score-k">Billed</span>
+    <span class="score-k">Billed to customer</span>
     <span class="score-v">{% if c.has_revenue %}{{ c.billed | money }}{% else %}—{% endif %}</span>
     <span class="score-n">
       {% if not c.has_revenue %}comes from QuickBooks — not connected yet

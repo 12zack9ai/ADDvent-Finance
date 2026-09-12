@@ -29,7 +29,7 @@
       </strong>
       <div class="muted">Total above quoted pricing: <strong>{{ total_overbilled | money }}</strong> across all open jobs.</div>
     </div>
-    <a class="btn ghost" href="/?flagged=1">Show only these</a>
+    <a class="btn ghost" href="/jobs?flagged=1">Show only these</a>
   </div>
 </div>
 {% endif %}
@@ -54,8 +54,8 @@
           <th style="padding-left:20px">Job</th>
           <th>Quoted</th>
           <th class="r">Invoices</th>
-          <th class="r">Quoted</th>
-          <th class="r">Invoiced</th>
+          <th class="r">Quote total</th>
+          <th class="r">Supplier bills</th>
           <th class="r" style="padding-right:20px">Vs. quote</th>
         </tr>
       </thead>

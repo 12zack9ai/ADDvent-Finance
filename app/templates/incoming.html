@@ -10,7 +10,7 @@
   <div style="display:flex;gap:9px;flex-wrap:wrap">
     {# Shown even at zero. Hiding a queue when it is empty is how somebody
        stops knowing it exists, and then does not look when it is not. #}
-    <a class="btn ghost" href="/approvals">To review{% if unreviewed %} ({{ unreviewed }}){% endif %}</a>
+    <a class="btn ghost" href="/approvals?dept=supplier">To review{% if unreviewed %} ({{ unreviewed }}){% endif %}</a>
     <a class="btn ghost" href="/inbox">No job number{% if stuck %} ({{ stuck }}){% endif %}</a>
     <a class="btn ghost" href="/mail">Mail received</a>
     <a class="btn" href="/upload">Upload</a>

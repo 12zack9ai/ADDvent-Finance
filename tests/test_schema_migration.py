@@ -319,3 +319,20 @@ def test_the_rebuild_keeps_the_indexes_backs_up_first_and_runs_once(invoices_in_
     assert "uq_invoice_per_job" not in sql
     appdb._let_blank_invoice_numbers_repeat()             # every boot runs it
     assert _table_sql(invoices_in_service) == sql
+
+
+def test_setting_up_a_fresh_database_makes_the_quickbooks_tables_too(tmp_path):
+    """Found in the 2026-09-12 review: a database set up by a script (the
+    sample seeder) rather than by the web app had no QuickBooks tables, and
+    the QuickBooks page failed. Its own process, because in this one the web
+    app is already imported and would hide the gap."""
+    import subprocess
+    repo = Path(__file__).resolve().parent.parent
+    code = (f"import sys; sys.path.insert(0, r'{repo}'); "
+            "from app.db import init_db, engine; init_db(); "
+            "import sqlalchemy as sa; print(sa.inspect(engine).has_table('qb_session'))")
+    env = dict(os.environ, DATA_DIR=str(tmp_path),
+               DATABASE_URL=f"sqlite:///{(tmp_path / 'fresh.db').as_posix()}")
+    out = subprocess.run([sys.executable, "-c", code], env=env,
+                         capture_output=True, text=True, timeout=120)
+    assert out.stdout.strip().endswith("True"), out.stderr[-800:]

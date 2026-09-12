@@ -200,6 +200,10 @@ def get_session():
 
 def init_db() -> None:
     from app import models  # noqa: F401  (registers mappers)
+    # The QuickBooks tables too. Only importing app.main used to bring them in,
+    # so a script that set up a fresh database without the web app left them
+    # out and the QuickBooks page failed with "no such table: qb_session".
+    from app.quickbooks import mirror  # noqa: F401
 
     Base.metadata.create_all(engine)
     _add_missing_columns()

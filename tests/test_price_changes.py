@@ -245,8 +245,9 @@ def test_rejecting_the_first_invoice_on_the_page_clears_the_flag():
     with SessionLocal() as s:
         assert s.get(Invoice, second_id).lines_price_changed == 0
 
+    # Reopening takes a reason now (2026-09-12 review).
     client.post(f"/invoice/{first_id}/decide",
-                data={"decision": "reopen", "actor": "Zack"},
+                data={"decision": "reopen", "actor": "Zack", "note": "Right job after all"},
                 follow_redirects=False)
 
     with SessionLocal() as s:

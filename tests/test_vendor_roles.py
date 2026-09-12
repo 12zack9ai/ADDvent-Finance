@@ -468,6 +468,129 @@ def test_the_report_opens_each_invoice_in_its_own_department(outbox):
     assert f'<a href="/sub-invoices?job={job}">&larr; Subs' in client.get(f"/invoice/{sub_id}").text
 
 
+# --- found by the AR / AP / PM / CEO review, 2026-09-12 ---------------------------------
+
+def _approvals_row(page: str, invoice_id: int) -> str:
+    return page.split(f'href="/invoice/{invoice_id}"', 1)[1].split("</tr>", 1)[0]
+
+
+def test_approvals_says_what_a_bill_was_checked_against(outbox):
+    """It said "on quote" for a bill with no quote, and for a sub past contract."""
+    _file("invoice", "265750", "Unquoted Supply Co", "rv-1", subject="FW: supplier invoice")
+    _file("invoice", "265750", "Paperless Roofing LLC", "rv-2", number="",
+          subject="FW: sub - Deposit", lines=LUMP_SUM)
+    (supplier_id, _), = _invoices("Unquoted Supply Co")
+    (sub_id, _), = _invoices("Paperless Roofing LLC")
+
+    page = client.get("/approvals").text
+    assert "no quote" in _approvals_row(page, supplier_id)
+    assert "no contract" in _approvals_row(page, sub_id)
+    assert "on quote" not in _approvals_row(page, supplier_id)
+
+
+def test_invoices_to_review_opens_the_supplier_queue_and_the_counts_agree(outbox):
+    """Invoices said "To review (9)"; the page it opened listed 11."""
+    _file("invoice", "265751", "Queue Supply Co", "rv-3", subject="FW: supplier invoice")
+    _file("invoice", "265751", "Queue Roofing LLC", "rv-4", number="",
+          subject="FW: sub - Deposit", lines=LUMP_SUM)
+    (supplier_id, _), = _invoices("Queue Supply Co")
+    (sub_id, _), = _invoices("Queue Roofing LLC")
+
+    incoming = client.get("/incoming").text
+    assert 'href="/approvals?dept=supplier"' in incoming
+    supplier = client.get("/approvals?dept=supplier").text
+    subs_q = client.get("/approvals?dept=subs").text
+    assert f'href="/invoice/{supplier_id}"' in supplier and f'href="/invoice/{sub_id}"' not in supplier
+    assert f'href="/invoice/{sub_id}"' in subs_q and f'href="/invoice/{supplier_id}"' not in subs_q
+    # The number on the button is the number of bills in the queue it opens.
+    count = int(incoming.split("To review (", 1)[1].split(")", 1)[0])
+    assert count == len(supplier.split('<a href="/invoice/')) - 1
+
+
+def test_the_job_page_quoted_figure_includes_approved_change_orders(outbox):
+    from app.models import CO_APPROVED, ChangeOrder
+    _file("quote", "265752", "Extras Supply Co", "rv-q", subject="FW: supplier quote")
+    with SessionLocal() as session:
+        job = session.scalar(select(Job).where(Job.job_number == "265752"))
+        session.add(ChangeOrder(job_id=job.id, vendor="Extras Supply Co", number="CO-1",
+                                amount=1840, description="Extra flashing",
+                                status=CO_APPROVED, approved_by="Zack"))
+        session.commit()
+
+    score = client.get("/job/265752").text.split('<span class="score-k">Quoted</span>', 1)[1][:200]
+    assert "$6,840.00" in score                       # $5,000 quote + $1,840 extras
+
+
+def test_the_money_back_letter_says_93_not_93_0000(outbox):
+    quoted = [{"line_no": 1, "description": "GAF Timberline HDZ Charcoal", "qty": "93",
+               "uom": "SQ", "unit_price": "121.40", "extended": "11290.20"}]
+    billed = [{"line_no": 1, "description": "GAF Timberline HDZ Charcoal", "qty": "93",
+               "uom": "SQ", "unit_price": "138.90", "extended": "12917.70"}]
+    _file("quote", "265753", "Letter Supply Co", "rv-lq", subject="FW: supplier quote", lines=quoted)
+    _file("invoice", "265753", "Letter Supply Co", "rv-li", subject="FW: supplier invoice", lines=billed)
+    (invoice_id, _), = _invoices("Letter Supply Co")
+
+    letter = client.get(f"/invoice/{invoice_id}/dispute").text
+    assert "93.0000" not in letter
+    assert "on 93" in letter
+
+
+def test_sub_or_supplier_records_who_answered(outbox):
+    _file("invoice", "265754", "Named Answer Co", "rv-5", subject="FW: invoice")
+    (invoice_id, _), = _invoices("Named Answer Co")
+    # Only the question's own box - the approval form below it has a name
+    # field too, and a wider slice passed with this one missing.
+    box = client.get(f"/invoice/{invoice_id}").text.split('class="role-box"', 1)[1].split("</div>", 1)[0]
+    assert 'name="actor"' in box
+
+    client.post("/vendor-role", follow_redirects=False,
+                data={"vendor": "Named Answer Co", "role": "supplier", "actor": "Dana",
+                      "next": f"/invoice/{invoice_id}"})
+    with SessionLocal() as session:
+        assert vendor_roles.find(session, "Named Answer Co").decided_by == "Dana"
+
+
+def test_a_decided_bill_says_where_it_stands_and_reopening_needs_a_reason(outbox):
+    _file("invoice", "265755", "Reopen Supply Co", "rv-6", subject="FW: supplier invoice")
+    (invoice_id, _), = _invoices("Reopen Supply Co")
+    client.post(f"/invoice/{invoice_id}/decide", follow_redirects=False,
+                data={"decision": "approve", "actor": "Zack"})
+
+    title = client.get(f"/invoice/{invoice_id}").text.split('class="ap-title">', 1)[1][:60]
+    assert title.startswith("Approved") and "Ready to approve" not in title
+
+    client.post(f"/invoice/{invoice_id}/decide", follow_redirects=False,
+                data={"decision": "reopen", "actor": "Zack"})
+    with SessionLocal() as session:
+        assert session.get(Invoice, invoice_id).approval_status == "approved"   # no reason, no reopen
+    client.post(f"/invoice/{invoice_id}/decide", follow_redirects=False,
+                data={"decision": "reopen", "actor": "Zack", "note": "Wrong job"})
+    with SessionLocal() as session:
+        assert session.get(Invoice, invoice_id).approval_status == "pending_review"
+
+
+def test_a_sub_who_would_go_past_the_award_counts_as_risk():
+    from decimal import Decimal as D
+    from app import subs
+    pending_past = subs.Position(vendor="A", contract=D("5000"), subcontract=object(),
+                                 pending=D("6000"))
+    within = subs.Position(vendor="B", contract=D("5000"), subcontract=object(),
+                           pending=D("4000"))
+    no_contract = subs.Position(vendor="C", pending=D("9000"))
+    assert subs.at_risk([pending_past, within, no_contract]) == [pending_past]
+
+
+def test_a_sub_draw_cannot_be_typed_in_as_a_check_request(outbox):
+    assert '<option value="subcontractor">' not in client.get("/checks").text
+
+
+def test_the_jobs_list_filter_link_and_columns(outbox):
+    body = client.get("/jobs").text
+    assert 'href="/?flagged=1"' not in body
+    head = body.split("<thead>", 1)[1].split("</thead>", 1)[0] if "<thead>" in body else ""
+    assert head.count(">Quoted<") <= 1
+
+
 def test_a_sub_without_a_contract_is_never_blocked_as_over_it(outbox):
     _file("invoice", "265706", "No Paper Subs LLC", "np-1")
     with SessionLocal() as session:

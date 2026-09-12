@@ -28,14 +28,17 @@
 <div class="scorecard">
   <div class="score">
     <span class="score-k">Quoted</span>
-    <span class="score-v">{{ s.quoted | money }}</span>
+    {# Quote plus approved change orders - the note below says "+ extras",
+       and the number now includes them. #}
+    <span class="score-v">{{ s.authorised | money }}</span>
     <span class="score-n">
       {% if not s.has_quote %}no quote yet
       {% else %}{{ masters|length }} quote{{ "" if masters|length == 1 else "s" }}
         {%- if s.change_orders %} + extras{% endif %}{% endif %}</span>
   </div>
   <div class="score">
-    <span class="score-k">Billed</span>
+    {# "Billed" means what we billed the customer, on Job costing. #}
+    <span class="score-k">Supplier bills</span>
     <span class="score-v">{{ s.invoiced | money }}</span>
     <span class="score-n">
       {% if s.over_but_accounted_for %}more than quoted, at quoted prices

@@ -188,6 +188,12 @@ def positions(job: Job) -> list[Position]:
     return found
 
 
+def at_risk(found: list[Position]) -> list[Position]:
+    """Subs past their award, or who would be if what is under review were
+    approved - the risk the front door has to show, not just what is done."""
+    return [p for p in found if p.would_exceed > ZERO]
+
+
 def position_for(job: Job, vendor: str) -> Optional[Position]:
     """One sub's position, or None if this vendor holds no subcontract here."""
     return next((p for p in positions(job) if _same(p.vendor, vendor)), None)

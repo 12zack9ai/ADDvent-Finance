@@ -146,7 +146,9 @@ def letter(draft: Draft) -> str:
             if item.percent is not None:
                 detail += f" (+{item.percent}%)"
             if item.qty is not None:
-                detail += f" on {item.qty:g}"
+                # A stored quantity is Decimal("93.0000"), and "g" keeps every
+                # place of a Decimal - the letter said "on 93.0000".
+                detail += f" on {format(item.qty.normalize(), 'f')}"
             detail += f" — {money(item.difference)}"
             lines.append(detail)
         lines.append("")

@@ -371,7 +371,7 @@ def test_both_exception_queues_stay_visible_when_empty(client):
     """Hiding a queue when it is empty is how somebody stops knowing it exists,
     and then does not look when it is not."""
     body = client.get("/incoming").text
-    assert 'href="/approvals"' in body
+    assert 'href="/approvals?dept=supplier"' in body       # the supplier queue
     assert 'href="/inbox"' in body
 
 
@@ -1723,7 +1723,7 @@ def test_the_nav_is_one_place_per_programme_and_a_way_out(client):
 
 def test_the_dropped_tabs_are_still_reachable(client):
     """Simpler must not mean hidden."""
-    assert 'href="/approvals"' in client.get("/incoming").text
+    assert 'href="/approvals?dept=supplier"' in client.get("/incoming").text
     assert 'href="/inbox"' in client.get("/incoming").text
     assert 'href="/vendors"' in client.get("/jobs").text
     for path in ("/approvals", "/vendors", "/inbox"):

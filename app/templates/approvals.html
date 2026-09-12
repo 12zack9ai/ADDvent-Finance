@@ -2,6 +2,13 @@
 {% block title %}Approvals · {{ site_name }}{% endblock %}
 
 {% block content %}
+{# One queue per department, like everything else. Invoices' "To review"
+   opens the supplier bills and its count matches; Subs opens the subs'. #}
+<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+  <a class="btn{{ '' if dept == 'supplier' else ' ghost' }}" href="/approvals?dept=supplier">Supplier invoices</a>
+  <a class="btn{{ '' if dept == 'subs' else ' ghost' }}" href="/approvals?dept=subs">Sub invoices</a>
+  <a class="btn{{ '' if not dept else ' ghost' }}" href="/approvals">Both</a>
+</div>
 <div class="pagehead">
   <div>
     <h1>Approvals</h1>
@@ -68,8 +75,18 @@
           <td>{{ inv.vendor or "—" }}</td>
           <td class="r" style="font-weight:700">{{ inv.total | money }}</td>
           <td class="r">
+            {# What it was actually checked against. "on quote" used to show for
+               a bill with no quote at all, and for a sub $4,000 past contract. #}
             {% if inv.overbilled_amount and inv.overbilled_amount > 0 %}
               <span class="chip c-over">+{{ inv.overbilled_amount | money }}</span>
+            {% elif r.contract and r.contract.over_contract %}
+              <span class="chip c-over">+{{ r.contract.exceeds_by | money }} past contract</span>
+            {% elif r.is_sub and not r.contract %}
+              <span class="chip c-none">no contract</span>
+            {% elif r.is_sub %}
+              <span class="chip c-ok">within contract</span>
+            {% elif not inv.quote_id %}
+              <span class="chip c-none">no quote</span>
             {% else %}
               <span class="chip c-ok">on quote</span>
             {% endif %}

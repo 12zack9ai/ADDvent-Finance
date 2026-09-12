@@ -576,30 +576,25 @@
 <div style="max-width:8.5in;margin:14px auto 0;padding:0 22px">
   {# Sub or supplier: asked once per vendor, by email when it arrives, and here. #}
   <div class="role-box">
+    {# Moves every invoice from this vendor, so it records who did it. #}
     {% if vendor_role %}
       <span><strong>{{ invoice.vendor }}</strong> is a {{ "subcontractor" if vendor_role == "sub" else "supplier" }}{% if vendor_role == "sub" %}: their invoices go to Subs and raise a check request{% endif %}.</span>
       <form method="post" action="/vendor-role">
         <input type="hidden" name="vendor" value="{{ invoice.vendor }}">
         <input type="hidden" name="role" value="{{ 'supplier' if vendor_role == 'sub' else 'sub' }}">
         <input type="hidden" name="next" value="/invoice/{{ invoice.id }}">
+        <input type="text" name="actor" placeholder="Your name" required style="max-width:160px">
         <button type="submit">Change to {{ "supplier" if vendor_role == "sub" else "subcontractor" }}</button>
       </form>
     {% else %}
       <span><strong>Is {{ invoice.vendor }} a subcontractor or a supplier?</strong> Answer once; every invoice from them follows.</span>
-      <span class="role-choices">
-        <form method="post" action="/vendor-role">
-          <input type="hidden" name="vendor" value="{{ invoice.vendor }}">
-          <input type="hidden" name="role" value="sub">
-          <input type="hidden" name="next" value="/invoice/{{ invoice.id }}">
-          <button type="submit">Subcontractor</button>
-        </form>
-        <form method="post" action="/vendor-role">
-          <input type="hidden" name="vendor" value="{{ invoice.vendor }}">
-          <input type="hidden" name="role" value="supplier">
-          <input type="hidden" name="next" value="/invoice/{{ invoice.id }}">
-          <button type="submit">Supplier</button>
-        </form>
-      </span>
+      <form method="post" action="/vendor-role" class="role-choices">
+        <input type="hidden" name="vendor" value="{{ invoice.vendor }}">
+        <input type="hidden" name="next" value="/invoice/{{ invoice.id }}">
+        <input type="text" name="actor" placeholder="Your name" required style="max-width:160px">
+        <button type="submit" name="role" value="sub">Subcontractor</button>
+        <button type="submit" name="role" value="supplier">Supplier</button>
+      </form>
     {% endif %}
   </div>
 </div>
@@ -611,7 +606,12 @@
     <div class="ap-head">
       <div>
         <div class="ap-status ap-{{ invoice.approval_status }}">{{ status_label }}</div>
-        <div class="ap-title">{{ routing.headline }}</div>
+        {# Where it stands, once somebody has decided - a paid bill used to
+           still read "Ready to approve". #}
+        <div class="ap-title">{% if invoice.approval_status == "paid" %}Paid
+          {%- elif invoice.approval_status == "approved" %}Approved — ready to pay
+          {%- elif invoice.approval_status == "rejected" %}Rejected
+          {%- else %}{{ routing.headline }}{% endif %}</div>
       </div>
       <div class="ap-tier">
         Approver required<br><strong>{{ tier_label }}</strong>
@@ -673,12 +673,15 @@
       </div>
       <form method="post" action="/invoice/{{ invoice.id }}/decide" class="ap-form">
         <input type="text" name="actor" placeholder="Your name" required style="max-width:180px">
+        <input type="text" name="note" placeholder="Why reopen? (needed to reopen)">
         <button class="btn" name="decision" value="paid" type="submit">Mark paid</button>
         <button class="btn ghost" name="decision" value="reopen" type="submit">Reopen</button>
       </form>
     {% else %}
+      {# Reopening puts a closed bill back into what is owed - it takes a reason. #}
       <form method="post" action="/invoice/{{ invoice.id }}/decide" class="ap-form">
         <input type="text" name="actor" placeholder="Your name" required style="max-width:180px">
+        <input type="text" name="note" placeholder="Why reopen it?" required>
         <button class="btn ghost" name="decision" value="reopen" type="submit">Reopen</button>
       </form>
     {% endif %}

@@ -390,7 +390,9 @@ class JobRow:
 def _job_rows(session: Session, jobs: list[Job]) -> list[JobRow]:
     rows = []
     for job in jobs:
-        invoices = job.invoices
+        # Supplier bills only; a sub's draws are the Subs page's, and counted
+        # here they showed $137,324 billed against a $34,232 quote.
+        invoices = [i for i in job.invoices if not vendor_roles.is_subs(i)]
         rows.append(JobRow(
             job=job,
             master=job.master_quote,
@@ -646,7 +648,10 @@ def home(request: Request, session: Session = Depends(get_session)):
     # that, what is sitting under review.
     sub_jobs = _subcontract_jobs(session)
     sub_positions = [p for job in sub_jobs for p in subs.positions(job)]
-    subs_over = [p for p in sub_positions if p.overage > ZERO]
+    # Past the award, or would be if what is under review were approved -
+    # the card said "$0.00 over contract" while Checks said a sub "would go
+    # $4,000 past the award".
+    subs_over = subs.at_risk(sub_positions)
 
     # Receipts. The department with the most folders, because counter spend
     # touches every job - including the ones that never became work.
@@ -696,7 +701,7 @@ def home(request: Request, session: Session = Depends(get_session)):
         subs_billed=sum((p.billed for p in sub_positions), ZERO),
         subs_pending=sum((p.pending for p in sub_positions), ZERO),
         subs_over=subs_over,
-        subs_over_total=sum((p.overage for p in subs_over), ZERO),
+        subs_over_total=sum((p.would_exceed for p in subs_over), ZERO),
         checks_paid=Decimal(checks_paid) if checks_paid else ZERO,
         receipts_total=receipts.total,
         receipts_count=receipts.count,
@@ -1473,6 +1478,11 @@ def decide_invoice(
         invoice.approval_status = APPROVAL_PAID
         message = f"Invoice {invoice.invoice_number or invoice.id} marked paid."
     elif decision == "reopen":
+        # A reopened bill goes back into what is owed and into cash flow. One
+        # tap with no reason was how a paid bill could quietly come back.
+        if not note.strip():
+            return _redirect(f"/invoice/{invoice.id}",
+                             err="Say why you are reopening it.")
         invoice.approval_status = APPROVAL_PENDING
         invoice.hold_reason = ""
         invoice.approved_by = ""
@@ -1670,7 +1680,10 @@ def check_queue(request: Request, session: Session = Depends(get_session)):
         rows=rows,
         total=checks.total_waiting(rows),
         ready=checks.total_ready(rows),
-        purposes=CHECK_PURPOSES,
+        # Not "Subcontractor": a sub's invoice raises its own check request
+        # and counts against their contract. Typed in here, a draw bypassed
+        # the contract and the Subs totals entirely.
+        purposes=[p for p in CHECK_PURPOSES if p[0] != "subcontractor"],
     ))
 
 
@@ -1766,12 +1779,25 @@ def decide_check_request(
 
 @app.get("/approvals", response_class=HTMLResponse)
 def approvals_queue(request: Request, session: Session = Depends(get_session)):
-    """Everything waiting on a person, across every job."""
+    """Everything waiting on a person, across every job.
+
+    Split by department, as everything else is: the review found Invoices
+    saying "To review (9)" and this page listing 11, because it quietly added
+    the subs' draws. `?dept=supplier` is what Invoices opens, `?dept=subs`
+    what Subs opens; no parameter shows both.
+    """
+    dept = request.query_params.get("dept", "")
     invoices = session.scalars(
         select(Invoice)
         .where(Invoice.approval_status.in_([APPROVAL_PENDING, APPROVAL_HELD]))
         .order_by(Invoice.created_at.desc())
     ).all()
+    if dept == "supplier":
+        invoices = [i for i in invoices if not vendor_roles.is_subs(i)]
+    elif dept == "subs":
+        invoices = [i for i in invoices if vendor_roles.is_subs(i)]
+    else:
+        dept = ""
 
     rows = []
     for invoice in invoices:
@@ -1786,6 +1812,7 @@ def approvals_queue(request: Request, session: Session = Depends(get_session)):
     return templates.TemplateResponse(request, "approvals.html", _ctx(
         request, session,
         rows=rows,
+        dept=dept,
         held=sum(1 for r in rows if r["routing"].action == ACTION_HOLD),
         blocked=sum(1 for r in rows if r["routing"].blockers),
         owner_needed=sum(1 for r in rows if r["routing"].needs_owner),
@@ -1865,11 +1892,14 @@ def cashflow_index(request: Request, session: Session = Depends(get_session)):
     reports = session.scalars(
         select(CashReport).order_by(CashReport.created_at.desc()).limit(30)
     ).all()
-    return templates.TemplateResponse(request, "cashflow_index.html", {
-        "reports": reports,
-        "today": date.today().isoformat(),
-        "quickbooks_connected": False,
-    })
+    # Through _ctx like every other page: without it the nav lost its Checks
+    # count and the alarm banner on the two cash pages.
+    return templates.TemplateResponse(request, "cashflow_index.html", _ctx(
+        request, session,
+        reports=reports,
+        today=date.today().isoformat(),
+        quickbooks_connected=False,
+    ))
 
 
 def _decimal_or_zero(raw: str) -> Decimal:
@@ -2006,10 +2036,11 @@ def cashflow_report(report_id: int, request: Request, session: Session = Depends
     report = session.get(CashReport, report_id)
     if report is None:
         return _redirect("/cashflow", err="No such report.")
-    return templates.TemplateResponse(request, "cashflow_report.html", {
-        "report": report,
-        "f": _report_forecast(report),
-    })
+    return templates.TemplateResponse(request, "cashflow_report.html", _ctx(
+        request, session,
+        report=report,
+        f=_report_forecast(report),
+    ))
 
 
 DRAW_SOURCE = "progress billing"
@@ -2302,11 +2333,10 @@ def incoming(request: Request, session: Session = Depends(get_session)):
         select(func.count(Document.id))
         .where(Document.status.in_([ST_NEEDS_JOB, ST_ERROR]))
     ) or 0
-    unreviewed = session.scalar(
-        select(func.count(Invoice.id))
-        .where(Invoice.approval_status.in_([APPROVAL_PENDING, APPROVAL_HELD]),
-               Invoice.is_subcontract == False)  # noqa: E712
-    ) or 0
+    # The same rule the supplier queue it opens uses, so the two numbers agree.
+    unreviewed = sum(1 for i in session.scalars(
+        select(Invoice).where(Invoice.approval_status.in_([APPROVAL_PENDING, APPROVAL_HELD]))
+    ).all() if not vendor_roles.is_subs(i))
 
     return templates.TemplateResponse(request, "incoming.html", _ctx(
         request, session,
