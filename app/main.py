@@ -27,7 +27,7 @@ from app import (
     watchdog,
 )
 from app.config import settings
-from app.db import get_session, init_db, to_decimal
+from app.db import SessionLocal, get_session, init_db, to_decimal
 from app.extract import normalize_job_number
 from app.approval import (
     ACTION_HOLD,
@@ -168,6 +168,9 @@ def _configure_logging() -> None:
 # unauthenticated one in the application, because the Web Connector is a
 # Windows service that cannot log in to a website.
 from app.quickbooks.routes import router as quickbooks_router  # noqa: E402
+from app.models import (  # noqa: E402
+    PAPER_KINDS, PAPER_LABELS, ROLE_OWNER, ROLE_STAFF, User, VendorDocument,
+)
 
 app.include_router(quickbooks_router)
 
@@ -271,48 +274,161 @@ async def _shutdown() -> None:
 
 @app.middleware("http")
 async def require_login(request: Request, call_next):
-    """Every page requires a session cookie, except the login page itself."""
+    """Every page requires a session cookie, except the account pages.
+
+    The cookie also says who is signed in, and that is what every approval,
+    hold and check records (see _actor). A shared-password session stops
+    counting once the owner's account is confirmed.
+    """
+    token = request.cookies.get(auth.COOKIE_NAME)
+    person = auth.who_from_token(token)
     if auth.auth_required() and not auth.is_public(request.url.path):
-        if not auth.valid_token(request.cookies.get(auth.COOKIE_NAME)):
+        if not auth.valid_token(token) or (person is None and _live_now()):
             target = request.url.path
             if request.url.query:
                 target = f"{target}?{request.url.query}"
             return RedirectResponse(f"/login?next={quote_plus(target)}", status_code=303)
-    return await call_next(request)
+    marker = auth.current.set(person)
+    try:
+        return await call_next(request)
+    finally:
+        auth.current.reset(marker)
 
 
-@app.get("/login", response_class=HTMLResponse)
-def login_form(request: Request):
-    if auth.valid_token(request.cookies.get(auth.COOKIE_NAME)):
-        return RedirectResponse("/", status_code=303)
+# --- accounts ------------------------------------------------------------------
+#
+# Everyone signs in as themselves. Zack, 2026-09-12: "When you first go in, you
+# should register an account. Should be an addventuresinc.com email. That way
+# when someone approved something it auto registers to their account. You
+# don't have to manually type in who's approving the bill."
+#
+# The shared password keeps working until the owner's account is confirmed, so
+# nobody is locked out on the day this goes live. After that it stops, and so
+# does every session it opened.
+
+_accounts_live = False
+
+
+def _accounts_are_live(session: Session) -> bool:
+    """Has an owner confirmed their account? Once true it stays true."""
+    global _accounts_live
+    if not _accounts_live:
+        _accounts_live = session.scalar(
+            select(User.id).where(User.role == ROLE_OWNER, User.verified_at.is_not(None)).limit(1)
+        ) is not None
+    return _accounts_live
+
+
+def _live_now() -> bool:
+    if _accounts_live:
+        return True
+    with SessionLocal() as session:
+        return _accounts_are_live(session)
+
+
+def _company_email(email: str) -> bool:
+    local, at, domain = (email or "").strip().lower().rpartition("@")
+    return bool(local) and bool(at) and domain == settings.account_domain and " " not in local
+
+
+def _account_link(request: Request, path: str) -> str:
+    base = settings.base_url if settings.base_url.startswith("https") else str(request.base_url)
+    return base.rstrip("/") + path
+
+
+def _send_account_mail(to: str, subject: str, body: str) -> bool:
+    from email.message import EmailMessage
+    from email.utils import formataddr, formatdate, make_msgid
+
+    from app import mail_send
+
+    if not settings.can_send_mail():
+        return False
+    _, _, _, _, from_address = settings.smtp_settings()
+    msg = EmailMessage()
+    msg["From"] = formataddr((settings.site_name, from_address))
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid()
+    msg["Auto-Submitted"] = "auto-generated"
+    msg.set_content(body)
+    try:
+        mail_send.send(msg)
+    except mail_send.SendError as exc:
+        log.warning("account email to %s failed: %s", to, exc)
+        return False
+    return True
+
+
+def _signed_in(response, user: User):
+    response.set_cookie(
+        auth.COOKIE_NAME, auth.make_token(user),
+        max_age=settings.session_days * 86400,
+        httponly=True, samesite="lax",
+        secure=settings.base_url.startswith("https"),
+    )
+    return response
+
+
+def _account_page(request: Request, mode: str, **kw):
     return templates.TemplateResponse(request, "login.html", {
         "request": request,
         "site_name": settings.site_name,
+        "mode": mode,
+        "domain": settings.account_domain,
         "error": request.query_params.get("error", ""),
+        "ok": request.query_params.get("ok", ""),
         "next_url": request.query_params.get("next", "/"),
+        **kw,
     })
 
 
+def _back_to(path: str, message: str, **extra) -> RedirectResponse:
+    query = urlencode([("error", message), *extra.items()])
+    return RedirectResponse(f"{path}?{query}", status_code=303)
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_form(request: Request, session: Session = Depends(get_session)):
+    token = request.cookies.get(auth.COOKIE_NAME)
+    live = _accounts_are_live(session)
+    if auth.valid_token(token) and (auth.who_from_token(token) or not live):
+        return RedirectResponse("/", status_code=303)
+    return _account_page(request, "login", shared=not live)
+
+
 @app.post("/login")
-def login_submit(request: Request, password: str = Form(""), next: str = Form("/")):
+def login_submit(request: Request, email: str = Form(""), password: str = Form(""),
+                 next: str = Form("/"), session: Session = Depends(get_session)):
     who = request.client.host if request.client else "unknown"
+    target = next if next.startswith("/") and not next.startswith("//") else "/"
 
     wait = auth.wait_for(who)
     if wait:
-        return RedirectResponse(
-            f"/login?error={quote_plus(f'Too many tries. Wait {wait} seconds.')}"
-            f"&next={quote_plus(next or '/')}",
-            status_code=303,
-        )
+        return _back_to("/login", f"Too many tries. Wait {wait} seconds.", next=target)
 
+    email = email.strip().lower()
+    if email:
+        user = session.scalar(select(User).where(User.email == email))
+        if user is None or not auth.check_password(password, user.password_hash):
+            auth.note_failure(who)
+            return _back_to("/login", "That email and password don't match.", next=target)
+        if user.verified_at is None:
+            return _back_to("/login", f"Confirm your email first - the link went to {email}. "
+                            "Register again for a new one.", next=target)
+        auth.note_success(who)
+        user.last_login_at = utcnow()
+        session.commit()
+        return _signed_in(RedirectResponse(target, status_code=303), user)
+
+    # The shared password, until the owner's account is confirmed.
+    if _accounts_are_live(session):
+        return _back_to("/login", "Sign in with your email and password.", next=target)
     if not auth.verify(password):
         auth.note_failure(who)
-        return RedirectResponse(
-            f"/login?error={quote_plus('Incorrect password.')}&next={quote_plus(next or '/')}",
-            status_code=303,
-        )
+        return _back_to("/login", "Incorrect password.", next=target)
     auth.note_success(who)
-    target = next if next.startswith("/") else "/"
     response = RedirectResponse(target, status_code=303)
     response.set_cookie(
         auth.COOKIE_NAME, auth.make_token(),
@@ -321,6 +437,122 @@ def login_submit(request: Request, password: str = Form(""), next: str = Form("/
         secure=settings.base_url.startswith("https"),
     )
     return response
+
+
+@app.get("/register", response_class=HTMLResponse)
+def register_form(request: Request):
+    return _account_page(request, "register")
+
+
+@app.post("/register")
+def register_submit(request: Request, name: str = Form(""), email: str = Form(""),
+                    password: str = Form(""), confirm: str = Form(""),
+                    session: Session = Depends(get_session)):
+    """Create an account and email a link to confirm the address.
+
+    Nothing can be signed with it until that link is opened - otherwise anyone
+    who can reach the site could register as zmabry@ and approve as Zack.
+    """
+    email = email.strip().lower()
+    name = " ".join(name.split())[:128]
+    if not name:
+        return _back_to("/register", "Put your name - it goes on everything you approve.")
+    if not _company_email(email):
+        return _back_to("/register", f"Use your @{settings.account_domain} email.")
+    if len(password) < 10:
+        return _back_to("/register", "Use at least 10 characters for the password.")
+    if password != confirm:
+        return _back_to("/register", "The two passwords don't match.")
+
+    user = session.scalar(select(User).where(User.email == email))
+    if user is not None and user.verified_at is not None:
+        return _back_to("/register", "That email already has an account. Sign in, "
+                        "or use Forgot your password.")
+    if user is None:
+        user = User(email=email)
+        session.add(user)
+    user.name = name
+    user.password_hash = auth.hash_password(password)
+    user.role = ROLE_OWNER if email in settings.owner_emails() else ROLE_STAFF
+    session.flush()
+
+    link = _account_link(request, f"/verify?t={auth.link_token('confirm', user.id, user.password_hash)}")
+    sent = _send_account_mail(
+        email, f"Confirm your account · {settings.site_name}",
+        f"Hi {name},\n\nOpen this link to confirm your account for {settings.site_name}:"
+        f"\n\n{link}\n\nIt works for two days. If you didn't ask for an account, ignore this.\n",
+    )
+    if not sent:
+        session.rollback()
+        return _back_to("/register", "The confirmation email couldn't be sent. Try again in "
+                        "a minute, or tell Zack.")
+    session.commit()
+    return _account_page(request, "sent", sent_to=email)
+
+
+@app.get("/verify")
+def verify_account(request: Request, t: str = "", session: Session = Depends(get_session)):
+    data = auth.read_link(t, "confirm", max_age=2 * 86400)
+    user = session.get(User, data["u"]) if data else None
+    if user is None or not auth.link_matches(data, user.password_hash):
+        return _back_to("/login", "That confirmation link is no good any more. "
+                        "Register again for a new one.")
+    if user.verified_at is None:
+        user.verified_at = utcnow()
+    user.last_login_at = utcnow()
+    session.commit()
+    return _signed_in(_redirect("/", ok=f"Welcome, {user.name}. Your account is confirmed."), user)
+
+
+@app.get("/forgot", response_class=HTMLResponse)
+def forgot_form(request: Request):
+    return _account_page(request, "forgot")
+
+
+@app.post("/forgot")
+def forgot_submit(request: Request, email: str = Form(""), session: Session = Depends(get_session)):
+    who = request.client.host if request.client else "unknown"
+    wait = auth.wait_for(who)
+    if wait:
+        return _back_to("/forgot", f"Too many tries. Wait {wait} seconds.")
+    # Counted like a wrong password, so this cannot be used to spray mail.
+    auth.note_failure(who)
+
+    email = email.strip().lower()
+    user = session.scalar(select(User).where(User.email == email)) if email else None
+    if user is not None and user.verified_at is not None:
+        link = _account_link(request, f"/reset?t={auth.link_token('reset', user.id, user.password_hash)}")
+        _send_account_mail(
+            email, f"Reset your password · {settings.site_name}",
+            f"Hi {user.name},\n\nOpen this link to choose a new password for {settings.site_name}:"
+            f"\n\n{link}\n\nIt works for an hour, once. If you didn't ask, ignore this - "
+            "your password stays as it is.\n",
+        )
+    # The same answer either way: this page must not say who has an account.
+    return _account_page(request, "sent", sent_to=email, reset=True)
+
+
+@app.get("/reset", response_class=HTMLResponse)
+def reset_form(request: Request, t: str = ""):
+    return _account_page(request, "reset", token=t)
+
+
+@app.post("/reset")
+def reset_submit(request: Request, t: str = Form(""), password: str = Form(""),
+                 confirm: str = Form(""), session: Session = Depends(get_session)):
+    data = auth.read_link(t, "reset", max_age=3600)
+    user = session.get(User, data["u"]) if data else None
+    if user is None or not auth.link_matches(data, user.password_hash):
+        return _back_to("/forgot", "That reset link has expired or was already used. "
+                        "Ask for a new one.")
+    if len(password) < 10:
+        return _back_to("/reset", "Use at least 10 characters for the password.", t=t)
+    if password != confirm:
+        return _back_to("/reset", "The two passwords don't match.", t=t)
+    user.password_hash = auth.hash_password(password)
+    user.last_login_at = utcnow()
+    session.commit()
+    return _signed_in(_redirect("/", ok="Password changed."), user)
 
 
 @app.get("/logout")
@@ -347,6 +579,8 @@ def _ctx(request: Request, session: Session, **kw) -> dict:
     ).all())
     base = {
         "request": request,
+        # Who is signed in. When somebody is, no page asks for a name.
+        "me": auth.current.get(),
         "site_name": settings.site_name,
         "messages": _messages(request),
         "q": request.query_params.get("q", ""),
@@ -1064,6 +1298,7 @@ def _render_markup(request: Request, invoice: Invoice, print_mode: bool) -> str:
     is_subs = vendor_roles.is_subs(invoice)
     return templates.get_template("markup.html").render(
         vendor_role=vendor_role,
+        me=auth.current.get(),
         is_subs=is_subs,
         contract=subs.contract_check(invoice.job, invoice) if is_subs else None,
         quote_choices=quote_choices,
@@ -1240,10 +1475,13 @@ def _remember_actor(response, name: str):
 def _actor(name: str) -> str:
     """Who took this action.
 
-    A single shared password means the app cannot know who is signed in, so the
-    approver types their name. That is weaker than real accounts and it is
-    recorded as-typed - see README for the upgrade path to per-user logins.
+    The signed-in account, when there is one - and then whatever was typed is
+    ignored, so nobody can approve in somebody else's name. The typed name is
+    only for the shared password, until the owner's account retires it.
     """
+    person = auth.current.get()
+    if person:
+        return (person.get("name") or person.get("email") or "")[:128] or "unnamed"
     return (name or "").strip()[:128] or "unnamed"
 
 
@@ -1596,10 +1834,26 @@ def sub_invoice_queue(request: Request, session: Session = Depends(get_session))
         folders.sort(key=lambda f: f.latest or datetime.min, reverse=True)
         folders.sort(key=lambda f: (-f.overage, -f.waiting))   # stable: newest within
 
+    # Each sub's paperwork on this job, plus what covers all their jobs (a W-9,
+    # an insurance certificate). Only on the one-job view, where the panels are.
+    papers: dict = {}
+    if only:
+        every = session.scalars(
+            select(VendorDocument).order_by(VendorDocument.uploaded_at.desc())
+        ).all()
+        for job, position in rows:
+            papers[(job.id, position.vendor)] = [
+                d for d in every
+                if d.job_id in (None, job.id) and vendor_matches(d.vendor, position.vendor)
+            ]
+
     return templates.TemplateResponse(request, "sub_invoices.html", _ctx(
         request, session,
         rows=rows,
         folders=folders,
+        papers=papers,
+        paper_kinds=PAPER_KINDS,
+        today=date.today(),
         only_job=only,
         awarded=sum((p.awarded for _, p in rows), ZERO),
         billed=sum((p.billed for _, p in rows), ZERO),
@@ -1622,6 +1876,72 @@ def _check_queue(session: Session) -> list:
         .options(selectinload(CheckRequest.job))
     ).all()
     return checks.queue(requests, _subcontract_jobs(session))
+
+
+@app.post("/paperwork")
+async def upload_paperwork(
+    file: UploadFile = File(...),
+    vendor: str = Form(...),
+    kind: str = Form("other"),
+    job_number: str = Form(""),
+    scope: str = Form("job"),
+    expires_on: str = Form(""),
+    note: str = Form(""),
+    next: str = Form("/sub-invoices"),
+    actor: str = Form(""),
+    session: Session = Depends(get_session),
+):
+    """A sub's contract, lien waiver, insurance certificate or W-9, kept with them.
+
+    Zack: "we should be uploading the contract, lien waivers, and all that crap
+    with it." Warn-only for now; nothing here stops a payment yet.
+    """
+    from app.services import store_upload
+
+    back = next if next.startswith("/") and not next.startswith("//") else "/sub-invoices"
+    if kind not in PAPER_LABELS or not vendor.strip():
+        return _redirect(back, err="Say what the paperwork is.")
+    content = await file.read()
+    if not content:
+        return _redirect(back, err="That file was empty.")
+    if len(content) > 25 * 1024 * 1024:
+        return _redirect(back, err="That file is over 25 MB.")
+    expires = None
+    if expires_on.strip():
+        try:
+            expires = date.fromisoformat(expires_on.strip())
+        except ValueError:
+            return _redirect(back, err="The expiry date did not read as a date.")
+    job = None
+    if scope != "all" and job_number.strip():
+        job = session.scalar(select(Job).where(Job.job_number == normalize_job_number(job_number)))
+
+    suffix = Path(file.filename or "").suffix.lower() or ".pdf"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(content)
+        tmp_path = Path(tmp.name)
+    try:
+        stored, digest = store_upload(tmp_path, file.filename or f"paperwork{suffix}")
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    paper = VendorDocument(
+        vendor=vendor.strip()[:255], job_id=job.id if job else None, kind=kind,
+        filename=(file.filename or stored.name)[:255], stored_path=str(stored), sha256=digest,
+        expires_on=expires, note=note.strip(), uploaded_by=_actor(actor),
+    )
+    session.add(paper)
+    session.commit()
+    return _redirect(back, ok=f"{paper.label} saved for {paper.vendor}.")
+
+
+@app.get("/paperwork/{paper_id}/file")
+def paperwork_file(paper_id: int, session: Session = Depends(get_session)):
+    paper = session.get(VendorDocument, paper_id)
+    if paper is None or not Path(paper.stored_path).exists():
+        return _redirect("/sub-invoices", err="That file is missing.")
+    return FileResponse(paper.stored_path, filename=paper.filename,
+                        content_disposition_type="inline")
 
 
 @app.get("/purchases", response_class=HTMLResponse)

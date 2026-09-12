@@ -927,6 +927,93 @@ PURCHASE_TEXT = "text"
 PURCHASE_UPLOAD = "upload"
 
 
+# --- accounts -----------------------------------------------------------------
+
+ROLE_OWNER = "owner"
+ROLE_STAFF = "staff"
+
+
+class User(Base):
+    """Somebody who signs in.
+
+    Zack, 2026-09-12: "When you first go in, you should register an account.
+    Should be an addventuresinc.com email. That way when someone approved
+    something it auto registers to their account. You don't have to manually
+    type in who's approving the bill."
+
+    The password is stored as an scrypt hash, never as itself (auth.py). An
+    account cannot sign in until the address has been confirmed by a link sent
+    to it, which is what stops anyone registering as somebody else.
+    """
+
+    __tablename__ = "user_account"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(128), default="")
+    password_hash: Mapped[str] = mapped_column(String(255), default="")
+    role: Mapped[str] = mapped_column(String(16), default=ROLE_STAFF)
+    verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    @property
+    def is_owner(self) -> bool:
+        return self.role == ROLE_OWNER
+
+
+# --- a vendor's paperwork --------------------------------------------------------
+
+PAPER_CONTRACT = "contract"
+PAPER_LIEN_WAIVER = "lien_waiver"
+PAPER_INSURANCE = "insurance"
+PAPER_W9 = "w9"
+PAPER_OTHER = "other"
+PAPER_KINDS = (
+    (PAPER_CONTRACT, "Signed contract"),
+    (PAPER_LIEN_WAIVER, "Lien waiver"),
+    (PAPER_INSURANCE, "Insurance certificate"),
+    (PAPER_W9, "W-9"),
+    (PAPER_OTHER, "Other"),
+)
+PAPER_LABELS = dict(PAPER_KINDS)
+
+
+class VendorDocument(Base):
+    """A contract, lien waiver, insurance certificate or W-9, kept with the sub.
+
+    Zack, 2026-09-12: "we should be uploading the contract, lien waivers, and
+    all that crap with it." Warn-only for now - an expired certificate or a
+    missing waiver will stop a payment eventually ("Not there yet"), so today
+    the Subs page only says so. A job-less document (a W-9, an insurance
+    certificate) covers every job for that vendor.
+    """
+
+    __tablename__ = "vendor_document"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    vendor: Mapped[str] = mapped_column(String(255), index=True)
+    job_id: Mapped[Optional[int]] = mapped_column(ForeignKey("job.id"), nullable=True, index=True)
+    kind: Mapped[str] = mapped_column(String(24), default=PAPER_OTHER)
+    filename: Mapped[str] = mapped_column(String(255), default="")
+    stored_path: Mapped[str] = mapped_column(String(1024), default="")
+    sha256: Mapped[str] = mapped_column(String(64), default="")
+    expires_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+    uploaded_by: Mapped[str] = mapped_column(String(128), default="")
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    @property
+    def label(self) -> str:
+        return PAPER_LABELS.get(self.kind, self.kind)
+
+    def days_left(self, today: date) -> Optional[int]:
+        """Days until it expires; negative once it has. None if it never does."""
+        if self.expires_on is None:
+            return None
+        return (self.expires_on - today).days
+
+
 class Purchase(Base):
     """Something bought over the counter, on a card or in cash.
 

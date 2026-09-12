@@ -689,6 +689,7 @@ tr.overdrawn td{background:var(--over-bg)}
       <a href="/cashflow">Cash flow</a>
       <a href="/costing">Job costing</a>
       <a href="/upload">Upload</a>
+      {% if me %}<span style="opacity:.8;font-weight:600;align-self:center;padding:0 4px">{{ me.name }}</span>{% endif %}
       <a href="/logout" style="opacity:.72">Sign out</a>
     </nav>
   </div>

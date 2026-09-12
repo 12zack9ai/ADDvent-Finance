@@ -411,7 +411,7 @@
                   <option value="{{ q.id }}">{{ q.description or q.sku }}{% if q.unit_price is not none %} &mdash; {{ q.unit_price | money4 }}{% endif %}</option>
                   {% endfor %}
                 </select>
-                <input type="text" name="actor" placeholder="Your name">
+                {% if not me %}<input type="text" name="actor" placeholder="Your name">{% endif %}
                 <button type="submit">Same item</button>
               </form>
             </details>
@@ -563,7 +563,7 @@
     </ul>
     {% if routing.untrusted %}
       <form method="post" action="/invoice/{{ invoice.id }}/trust" class="trust-form">
-        <input type="text" name="actor" placeholder="Your name" required style="max-width:180px">
+        {% if not me %}<input type="text" name="actor" placeholder="Your name" required style="max-width:180px">{% endif %}
         <input type="text" name="note" placeholder="How you confirmed it (who you spoke to)" required>
         <button type="submit">I confirmed this is real</button>
       </form>
@@ -583,7 +583,7 @@
         <input type="hidden" name="vendor" value="{{ invoice.vendor }}">
         <input type="hidden" name="role" value="{{ 'supplier' if vendor_role == 'sub' else 'sub' }}">
         <input type="hidden" name="next" value="/invoice/{{ invoice.id }}">
-        <input type="text" name="actor" placeholder="Your name" required style="max-width:160px">
+        {% if not me %}<input type="text" name="actor" placeholder="Your name" required style="max-width:160px">{% endif %}
         <button type="submit">Change to {{ "supplier" if vendor_role == "sub" else "subcontractor" }}</button>
       </form>
     {% else %}
@@ -591,7 +591,7 @@
       <form method="post" action="/vendor-role" class="role-choices">
         <input type="hidden" name="vendor" value="{{ invoice.vendor }}">
         <input type="hidden" name="next" value="/invoice/{{ invoice.id }}">
-        <input type="text" name="actor" placeholder="Your name" required style="max-width:160px">
+        {% if not me %}<input type="text" name="actor" placeholder="Your name" required style="max-width:160px">{% endif %}
         <button type="submit" name="role" value="sub">Subcontractor</button>
         <button type="submit" name="role" value="supplier">Supplier</button>
       </form>
@@ -644,8 +644,9 @@
 
     {% if invoice.approval_status in ("pending_review", "held") %}
       <form method="post" action="/invoice/{{ invoice.id }}/decide" class="ap-form">
-        <input type="text" name="actor" placeholder="Your name" required
-               style="max-width:180px">
+        {# Signed in, the account is the name - nobody types it. #}
+        {% if not me %}<input type="text" name="actor" placeholder="Your name" required
+               style="max-width:180px">{% endif %}
         <input type="text" name="note" placeholder="Note (optional)">
         {% if routing.can_approve %}
           <button class="btn" name="decision" value="approve" type="submit">Approve</button>
@@ -672,7 +673,7 @@
         on {{ invoice.approved_at.strftime("%d %b %Y") if invoice.approved_at else "" }}.
       </div>
       <form method="post" action="/invoice/{{ invoice.id }}/decide" class="ap-form">
-        <input type="text" name="actor" placeholder="Your name" required style="max-width:180px">
+        {% if not me %}<input type="text" name="actor" placeholder="Your name" required style="max-width:180px">{% endif %}
         <input type="text" name="note" placeholder="Why reopen? (needed to reopen)">
         <button class="btn" name="decision" value="paid" type="submit">Mark paid</button>
         <button class="btn ghost" name="decision" value="reopen" type="submit">Reopen</button>
@@ -680,7 +681,7 @@
     {% else %}
       {# Reopening puts a closed bill back into what is owed - it takes a reason. #}
       <form method="post" action="/invoice/{{ invoice.id }}/decide" class="ap-form">
-        <input type="text" name="actor" placeholder="Your name" required style="max-width:180px">
+        {% if not me %}<input type="text" name="actor" placeholder="Your name" required style="max-width:180px">{% endif %}
         <input type="text" name="note" placeholder="Why reopen it?" required>
         <button class="btn ghost" name="decision" value="reopen" type="submit">Reopen</button>
       </form>

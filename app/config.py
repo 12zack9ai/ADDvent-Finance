@@ -48,6 +48,17 @@ class Settings:
     secret_key: str = os.getenv("SECRET_KEY", "").strip()
     session_days: int = int(os.getenv("SESSION_DAYS", "14"))
 
+    # --- accounts ----------------------------------------------------------
+    # Everyone signs in as themselves. Zack, 2026-09-12: "When you first go in,
+    # you should register an account. Should be an addventuresinc.com email.
+    # That way when someone approved something it auto registers to their
+    # account." Only this domain can register, and only a confirmed address
+    # can sign in, so nobody can register as somebody else.
+    account_domain: str = os.getenv("ACCOUNT_DOMAIN", "addventuresinc.com").strip().lower().lstrip("@")
+    # Owner accounts, comma-separated. Confirming one of these is what retires
+    # the shared password. Owner-only approval waits on the owner-review amount.
+    owner_emails_raw: str = os.getenv("OWNER_EMAILS", "zmabry@addventuresinc.com")
+
     # --- sending mail ------------------------------------------------------
     # Used to ask the sender which job a document belongs to when nothing on the
     # document or in the email says. Defaults are derived from the IMAP settings,
@@ -254,6 +265,9 @@ class Settings:
     def may_email(self, address: str) -> bool:
         domain = (address or "").rsplit("@", 1)[-1].strip().lower()
         return bool(domain) and domain in self.reply_domains()
+
+    def owner_emails(self) -> set[str]:
+        return {e.strip().lower() for e in self.owner_emails_raw.split(",") if e.strip()}
 
     def can_send_mail(self) -> bool:
         host, _, user, password, sender = self.smtp_settings()

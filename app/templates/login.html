@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sign in · {{ site_name }}</title>
+<title>{% if mode == "register" %}Create your account{% elif mode in ("forgot", "reset") %}Reset your password{% elif mode == "sent" %}Check your email{% else %}Sign in{% endif %} · {{ site_name }}</title>
 <style>
   /* The first screen anyone sees, so it sets the tone - and it is used by
-     people who are not confident with software. Large field, large button,
+     people who are not confident with software. Large fields, large button,
      one thing to do. */
   *{box-sizing:border-box}
   body{
@@ -21,19 +21,20 @@
     font-size:16.5px;line-height:1.6;-webkit-font-smoothing:antialiased;
   }
   .card{
-    background:#fff;border-radius:20px;padding:38px 34px 34px;width:100%;max-width:430px;
+    background:#fff;border-radius:20px;padding:38px 34px 30px;width:100%;max-width:430px;
     box-shadow:0 30px 70px -25px rgba(0,0,0,.6),0 2px 6px rgba(0,0,0,.18);
   }
   h1{margin:0 0 6px;font-size:1.5rem;font-weight:800;letter-spacing:-.02em}
-  .sub{color:#7b8a9e;margin:0 0 26px;font-size:.98rem}
-  label{display:block;font-weight:700;font-size:.95rem;margin-bottom:8px}
+  .sub{color:#5b6b80;margin:0 0 22px;font-size:.98rem}
+  label{display:block;font-weight:700;font-size:.95rem;margin:14px 0 8px}
+  .hint{font-weight:500;color:#7b8a9e}
   input{
     width:100%;padding:14px 16px;min-height:52px;border:1.5px solid #e2e8f0;
     border-radius:12px;font:inherit;font-size:1.05rem;background:#fff;color:#0d1b2a;
   }
   input:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 4px rgba(37,99,235,.14)}
   button{
-    width:100%;margin-top:20px;min-height:54px;
+    width:100%;margin-top:22px;min-height:54px;
     background:linear-gradient(180deg,#2f6ef0,#1d4ed8);color:#fff;border:none;
     padding:15px;border-radius:999px;font-weight:800;font-size:1.05rem;cursor:pointer;
     font-family:inherit;
@@ -42,22 +43,90 @@
   }
   button:hover{filter:brightness(1.07)}
   button:active{transform:translateY(1px)}
-  .err{
-    background:#fee4e2;color:#b42318;border-left:5px solid #f04438;
-    padding:13px 15px;border-radius:10px;margin-bottom:20px;font-weight:650;font-size:.95rem;
-  }
-  .foot{margin-top:22px;text-align:center;color:#98a6ba;font-size:.85rem}
+  button:focus-visible,a:focus-visible{outline:3px solid #2563eb;outline-offset:3px}
+  .err,.ok{padding:13px 15px;border-radius:10px;margin-bottom:8px;font-weight:650;font-size:.95rem}
+  .err{background:#fee4e2;color:#b42318;border-left:5px solid #f04438}
+  .ok{background:#dcfae6;color:#067647;border-left:5px solid #17b26a}
+  .note{margin:16px 0 0;color:#5b6b80;font-size:.9rem}
+  .links{margin:20px 0 0;text-align:center;font-size:.95rem}
+  .links a{color:#1d4ed8;font-weight:700;text-decoration:none}
+  .links a:hover{text-decoration:underline}
 </style>
 </head>
 <body>
+{% if mode == "sent" %}
+  <div class="card">
+    <h1>Check your email</h1>
+    {% if reset %}
+      <p class="sub">If <strong>{{ sent_to }}</strong> has an account, a link to choose a new
+        password is on its way. It works for an hour.</p>
+    {% else %}
+      <p class="sub">We sent a link to <strong>{{ sent_to }}</strong>. Open it to confirm your
+        account. It works for two days.</p>
+    {% endif %}
+    <p class="links"><a href="/login">Back to sign in</a></p>
+  </div>
+
+{% elif mode == "register" %}
+  <form class="card" method="post" action="/register">
+    <h1>Create your account</h1>
+    <p class="sub">Use your @{{ domain }} email. Everything you approve is signed with your name.</p>
+    {% if error %}<div class="err">{{ error }}</div>{% endif %}
+    <label for="name">Your name</label>
+    <input id="name" name="name" required autocomplete="name" autofocus>
+    <label for="email">Work email</label>
+    <input id="email" name="email" type="email" required autocomplete="email" placeholder="you@{{ domain }}">
+    <label for="password">Password <span class="hint">— at least 10 characters</span></label>
+    <input id="password" name="password" type="password" required minlength="10" autocomplete="new-password">
+    <label for="confirm">Password again</label>
+    <input id="confirm" name="confirm" type="password" required minlength="10" autocomplete="new-password">
+    <button type="submit">Create account</button>
+    <p class="links"><a href="/login">I already have an account</a></p>
+  </form>
+
+{% elif mode == "forgot" %}
+  <form class="card" method="post" action="/forgot">
+    <h1>Reset your password</h1>
+    <p class="sub">We'll email you a link to choose a new one.</p>
+    {% if error %}<div class="err">{{ error }}</div>{% endif %}
+    <label for="email">Work email</label>
+    <input id="email" name="email" type="email" required autocomplete="email" placeholder="you@{{ domain }}" autofocus>
+    <button type="submit">Send me a link</button>
+    <p class="links"><a href="/login">Back to sign in</a></p>
+  </form>
+
+{% elif mode == "reset" %}
+  <form class="card" method="post" action="/reset">
+    <h1>Choose a new password</h1>
+    <p class="sub">At least 10 characters.</p>
+    {% if error %}<div class="err">{{ error }}</div>{% endif %}
+    <input type="hidden" name="t" value="{{ token }}">
+    <label for="password">New password</label>
+    <input id="password" name="password" type="password" required minlength="10" autocomplete="new-password" autofocus>
+    <label for="confirm">New password again</label>
+    <input id="confirm" name="confirm" type="password" required minlength="10" autocomplete="new-password">
+    <button type="submit">Save the new password</button>
+  </form>
+
+{% else %}
   <form class="card" method="post" action="/login">
     <h1>{{ site_name }}</h1>
     <p class="sub">Invoice checking and cash flow.</p>
     {% if error %}<div class="err">{{ error }}</div>{% endif %}
+    {% if ok %}<div class="ok">{{ ok }}</div>{% endif %}
     <input type="hidden" name="next" value="{{ next_url }}">
+    <label for="email">Work email</label>
+    <input type="email" id="email" name="email" autocomplete="username" placeholder="you@{{ domain }}"
+           {{ "" if shared else "required" }} autofocus>
     <label for="password">Password</label>
-    <input type="password" id="password" name="password" autofocus required autocomplete="current-password">
+    <input type="password" id="password" name="password" required autocomplete="current-password">
     <button type="submit">Sign in</button>
+    {% if shared %}
+      <p class="note">No account yet? Leave the email blank to use the shared office password.
+        It stops working once the owner's account is confirmed.</p>
+    {% endif %}
+    <p class="links"><a href="/register">Create your account</a> · <a href="/forgot">Forgot your password?</a></p>
   </form>
+{% endif %}
 </body>
 </html>

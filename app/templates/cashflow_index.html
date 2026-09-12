@@ -111,7 +111,7 @@
     </label>
 
     <div class="grid2">
-      <label>Your name <input name="created_by" placeholder="Who generated this"></label>
+      {% if not me %}<label>Your name <input name="created_by" placeholder="Who generated this"></label>{% endif %}
       <label>Note (optional) <input name="note" placeholder="e.g. before Friday's run"></label>
     </div>
 

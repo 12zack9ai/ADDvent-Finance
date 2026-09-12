@@ -196,10 +196,12 @@
       {% if can_send_mail and not chase_wait %}
         <form method="post" action="/job/{{ job.job_number }}/ask-for-quote"
               class="drawform" style="margin-top:16px">
+          {% if not me %}
           <label class="fld"><span>Your name
             <span class="hint" style="display:inline">— remembered for next time</span></span>
             <input type="text" name="actor" value="{{ actor_name }}"
                    autocomplete="off"></label>
+          {% endif %}
           <label class="fld">
             {# One line each: a hint broken across two source lines renders with
                a newline in the middle of the sentence. #}
@@ -351,7 +353,7 @@
       </div>
       {% if c.status == "proposed" %}
       <form method="post" action="/change-order/{{ c.id }}/decide" class="co-form">
-        <input type="text" name="actor" placeholder="Your name" required style="max-width:170px">
+        {% if not me %}<input type="text" name="actor" placeholder="Your name" required style="max-width:170px">{% endif %}
         <button class="btn" name="decision" value="approve" type="submit">Approve</button>
         <button class="btn ghost" name="decision" value="reject" type="submit">Reject</button>
       </form>
@@ -367,9 +369,11 @@
           <input type="text" name="amount" required placeholder="1200.00" autocomplete="off"></label>
         <label class="fld"><span>Number</span>
           <input type="text" name="number" placeholder="CO-1" autocomplete="off"></label>
+        {% if not me %}
         <label class="fld"><span>Approved by</span>
           <input type="text" name="approved_by" required placeholder="Your name"
                  autocomplete="off"></label>
+        {% endif %}
         <label class="fld wide"><span>What for</span>
           <input type="text" name="description" placeholder="Hidden rot on the north slope"></label>
         <div class="drawgo"><button class="btn" type="submit">Record it</button></div>
@@ -409,9 +413,11 @@
           </select></label>
         <label class="fld"><span>Packing slip</span>
           <input type="text" name="reference" placeholder="Optional" autocomplete="off"></label>
+        {% if not me %}
         <label class="fld"><span>Confirmed by</span>
           <input type="text" name="confirmed_by" required placeholder="Your name"
                  autocomplete="off"></label>
+        {% endif %}
         <div class="drawgo"><button class="btn" type="submit">Confirm</button></div>
       </form>
     </details>

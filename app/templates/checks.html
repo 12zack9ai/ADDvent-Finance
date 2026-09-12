@@ -75,7 +75,7 @@
           <td class="r" data-l="Decision" style="padding-right:20px">
             {% if w.decide_here %}
             <form method="post" action="/check/{{ w.request.id }}/decide" class="checkform">
-              <input type="text" name="actor" placeholder="Your name" required>
+              {% if not me %}<input type="text" name="actor" placeholder="Your name" required>{% endif %}
               <button class="btn sm" name="decision" value="approve" type="submit">Approve</button>
               <button class="btn ghost sm" name="decision" value="reject" type="submit">Refuse</button>
             </form>
@@ -86,7 +86,7 @@
               <form method="post" class="checkform"
                     action="{% if w.request %}/check/{{ w.request.id }}/decide{% else %}/invoice/{{ w.invoice.id }}/decide{% endif %}">
                 <input type="hidden" name="next" value="/checks">
-                <input type="text" name="actor" placeholder="Your name" required>
+                {% if not me %}<input type="text" name="actor" placeholder="Your name" required>{% endif %}
                 <button class="btn sm" name="decision" value="paid" type="submit">Check cut</button>
               </form>
             {% else %}

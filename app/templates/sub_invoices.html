@@ -159,6 +159,50 @@
       No invoices from them yet on this job.
     </div>
   {% endif %}
+
+  {# Their paperwork: contract, lien waivers, insurance, W-9. Warn-only for
+     now - Zack: "we should be uploading the contract, lien waivers, and all
+     that crap with it", and blocking a payment on it comes later. #}
+  {% set docs = papers.get((job.id, p.vendor), []) %}
+  <div style="margin-top:16px;border-top:1px solid var(--rule-lt);padding-top:12px">
+    <strong>Paperwork</strong>
+    {% if docs %}
+      <ul style="margin:8px 0 0;padding-left:18px">
+        {% for d in docs %}
+        {% set left = d.days_left(today) %}
+        <li style="margin:4px 0">
+          <a href="/paperwork/{{ d.id }}/file" target="_blank" style="font-weight:700">{{ d.label }}</a>
+          <span class="muted">· {{ d.uploaded_by or "unnamed" }}, {{ d.uploaded_at.strftime("%d %b %Y") }}{% if not d.job_id %} · all their jobs{% endif %}</span>
+          {% if left is not none and left < 0 %}<span class="chip c-over">expired {{ -left }} day{{ "" if left == -1 else "s" }} ago</span>
+          {% elif left is not none and left <= 30 %}<span class="chip c-warn">expires in {{ left }} day{{ "" if left == 1 else "s" }}</span>{% endif %}
+          {% if d.note %}<div class="muted">{{ d.note }}</div>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted" style="margin:6px 0 0">Nothing uploaded yet: contract, lien waivers, insurance certificate, W-9.</p>
+    {% endif %}
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;font-weight:700;color:var(--brand)">Upload paperwork</summary>
+      <form method="post" action="/paperwork" enctype="multipart/form-data" class="drawform" style="margin-top:10px">
+        <input type="hidden" name="vendor" value="{{ p.vendor }}">
+        <input type="hidden" name="job_number" value="{{ job.job_number }}">
+        <input type="hidden" name="next" value="/sub-invoices?job={{ job.job_number }}">
+        <label class="fld"><span>What it is</span>
+          <select name="kind">{% for value, label in paper_kinds %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></label>
+        <label class="fld"><span>For</span>
+          <select name="scope"><option value="job">This job</option><option value="all">All their jobs (W-9, insurance)</option></select></label>
+        <label class="fld"><span>Expires <span class="hint" style="display:inline">— insurance certificates</span></span>
+          <input type="date" name="expires_on"></label>
+        <label class="fld wide"><span>File</span>
+          <input type="file" name="file" required accept=".pdf,.png,.jpg,.jpeg,.heic"></label>
+        <label class="fld wide"><span>Note</span>
+          <input type="text" name="note" placeholder="Optional - e.g. conditional waiver for draw 2"></label>
+        {% if not me %}<label class="fld"><span>Your name</span><input type="text" name="actor" required></label>{% endif %}
+        <div class="drawgo"><button class="btn" type="submit">Upload</button></div>
+      </form>
+    </details>
+  </div>
 </div>
 {% endfor %}
 {% endif %}
